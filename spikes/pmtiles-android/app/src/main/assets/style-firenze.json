@@ -1,0 +1,100 @@
+{
+  "version": 8,
+  "name": "Fluid Transit — spike PMTiles",
+  "sources": {
+    "protomaps": {
+      "type": "vector",
+      "url": "pmtiles://https://pmtiles.io/protomaps(vector)ODbL_firenze.pmtiles",
+      "attribution": "© OpenStreetMap contributors · Protomaps (ODbL)"
+    }
+  },
+  "layers": [
+    {
+      "id": "sfondo",
+      "type": "background",
+      "paint": { "background-color": "#0c0a12" }
+    },
+    {
+      "id": "terra",
+      "type": "fill",
+      "source": "protomaps",
+      "source-layer": "earth",
+      "paint": { "fill-color": "#151220" }
+    },
+    {
+      "id": "uso-suolo",
+      "type": "fill",
+      "source": "protomaps",
+      "source-layer": "landuse",
+      "paint": { "fill-color": "#1a1628" }
+    },
+    {
+      "id": "verde",
+      "type": "fill",
+      "source": "protomaps",
+      "source-layer": "natural",
+      "paint": { "fill-color": "#17201c" }
+    },
+    {
+      "id": "acqua",
+      "type": "fill",
+      "source": "protomaps",
+      "source-layer": "water",
+      "paint": { "fill-color": "#0b1c30" }
+    },
+    {
+      "id": "edifici",
+      "type": "fill",
+      "source": "protomaps",
+      "source-layer": "buildings",
+      "minzoom": 12,
+      "paint": {
+        "fill-color": "#241e36",
+        "fill-outline-color": "#2e2745"
+      }
+    },
+    {
+      "id": "strade",
+      "type": "line",
+      "source": "protomaps",
+      "source-layer": "roads",
+      "layout": { "line-cap": "round", "line-join": "round" },
+      "paint": {
+        "line-color": "#3b3357",
+        "line-width": [
+          "interpolate", ["linear"], ["zoom"],
+          10, 0.4,
+          14, 1.6,
+          16, 4.0
+        ]
+      }
+    },
+    {
+      "id": "trasporto",
+      "type": "line",
+      "source": "protomaps",
+      "source-layer": "transit",
+      "layout": { "line-cap": "round" },
+      "paint": {
+        "line-color": "#9b6dd6",
+        "line-width": [
+          "interpolate", ["linear"], ["zoom"],
+          10, 0.6,
+          16, 2.4
+        ],
+        "line-opacity": 0.9
+      }
+    },
+    {
+      "id": "confini",
+      "type": "line",
+      "source": "protomaps",
+      "source-layer": "boundaries",
+      "paint": {
+        "line-color": "#4a4166",
+        "line-dasharray": [3, 2],
+        "line-width": 0.8
+      }
+    }
+  ]
+}

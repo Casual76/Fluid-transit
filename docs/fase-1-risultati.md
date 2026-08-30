@@ -199,3 +199,38 @@ sarà "risultati stranamente scarsi", non un errore. Gli identificatori di
 sezione sono già riservati.
 
 **`r2.dev`** non è stato misurato per le range request.
+
+---
+
+## Decisioni prese dopo gli spike
+
+Viste queste misure, la mappa cambia impostazione rispetto al piano originale.
+
+| | scelta |
+|---|---|
+| basemap stradale | **OpenFreeMap** — tile OSM gratuite, senza chiave, servite da terzi |
+| satellite | **ortofoto Regione Toscana** (WMS GEOscopio, `Fees none`, EPSG:3857, JPEG; la più recente è OFC 2017 a 20 cm) |
+| 3D | **edifici estrusi + inclinazione della camera**, senza terreno |
+| aspetto | **mappa normale e leggibile**; il fluid glass resta nella UI sopra la mappa |
+
+La conseguenza più grossa è che **non ospitiamo più una basemap**. L'unico PMTiles nostro
+diventa l'overlay delle geometrie delle linee, prodotto dal job notturno: ordini di
+grandezza più piccolo, e GitHub Releases lo copre senza discussioni. Il problema di
+hosting che occupava la Fase 0 si chiude qui.
+
+Restano però due conseguenze da non perdere di vista:
+
+- **la basemap dipende ora da infrastruttura altrui.** OpenFreeMap è gratuito e senza
+  limiti dichiarati, ma è finanziato a donazioni e non offre garanzie. Lo stile va tenuto
+  dietro un unico punto di configurazione così che cambiare fornitore sia una modifica di
+  stile e non di codice; la via d'uscita è costruirci le PMTiles, cioè la strada che il
+  piano seguiva prima, di cui lo spike 2 ha già validato la meccanica. Niente mappa
+  offline in v1.
+- **il satellite è l'unica funzione che fa crescere il traffico con gli utenti.** Le
+  ortofoto vengono da un server della pubblica amministrazione senza CDN e vanno dietro la
+  nostra cache, ma ogni spostamento in modalità satellite genera richieste raster contro il
+  tetto di 100k/giorno della Worker. Va trattato come modalità: non attiva di default,
+  `max-age` lungo — le ortofoto 2017 non cambiano — e spegnibile da remoto.
+
+La scoperta dello spike 2 sulle riletture di header e root directory resta valida e
+applicabile all'overlay delle linee, che è pur sempre un PMTiles.

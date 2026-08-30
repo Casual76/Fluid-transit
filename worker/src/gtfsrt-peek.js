@@ -42,6 +42,20 @@ class Reader {
     }
     throw new Error('varint troncato');
   }
+  /**
+   * Consuma un campo lunghezza-delimitato e restituisce l'inizio del suo
+   * contenuto. La lunghezza va letta in una variabile prima di spostare il
+   * cursore: `this.p += this.varint()` in JavaScript valuta `this.p` PRIMA
+   * di chiamare `varint()`, che nel frattempo lo ha gia' avanzato, e somma
+   * quindi la lunghezza all'offset vecchio. Il disallineamento e' di pochi
+   * byte e si manifesta lontano dalla causa.
+   */
+  enterLengthDelimited() {
+    const len = this.varint();
+    const start = this.p;
+    this.p = start + len;
+    return { start, len };
+  }
   /** Salta il valore del campo appena letto, qualunque sia il wire type. */
   skip(wireType) {
     switch (wireType) {
@@ -52,7 +66,7 @@ class Reader {
         this.p += 8;
         return;
       case WIRE_LEN:
-        this.p += this.varint();
+        this.enterLengthDelimited();
         return;
       case WIRE_I32:
         this.p += 4;
@@ -71,9 +85,8 @@ function readHeader(bytes, start, end) {
     const field = key >>> 3;
     const wire = key & 7;
     if (field === 1 && wire === WIRE_LEN) {
-      const len = r.varint();
-      header.version = new TextDecoder().decode(bytes.subarray(r.p, r.p + len));
-      r.p += len;
+      const { start, len } = r.enterLengthDelimited();
+      header.version = new TextDecoder().decode(bytes.subarray(start, start + len));
     } else if (field === 2 && wire === WIRE_VARINT) {
       header.incrementality = r.varint();
     } else if (field === 3 && wire === WIRE_VARINT) {
@@ -95,22 +108,24 @@ export function peekFeed(bytes) {
     let header = null;
     let entityCount = 0;
     while (!r.eof) {
+      const at = r.p;
       const key = r.varint();
       const field = key >>> 3;
       const wire = key & 7;
       if (wire !== WIRE_LEN && field <= 2) {
-        return { ok: false, error: `campo ${field} con wire type ${wire} inatteso` };
+        // L'offset serve: un disallineamento si manifesta sempre lontano
+        // dalla causa, e senza la posizione non si sa nemmeno dove guardare.
+        return { ok: false, error: `campo ${field} con wire type ${wire} inatteso a byte ${at}` };
       }
       if (field === 1) {
-        const len = r.varint();
-        header = readHeader(bytes, r.p, r.p + len);
-        r.p += len;
+        const { start, len } = r.enterLengthDelimited();
+        header = readHeader(bytes, start, start + len);
       } else if (field === 2) {
-        // Le entity non vengono aperte: se ne conta solo la lunghezza e si
-        // salta. E' l'operazione piu' economica che dimostri che il corpo e'
-        // strutturalmente coerente fino all'ultimo byte.
+        // Le entity non vengono aperte: se ne salta il contenuto. E' la
+        // verifica piu' economica che il corpo sia strutturalmente coerente
+        // fino all'ultimo byte.
         entityCount++;
-        r.p += r.varint();
+        r.enterLengthDelimited();
       } else {
         r.skip(wire);
       }

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Tema di sistema minimo. La UI e' interamente Compose, quindi qui serve
+      solo che l'Activity parta senza barra del titolo e con le barre di
+      sistema trasparenti, cosi' che la mappa arrivi davvero ai bordi.
+    -->
+    <style name="Theme.MapModes" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">#0C0A12</item>
+    </style>
+</resources>

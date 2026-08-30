@@ -1,0 +1,24 @@
+# Gradle / Android
+.gradle/
+build/
+local.properties
+*.apk
+*.aab
+captures/
+.cxx/
+
+# IDE
+.idea/
+*.iml
+.kotlin/
+
+# Node (worker)
+node_modules/
+.wrangler/
+.dev.vars
+
+# Dati di lavoro degli spike: scaricabili, mai versionati.
+# Il feed GTFS della Regione e' 129 MB zip / 584 MB estratto.
+spikes/**/work/
+*.ftb
+*.pmtiles

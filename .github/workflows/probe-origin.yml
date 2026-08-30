@@ -1,0 +1,82 @@
+name: Probe origine (runner)
+
+# Secondo punto di misura per lo spike 1, complementare al Worker.
+#
+# La domanda "l'origine blocca gli IP datacenter?" ha due risposte possibili
+# che vanno distinte: bloccare *Cloudflare* (una lista di ASN specifica) e
+# bloccare *i datacenter in generale*. Il runner GitHub esce da IP Azure: se
+# qui passa e dal Worker no, il filtro e' mirato a Cloudflare e la soluzione
+# e' spostare il cron sulla Action. Se non passa da nessuna delle due, il
+# proxy va ripensato del tutto.
+#
+# Costa qualche secondo di CI e si esegue a mano quando serve.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Feed realtime
+        run: |
+          set -u
+          UA='FluidTransit-Probe/0.1 (+https://github.com/Casual76/Fluid-transit)'
+          BASE='https://regionetoscana.smartregion.toscana.it/mobility/artifacts/gtfs-rt'
+          {
+            echo "## Probe origine da runner GitHub (IP Azure)"
+            echo ""
+            echo "IP di uscita: \`$(curl -sS --max-time 20 https://api.ipify.org || echo sconosciuto)\`"
+            echo ""
+            echo "| feed | HTTP | byte | ttfb | totale | etag | last-modified | content-encoding |"
+            echo "|---|---|---|---|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          fail=0
+          for feed in vehicle-positions trip-updates alerts; do
+            hdr="$(mktemp)"
+            stats="$(curl -sS --max-time 60 -o /dev/null -D "$hdr" \
+                      -A "$UA" -H 'Accept-Encoding: gzip, deflate, br' \
+                      -w '%{http_code} %{size_download} %{time_starttransfer} %{time_total}' \
+                      "$BASE/$feed" || echo 'ERR 0 0 0')"
+            set -- $stats
+            code="$1"; size="$2"; ttfb="$3"; total="$4"
+            etag="$(grep -i '^etag:' "$hdr" | tr -d '\r' | cut -d' ' -f2- || true)"
+            lastmod="$(grep -i '^last-modified:' "$hdr" | tr -d '\r' | cut -d' ' -f2- || true)"
+            enc="$(grep -i '^content-encoding:' "$hdr" | tr -d '\r' | cut -d' ' -f2- || true)"
+            echo "| $feed | $code | $size | ${ttfb}s | ${total}s | ${etag:-—} | ${lastmod:-—} | ${enc:-nessuna} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "$feed -> HTTP $code, $size byte"
+            [ "$code" = "200" ] || fail=1
+          done
+
+          {
+            echo ""
+            if [ "$fail" = "0" ]; then
+              echo "**Esito: l'origine risponde da IP datacenter Azure.**"
+            else
+              echo "**Esito: almeno un feed NON risponde da IP datacenter Azure.**"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$fail"
+
+      - name: Statico — supporto Range
+        run: |
+          set -u
+          UA='FluidTransit-Probe/0.1 (+https://github.com/Casual76/Fluid-transit)'
+          URL='https://regionetoscana.smartregion.toscana.it/mobility/artifacts/gtfs'
+          hdr="$(mktemp)"
+          code="$(curl -sS --max-time 60 -o /dev/null -D "$hdr" -A "$UA" \
+                    -H 'Range: bytes=0-1023' -w '%{http_code}' "$URL")"
+          {
+            echo ""
+            echo "### Statico GTFS"
+            echo ""
+            echo "\`Range: bytes=0-1023\` -> HTTP **$code** ($([ "$code" = "206" ] && echo 'Range supportato' || echo 'Range ignorato: i download ripartono da zero'))"
+            echo ""
+            echo '```'
+            tr -d '\r' < "$hdr"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,49 @@
+name: Deploy Worker
+
+# Fase 1 / spike 1. Il deploy passa da qui e non dalla macchina di sviluppo
+# per un motivo pratico: in locale non c'e' Node, quindi non c'e' wrangler.
+# Passare dalla Action ha anche il vantaggio di essere l'unico percorso di
+# pubblicazione, riproducibile, con le credenziali gia' nei secret del repo.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'worker/**'
+      - '.github/workflows/deploy-worker.yml'
+
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        # Il submodule engine/ non serve al Worker e non e' ancora committato.
+        with:
+          submodules: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Installa wrangler
+        run: npm install --no-save wrangler@4
+
+      - name: Deploy
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy
+
+      - name: URL pubblicato
+        run: |
+          echo "### Worker pubblicato" >> "$GITHUB_STEP_SUMMARY"
+          echo '`https://fluid-transit-probe.fluid-transit.workers.dev`' >> "$GITHUB_STEP_SUMMARY"

@@ -40,3 +40,16 @@ jobs:
             -H "Content-Type: application/json" \
             --data '[{"cron": "* * * * *"}]'
           echo
+
+      - name: Invocazioni dell'ultima ora e mezza (GraphQL)
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          SINCE=$(date -u -d '95 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
+          UNTIL=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          curl -sS https://api.cloudflare.com/client/v4/graphql \
+            -H "Authorization: Bearer $CF_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data "{\"query\":\"query { viewer { accounts(filter: {accountTag: \\\"$CF_ACCOUNT\\\"}) { workersInvocationsAdaptive(filter: {scriptName: \\\"fluid-transit-rt\\\", datetime_geq: \\\"$SINCE\\\", datetime_leq: \\\"$UNTIL\\\"}, limit: 100) { sum { requests errors } dimensions { status } } } } }\"}"
+          echo

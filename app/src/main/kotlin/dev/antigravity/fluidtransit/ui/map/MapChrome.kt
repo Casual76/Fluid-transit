@@ -1,5 +1,6 @@
 package dev.antigravity.fluidtransit.ui.map
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.DirectionsBus
 import androidx.compose.material.icons.rounded.Landscape
 import androidx.compose.material.icons.rounded.LocationCity
@@ -20,6 +22,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -163,3 +168,61 @@ fun MapCornerButton(
     }
 }
 
+
+/**
+ * La capsula del live degradato: compare SOLO quando i bus vivi mancano
+ * davvero (deciso: silenzio finche' funziona). Un tocco la espande con la
+ * spiegazione; i tecnicismi restano in Stato dei dati.
+ */
+@Composable
+fun LiveDownCapsule(
+    backdrop: GlassBackdropState,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+    androidx.compose.foundation.layout.Column(
+        modifier = modifier
+            .glassSurface(
+                state = backdrop,
+                tint = GlassDefaults.floatingTint(),
+                shape = dev.antigravity.fluidengine.ui.fluid.ContinuousCornerShape(
+                    dev.antigravity.fluidengine.ui.fluid.FluidRadius.Card,
+                ),
+                edge = GlassEdge.None,
+            )
+            .clickable(
+                interactionSource = remember2(),
+                indication = null,
+                role = Role.Button,
+                onClick = { expanded = !expanded },
+            )
+            .animateContentSize()
+            .padding(horizontal = 14.dp, vertical = 9.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Rounded.CloudOff,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "Bus live non disponibili",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        if (expanded) {
+            Text(
+                text = "Le posizioni non stanno arrivando: per ora valgono gli " +
+                    "orari programmati. Dettagli in Impostazioni → Stato dei dati.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+    }
+}

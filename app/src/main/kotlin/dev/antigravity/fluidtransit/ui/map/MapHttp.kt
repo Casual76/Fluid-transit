@@ -27,6 +27,19 @@ import okhttp3.ResponseBody.Companion.toResponseBody
  *     lettura scarica i primi 16 KB una volta e ogni richiesta successiva
  *     dentro quel prefisso riceve una 206 locale.
  */
+/**
+ * I contatori dell'intercettore PMTiles: la misura prima/dopo promessa in
+ * Fase 1 (40 richieste su 64 erano riletture degli stessi 525 byte). Si
+ * leggono in Stato dei dati; azzerati a ogni avvio, contano la sessione.
+ */
+object MapNetworkStats {
+    /** Richieste Range dentro la testa di un .pmtiles (quelle che MapLibre ripete). */
+    val pmtilesHeadRequests = java.util.concurrent.atomic.AtomicLong()
+
+    /** Quante di quelle hanno davvero raggiunto la rete: una per URL. */
+    val pmtilesHeadDownloads = java.util.concurrent.atomic.AtomicLong()
+}
+
 object MapHttp {
 
     private const val ORTHO_MAX_AGE = 30 * 24 * 3600
@@ -72,7 +85,9 @@ object MapHttp {
         val to = match.groupValues[2].toLong()
         if (to >= HEAD_BYTES) return@Interceptor chain.proceed(request)
 
+        MapNetworkStats.pmtilesHeadRequests.incrementAndGet()
         val head = synchronized(heads) { heads[url] } ?: run {
+            MapNetworkStats.pmtilesHeadDownloads.incrementAndGet()
             val fetched = chain.proceed(
                 request.newBuilder()
                     .header("Range", "bytes=0-${HEAD_BYTES - 1}")

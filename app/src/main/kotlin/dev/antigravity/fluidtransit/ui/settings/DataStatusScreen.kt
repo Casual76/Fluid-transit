@@ -79,11 +79,58 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
 
         item { FluidSectionTitle(eyebrow = "Tempo reale", title = "I bus vivi") }
         item {
+            val rtStatus by app.realtime.status.collectAsStateWithLifecycle()
+            val resolvedPct by app.realtime.resolvedPercent.collectAsStateWithLifecycle()
             FluidListGroup {
                 FluidListRow(
-                    title = "Posizioni dei bus",
-                    subtitle = "Arrivano con la Fase 4: eta' del dato, corse riconosciute e stato del collegamento compariranno qui",
-                    meta = "presto",
+                    title = "Collegamento",
+                    subtitle = when (rtStatus.source) {
+                        dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.PROXY ->
+                            "Dal nostro proxy: la strada normale"
+                        dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.DIRECT ->
+                            "Direttamente dalla Regione: il proxy non rispondeva"
+                        dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.SCHEDULE_ONLY ->
+                            "Niente dati live: valgono gli orari programmati"
+                    } + (rtStatus.lastError?.let { " · ultimo errore: $it" } ?: ""),
+                    meta = when (rtStatus.source) {
+                        dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.PROXY -> "proxy"
+                        dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.DIRECT -> "diretto"
+                        dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.SCHEDULE_ONLY -> "orari"
+                    },
+                )
+                FluidListRow(
+                    title = "Eta' del dato",
+                    subtitle = "Quanto e' vecchia l'ultima posizione, rispetto all'origine. " +
+                        "L'origine si rigenera ogni ~2 minuti: sotto i 300 s e' normale",
+                    meta = rtStatus.feedAgeSeconds?.let { "${it}s" } ?: "—",
+                )
+                FluidListRow(
+                    title = "Veicoli e ritardi",
+                    subtitle = "Quanti bus vivi e quante corse con un ritardo dichiarato " +
+                        "nell'ultimo aggiornamento. Si scaricano solo con la mappa aperta",
+                    meta = "${rtStatus.vehicleCount} · ${rtStatus.delayCount}",
+                )
+                FluidListRow(
+                    title = "Corse riconosciute",
+                    subtitle = "Quanti bus del feed live combaciano con gli orari del bundle. " +
+                        "Le due generazioni di dati non sono mai sincronizzate del tutto",
+                    meta = resolvedPct?.let { "$it%" } ?: "—",
+                )
+            }
+        }
+
+        item { FluidSectionTitle(eyebrow = "Rete", title = "La mappa") }
+        item {
+            FluidListGroup {
+                val asked = dev.antigravity.fluidtransit.ui.map.MapNetworkStats
+                    .pmtilesHeadRequests.get()
+                val fetched = dev.antigravity.fluidtransit.ui.map.MapNetworkStats
+                    .pmtilesHeadDownloads.get()
+                FluidListRow(
+                    title = "Riletture PMTiles evitate",
+                    subtitle = "MapLibre rilegge la testa dell'archivio delle tratte a ogni " +
+                        "tile; da questa sessione le serviamo noi dalla memoria",
+                    meta = if (asked > 0) "${asked - fetched} su $asked" else "—",
                 )
             }
         }

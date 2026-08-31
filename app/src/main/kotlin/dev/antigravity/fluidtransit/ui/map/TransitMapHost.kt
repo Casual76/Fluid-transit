@@ -36,6 +36,9 @@ enum class FollowMode { FREE, FOLLOW, COMPASS }
 
 class StopTap(val idHashHex: String, val name: String)
 
+/** Il tocco su un bus vivo: le chiavi bastano a risalire a corsa e linea. */
+class BusTap(val vehKey: Int, val tripHashHex: String, val routeHashHex: String)
+
 /**
  * Il ponte fra Compose e MapLibre: la vista si crea una volta, il controller
  * riceve i cambi di stato (modalita', filtro, follow) e li applica alla
@@ -51,8 +54,11 @@ class TransitMapController(private val context: Context) {
     private var darkTheme = false
     private var locationEnabled = false
     var onStopTap: ((StopTap) -> Unit)? = null
+    var onBusTap: ((BusTap) -> Unit)? = null
     var onEmptyTap: (() -> Unit)? = null
     var onGesture: (() -> Unit)? = null
+
+    private val busOverlay = BusOverlay()
 
     /** A camera ferma: lat, lon, zoom, bearing, tilt. Per sopravvivere alla rotazione. */
     var onCameraIdle: ((DoubleArray) -> Unit)? = null
@@ -132,6 +138,22 @@ class TransitMapController(private val context: Context) {
             val box = android.graphics.RectF(
                 screen.x - pad, screen.y - pad, screen.x + pad, screen.y + pad,
             )
+            // I bus hanno la precedenza sulle fermate: sono sopra, si
+            // muovono, e il dito cerca loro.
+            val busHit = m.queryRenderedFeatures(box, MapCatalog.LAYER_BUS).firstOrNull()
+            if (busHit != null) {
+                val vk = busHit.getNumberProperty("vk")?.toInt()
+                if (vk != null) {
+                    onBusTap?.invoke(
+                        BusTap(
+                            vehKey = vk,
+                            tripHashHex = busHit.getStringProperty("th") ?: "0",
+                            routeHashHex = busHit.getStringProperty("rh") ?: "0",
+                        ),
+                    )
+                    return@addOnMapClickListener true
+                }
+            }
             val hits = m.queryRenderedFeatures(
                 box,
                 MapCatalog.LAYER_FERMATE,
@@ -174,6 +196,7 @@ class TransitMapController(private val context: Context) {
                 hideBasemapTransitPois(style)
                 enableBuildings3d(style, mode)
                 addOverlay(style)
+                ensureBusLayer(style)
                 applyFilter(style)
                 enableLocationIfAllowed(style)
                 applyFollow(follow)
@@ -183,6 +206,7 @@ class TransitMapController(private val context: Context) {
                 // L'overlay puo' arrivare dopo lo stile (l'indice si scarica
                 // in sottofondo): l'aggiunta e' idempotente.
                 addOverlay(style)
+                ensureBusLayer(style)
                 applyFilter(style)
                 applyRouteMode(style)
                 enableLocationIfAllowed(style)
@@ -427,6 +451,110 @@ class TransitMapController(private val context: Context) {
         }
         (style.getLayer(MapCatalog.LAYER_FERMATE) as? CircleLayer)?.setFilter(stopExpr)
         (style.getLayer(MapCatalog.LAYER_FERMATE_NOMI) as? SymbolLayer)?.setFilter(stopExpr)
+        applyBusFilter(style)
+    }
+
+    // ------------------------------------------------------------- bus vivi
+
+    private fun ensureBusLayer(style: Style) {
+        if (style.getSource(MapCatalog.BUS_SOURCE) != null) return
+        style.addSource(org.maplibre.android.style.sources.GeoJsonSource(MapCatalog.BUS_SOURCE))
+        val layer = SymbolLayer(MapCatalog.LAYER_BUS, MapCatalog.BUS_SOURCE).apply {
+            minZoom = MapCatalog.BUS_MIN_ZOOM
+            setProperties(
+                // L'icona e' "bus-<forma>-<colore>": freccia se il feed da'
+                // la direzione, pallino altrimenti, sempre del colore della
+                // linea. Le bitmap si registrano al volo in BusIcons.
+                PropertyFactory.iconImage(
+                    Expression.concat(
+                        Expression.literal("bus-"),
+                        Expression.get("sh"),
+                        Expression.literal("-"),
+                        Expression.get("ci"),
+                    ),
+                ),
+                PropertyFactory.iconRotate(Expression.toNumber(Expression.get("b"))),
+                PropertyFactory.iconRotationAlignment("map"),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconSize(
+                    Expression.product(
+                        Expression.interpolate(
+                            Expression.linear(), Expression.zoom(),
+                            Expression.stop(MapCatalog.BUS_MIN_ZOOM, 0.6f),
+                            Expression.stop(13f, 0.85f),
+                            Expression.stop(16f, 1.05f),
+                        ),
+                        Expression.switchCase(
+                            Expression.toBool(Expression.get("sel")),
+                            Expression.literal(1.35f),
+                            Expression.literal(1f),
+                        ),
+                    ),
+                ),
+                // Sfumano dentro come le tratte: niente pop-in.
+                PropertyFactory.iconOpacity(
+                    Expression.interpolate(
+                        Expression.linear(), Expression.zoom(),
+                        Expression.stop(MapCatalog.BUS_MIN_ZOOM, 0f),
+                        Expression.stop(MapCatalog.BUS_MIN_ZOOM + 0.8f, 1f),
+                    ),
+                ),
+            )
+        }
+        // In cima a tutto: i bus sono l'elemento vivo della mappa.
+        style.addLayer(layer)
+        applyBusFilter(style)
+        pushBusFeatures(style)
+    }
+
+    private fun applyBusFilter(style: Style) {
+        val layer = style.getLayer(MapCatalog.LAYER_BUS) as? SymbolLayer ?: return
+        val rh = highlightedRoute
+        val expr = when {
+            // In modalita' linea si vedono solo i bus DELLA linea.
+            rh != null -> Expression.eq(Expression.get("rh"), Expression.literal(rh))
+            filter == CategoryFilter.URBAN ->
+                Expression.eq(Expression.get("cat"), Expression.literal("u"))
+            filter == CategoryFilter.EXTRA ->
+                Expression.eq(Expression.get("cat"), Expression.literal("e"))
+            else -> Expression.literal(true)
+        }
+        layer.setFilter(expr)
+    }
+
+    /** Il nuovo snapshot risolto: ogni bus riparte da dov'e' verso la nuova meta. */
+    fun setBuses(list: List<BusRender>) {
+        busOverlay.setTargets(list, android.os.SystemClock.elapsedRealtime())
+        map?.getStyle { pushBusFeatures(it) }
+    }
+
+    fun setSelectedBus(vehKey: Int?) {
+        busOverlay.selectedKey = vehKey
+        map?.getStyle { pushBusFeatures(it) }
+    }
+
+    /** Un fotogramma del glide. La UI lo chiama a ~8 Hz solo quando i bus si vedono. */
+    fun tickBuses() {
+        val m = map ?: return
+        if (busOverlay.isEmpty) return
+        if (m.cameraPosition.zoom < MapCatalog.BUS_MIN_ZOOM - 0.5) return
+        val style = m.style ?: return
+        pushBusFeatures(style)
+    }
+
+    private fun pushBusFeatures(style: Style) {
+        if (!style.isFullyLoaded) return
+        val source = style
+            .getSourceAs<org.maplibre.android.style.sources.GeoJsonSource>(MapCatalog.BUS_SOURCE)
+            ?: return
+        source.setGeoJson(
+            busOverlay.features(
+                android.os.SystemClock.elapsedRealtime(),
+                style,
+                context.resources.displayMetrics.density,
+            ),
+        )
     }
 
     @SuppressLint("MissingPermission") // il chiamante passa locationEnabled solo col permesso
@@ -545,6 +673,7 @@ class TransitMapController(private val context: Context) {
         } ?: Expression.literal(false)
         (style.getLayer(MapCatalog.LAYER_FERMATE_LINEA) as? CircleLayer)?.setFilter(stopFilter)
         (style.getLayer(MapCatalog.LAYER_FERMATE_LINEA_NOMI) as? SymbolLayer)?.setFilter(stopFilter)
+        applyBusFilter(style)
     }
 }
 

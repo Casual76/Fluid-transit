@@ -168,6 +168,15 @@ object MapCatalog {
     const val LAYER_FERMATE_LINEA = "ft-fermate-linea"
     const val LAYER_FERMATE_LINEA_NOMI = "ft-fermate-linea-nomi"
 
+    // --- i bus vivi (Fase 4) -----------------------------------------------
+
+    /** Sorgente GeoJSON aggiornata dal tick di interpolazione. */
+    const val BUS_SOURCE = "ft-bus"
+    const val LAYER_BUS = "ft-bus-layer"
+
+    /** Deciso: i bus compaiono insieme alle tratte extraurbane. */
+    const val BUS_MIN_ZOOM = 10.2f
+
     /**
      * Gli stadi di zoom decisi: niente sotto, e le tratte extraurbane —
      * lunghe, da guardare da lontano — compaiono prima delle urbane.

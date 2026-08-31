@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.DirectionsBus
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -81,8 +82,14 @@ fun StopPanelContent(
     fallbackName: String,
     onDismiss: () -> Unit,
     onRouteTap: (routeIndex: Int) -> Unit,
+    backdrop: dev.antigravity.fluidengine.ui.fluid.GlassBackdropState,
+    liveDelays: Map<Int, Int> = emptyMap(),
+    canceledTrips: Set<Int> = emptySet(),
+    liveVehicleTrips: Set<Int> = emptySet(),
+    onFlyToBus: (tripIndex: Int) -> Unit = {},
 ) {
     class DepartureRow(
+        val tripIndex: Int,
         val routeIndex: Int,
         val line: String,
         val colorRgb: Int,
@@ -106,6 +113,7 @@ fun StopPanelContent(
                 rows = departures.map { d ->
                     val local = ZonedDateTime.ofInstant(d.instant, Ftb.ROME)
                     DepartureRow(
+                        tripIndex = d.tripIndex,
                         routeIndex = d.routeIndex,
                         line = reader.routeShortName(d.routeIndex)
                             .ifEmpty { reader.routeLongName(d.routeIndex) },
@@ -207,25 +215,79 @@ fun StopPanelContent(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = if (row.inMinutes < 60) "${row.inMinutes} min" else row.time,
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            if (row.inMinutes < 60) {
-                                Text(
-                                    text = row.time,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        val delay = liveDelays[row.tripIndex]
+                        val canceled = row.tripIndex in canceledTrips
+                        if (row.tripIndex in liveVehicleTrips && !canceled) {
+                            // Il tasto del prossimo bus live — in vetro,
+                            // vetro su vetro, come da regola: vola sul bus
+                            // di QUESTA corsa e apre la sua scheda.
+                            dev.antigravity.fluidengine.ui.fluid.FluidGlassIconButton(
+                                onClick = { onFlyToBus(row.tripIndex) },
+                                backdrop = backdrop,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.DirectionsBus,
+                                    contentDescription = "Vola sul bus della ${row.line}",
+                                    tint = liveGreen(),
+                                    modifier = Modifier.size(18.dp),
                                 )
+                            }
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            when {
+                                canceled -> Text(
+                                    text = "Cancellata",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+
+                                delay != null -> {
+                                    // I minuti veri: verde col pallino, il
+                                    // programmato resta sotto in piccolo.
+                                    val liveMin = (row.inMinutes + delay / 60).coerceAtLeast(0)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                    ) {
+                                        LiveDot(liveGreen())
+                                        Text(
+                                            text = if (liveMin < 60) "$liveMin min" else row.time,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = liveGreen(),
+                                        )
+                                    }
+                                    Text(
+                                        text = row.time,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+
+                                else -> {
+                                    Text(
+                                        text = if (row.inMinutes < 60) "${row.inMinutes} min" else row.time,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    if (row.inMinutes < 60) {
+                                        Text(
+                                            text = row.time,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
             Text(
-                text = "Orari programmati: i minuti veri arrivano col tempo reale.",
+                text = if (current.rows.any { liveDelays.containsKey(it.tripIndex) }) {
+                    "I minuti in verde sono stime live dal bus; gli altri sono orari programmati."
+                } else {
+                    "Orari programmati: i minuti veri arrivano quando il bus e' in viaggio."
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),

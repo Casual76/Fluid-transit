@@ -50,6 +50,16 @@ class FluidTransitApp : Application() {
 
     val bundleManager by lazy { BundleManager(this, applicationScope) }
 
+    /**
+     * Il client realtime a tre stati. Il kill switch remoto del proxy passa
+     * dal manifest dell'engine: spento = si va diretti all'origine.
+     */
+    val realtime by lazy {
+        dev.antigravity.fluidtransit.data.rt.RealtimeClient(
+            proxyAllowed = { remoteConfig.current().isEnabled(Flags.RtProxy) },
+        )
+    }
+
     override fun onCreate() {
         super.onCreate()
         // Le due trappole di MapLibre trovate in Fase 1, nell'ordine giusto:

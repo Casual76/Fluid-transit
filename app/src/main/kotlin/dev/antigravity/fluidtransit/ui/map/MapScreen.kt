@@ -43,6 +43,7 @@ import java.time.Instant
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import dev.antigravity.fluidengine.ui.fluid.FluidTabBarDefaults
 import dev.antigravity.fluidengine.ui.fluid.GlassBackdropState
 import dev.antigravity.fluidengine.ui.fluid.glassBackdropSource
@@ -63,6 +64,8 @@ private sealed interface Panel {
     class Stop(val tap: StopTap) : Panel
     class RouteMini(val routeIndex: Int) : Panel
     class RouteFull(val routeIndex: Int) : Panel
+    class TripMini(val ref: TripRef) : Panel
+    class TripFull(val ref: TripRef) : Panel
 }
 
 @Composable
@@ -88,9 +91,16 @@ fun MapScreen(
     var panel by remember { mutableStateOf<Panel?>(null) }
     var routeDirection by remember { mutableStateOf(0) }
 
-    // La modalita' linea prende il posto della tab bar: la shell lo sa da qui.
+    // Lo zoom corrente (a camera ferma): decide se i bus vivi si scaricano.
+    var cameraZoom by remember { mutableStateOf(MapCatalog.HOME_ZOOM) }
+
+    // La modalita' linea (e la scheda corsa, che vive nello stesso posto)
+    // prende il posto della tab bar: la shell lo sa da qui.
     LaunchedEffect(panel) {
-        onTabBarHidden(panel is Panel.RouteMini || panel is Panel.RouteFull)
+        onTabBarHidden(
+            panel is Panel.RouteMini || panel is Panel.RouteFull ||
+                panel is Panel.TripMini || panel is Panel.TripFull,
+        )
     }
 
     var locationGranted by remember {
@@ -132,12 +142,14 @@ fun MapScreen(
 
     fun exitRouteMode() {
         controller.exitRouteMode()
+        controller.setSelectedBus(null)
         panel = null
     }
 
     controller.onStopTap = { tap ->
         // Aprire una fermata chiude la modalita' linea: il pannello torna scheda fermata.
         controller.exitRouteMode()
+        controller.setSelectedBus(null)
         panel = Panel.Stop(tap)
     }
     controller.onEmptyTap = {
@@ -183,6 +195,75 @@ fun MapScreen(
         }
     }
 
+    // --- il tempo reale ---------------------------------------------------
+    val rt = app.realtime
+    val rtVehicles by rt.vehicles.collectAsStateWithLifecycle()
+    val rtDelays by rt.delays.collectAsStateWithLifecycle()
+    val rtStatus by rt.status.collectAsStateWithLifecycle()
+
+    // Lo snapshot risolto contro il bundle: hash → indici → colori. Fuori
+    // dal main, a ogni poll.
+    val resolved by produceState<ResolvedRt?>(
+        initialValue = null,
+        rtVehicles, rtDelays, ready?.buildId,
+    ) {
+        val reader = ready?.reader
+        val v = rtVehicles
+        if (reader == null || v == null) {
+            value = null
+            return@produceState
+        }
+        value = withContext(Dispatchers.Default) { resolveRt(reader, v, rtDelays) }
+        value?.resolvedPercent?.let { rt.resolvedPercent.value = it }
+    }
+
+    // Il tocco su un bus: modalita' linea + scheda corsa, come deciso. La
+    // tratta si accende, la mappa si pulisce, il bus resta evidenziato.
+    fun showTrip(ref: TripRef, focus: Pair<Double, Double>?) {
+        val reader = ready?.reader ?: return
+        follow = FollowMode.FREE
+        panel = Panel.TripMini(ref)
+        controller.setSelectedBus(ref.vehKey)
+        if (ref.routeIndex >= 0) {
+            scope.launch(Dispatchers.Default) {
+                val hashes = LinkedHashSet<String>()
+                for (p in reader.patternsOfRoute(ref.routeIndex)) {
+                    val n = reader.patternStopCount(p)
+                    for (i in 0 until n) {
+                        hashes.add(java.lang.Long.toHexString(reader.stopIdHash(reader.patternStop(p, i))))
+                    }
+                }
+                val rh = java.lang.Long.toHexString(reader.routeIdHash(ref.routeIndex))
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    controller.enterRouteMode(rh, hashes.toTypedArray())
+                    focus?.let { (la, lo) -> controller.flyTo(la, lo, maxOf(14.0, cameraZoom)) }
+                }
+            }
+        } else {
+            // Linea sconosciuta al bundle: niente da accendere, ma la
+            // posizione live e la scheda minima ci sono lo stesso.
+            controller.exitRouteMode()
+            focus?.let { (la, lo) -> controller.flyTo(la, lo, maxOf(14.0, cameraZoom)) }
+        }
+    }
+
+    controller.onBusTap = { tap ->
+        val meta = resolved?.busMetaByKey?.get(tap.vehKey)
+        val ref = if (meta != null) {
+            TripRef(meta.vehKey, meta.tripHash, meta.routeHash, meta.tripIndex, meta.routeIndex)
+        } else {
+            TripRef(
+                vehKey = tap.vehKey,
+                tripHash = tap.tripHashHex.toULongOrNull(16)?.toLong() ?: 0L,
+                routeHash = tap.routeHashHex.toULongOrNull(16)?.toLong() ?: 0L,
+                tripIndex = -1,
+                routeIndex = -1,
+            )
+        }
+        // Niente volo: il bus e' gia' sotto il dito.
+        showTrip(ref, focus = null)
+    }
+
     // I dati della scheda linea, calcolati quando serve.
     val currentRouteIndex = when (val p = panel) {
         is Panel.RouteMini -> p.routeIndex
@@ -197,6 +278,80 @@ fun MapScreen(
             return@produceState
         }
         value = withContext(Dispatchers.Default) { RouteInfo.build(reader, idx, Instant.now()) }
+    }
+
+    // I dati della scheda corsa: si ricalcolano anche quando arriva un
+    // ritardo nuovo, cosi' i minuti delle fermate restano veri.
+    val currentTripRef = when (val p = panel) {
+        is Panel.TripMini -> p.ref
+        is Panel.TripFull -> p.ref
+        else -> null
+    }
+    val tripInfo by produceState<TripInfo?>(
+        initialValue = null,
+        currentTripRef, rtDelays, ready?.buildId,
+    ) {
+        val reader = ready?.reader
+        val ref = currentTripRef
+        if (reader == null || ref == null) {
+            value = null
+            return@produceState
+        }
+        val d = rtDelays?.byTripHash?.get(ref.tripHash)
+        value = withContext(Dispatchers.Default) {
+            TripInfo.build(
+                reader = reader,
+                ref = ref,
+                now = Instant.now(),
+                delaySec = d?.takeIf { !it.noData }?.delaySec,
+                canceled = d?.canceled == true,
+            )
+        }
+    }
+
+    // --- i cicli del realtime: vivono col ciclo di vita della schermata ----
+    // Bus: solo quando lo zoom li rende visibili (o una scheda corsa e'
+    // aperta). Il ritmo lo decide lo stato del client: 30 s dal proxy,
+    // 3 min in diretta. Il tick a ~8 Hz fa scivolare i marker.
+    val vehiclesActive = ready != null &&
+        (
+            cameraZoom >= MapCatalog.BUS_MIN_ZOOM - 0.6 ||
+                panel is Panel.TripMini || panel is Panel.TripFull
+            )
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    LaunchedEffect(vehiclesActive) {
+        if (!vehiclesActive) return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            launch {
+                while (true) {
+                    rt.refreshVehicles()
+                    kotlinx.coroutines.delay(rt.vehiclesIntervalMs())
+                }
+            }
+            launch {
+                while (true) {
+                    controller.tickBuses()
+                    kotlinx.coroutines.delay(120)
+                }
+            }
+        }
+    }
+
+    // Ritardi: solo con un pannello aperto — sono i pannelli a mostrarli.
+    val delaysActive = ready != null && panel != null
+    LaunchedEffect(delaysActive) {
+        if (!delaysActive) return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            while (true) {
+                rt.refreshDelays()
+                kotlinx.coroutines.delay(30_000)
+            }
+        }
+    }
+
+    // Ogni snapshot risolto scende nella mappa: da li' parte il glide.
+    LaunchedEffect(resolved) {
+        controller.setBuses(resolved?.buses ?: emptyList())
     }
 
     // Le ricerche recenti e i suggerimenti del pannello.
@@ -286,7 +441,10 @@ fun MapScreen(
         // La mappa e' la sorgente del vetro: tutto il chrome la rifrange.
         // La camera sopravvive a rotazione e ritorno dall'ultima schermata.
         val savedCamera = rememberSaveable { mutableStateOf<DoubleArray?>(null) }
-        controller.onCameraIdle = { savedCamera.value = it }
+        controller.onCameraIdle = {
+            savedCamera.value = it
+            cameraZoom = it[2]
+        }
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -383,6 +541,23 @@ fun MapScreen(
                     )
                 }
             }
+
+            // Il live degradato: silenzio finche' funziona, capsula discreta
+            // quando i bus vivi mancano davvero — come deciso.
+            val liveDegraded = vehiclesActive && !searchOpen && (
+                rtStatus.source == dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.SCHEDULE_ONLY ||
+                    (rtStatus.feedAgeSeconds ?: 0) >
+                    dev.antigravity.fluidtransit.data.rt.RealtimeClient.STALE_SECONDS
+                )
+            androidx.compose.animation.AnimatedVisibility(visible = liveDegraded) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Spacer(Modifier.height(10.dp))
+                    LiveDownCapsule(backdrop = backdrop)
+                }
+            }
         }
 
         // --- angoli bassi: livelli a sinistra, posizione a destra --------
@@ -449,7 +624,8 @@ fun MapScreen(
         // Il passaggio fra i tre e' un morphing della stessa superficie di
         // vetro; in modalita' linea il pannello prende il posto della tab bar.
         val reader = ready?.reader
-        val inRoutePanel = panel is Panel.RouteMini || panel is Panel.RouteFull
+        val inRoutePanel = panel is Panel.RouteMini || panel is Panel.RouteFull ||
+            panel is Panel.TripMini || panel is Panel.TripFull
         // In modalita' linea il pannello siede ESATTAMENTE dove sedeva la
         // tab bar: stessi margini, e il mini anche la stessa altezza — cosi'
         // il rimbalzo del congedo si legge come la capsula che ritorna.
@@ -476,32 +652,35 @@ fun MapScreen(
                 BackHandler {
                     when (p) {
                         is Panel.RouteFull -> panel = Panel.RouteMini(p.routeIndex)
+                        is Panel.TripFull -> panel = Panel.TripMini(p.ref)
                         else -> exitRouteMode()
                     }
                 }
+                val isMini = p is Panel.RouteMini || p is Panel.TripMini
                 BottomGlassPanel(
                     backdrop = backdrop,
-                    shape = if (p is Panel.RouteMini) {
+                    shape = if (isMini) {
                         dev.antigravity.fluidengine.ui.fluid.FluidCapsuleShape
                     } else {
                         dev.antigravity.fluidengine.ui.fluid.ContinuousCornerShape(
                             dev.antigravity.fluidengine.ui.fluid.FluidRadius.Sheet,
                         )
                     },
-                    wholeSurfaceDrag = p is Panel.RouteMini,
-                    showGrabber = p !is Panel.RouteMini,
+                    wholeSurfaceDrag = isMini,
+                    showGrabber = !isMini,
                     // L'esteso si RIDUCE nel mini e il mini TORNA tab bar:
                     // rimbalzo sul posto piu' trasformazione, mai lo
                     // scivola-via-e-riappari segnalato come "roba strana".
                     transformOnDismiss = p !is Panel.Stop,
-                    onDragExpand = if (p is Panel.RouteMini) {
-                        { panel = Panel.RouteFull(p.routeIndex) }
-                    } else {
-                        null
+                    onDragExpand = when (p) {
+                        is Panel.RouteMini -> ({ panel = Panel.RouteFull(p.routeIndex) })
+                        is Panel.TripMini -> ({ panel = Panel.TripFull(p.ref) })
+                        else -> null
                     },
                     onDragDismiss = {
                         when (p) {
                             is Panel.RouteFull -> panel = Panel.RouteMini(p.routeIndex)
+                            is Panel.TripFull -> panel = Panel.TripMini(p.ref)
                             else -> exitRouteMode()
                         }
                     },
@@ -520,6 +699,8 @@ fun MapScreen(
                                 is Panel.Stop -> "stop-${state.tap.idHashHex}"
                                 is Panel.RouteMini -> "mini-${state.routeIndex}"
                                 is Panel.RouteFull -> "full-${state.routeIndex}"
+                                is Panel.TripMini -> "tmini-${state.ref.vehKey}"
+                                is Panel.TripFull -> "tfull-${state.ref.vehKey}"
                             }
                         },
                         label = "panelContent",
@@ -532,6 +713,23 @@ fun MapScreen(
                                     fallbackName = state.tap.name,
                                     onDismiss = { panel = null },
                                     onRouteTap = ::showRoute,
+                                    backdrop = backdrop,
+                                    liveDelays = resolved?.delayByTrip ?: emptyMap(),
+                                    canceledTrips = resolved?.canceledTrips ?: emptySet(),
+                                    liveVehicleTrips = resolved?.vehicleByTrip?.keys ?: emptySet(),
+                                    onFlyToBus = { tripIdx ->
+                                        val meta = resolved?.vehicleByTrip?.get(tripIdx)
+                                            ?.let { vk -> resolved?.busMetaByKey?.get(vk) }
+                                        if (meta != null) {
+                                            showTrip(
+                                                TripRef(
+                                                    meta.vehKey, meta.tripHash, meta.routeHash,
+                                                    meta.tripIndex, meta.routeIndex,
+                                                ),
+                                                focus = meta.lat to meta.lon,
+                                            )
+                                        }
+                                    },
                                 )
                             }
 
@@ -561,6 +759,38 @@ fun MapScreen(
                                             controller.flyTo(stopRef.lat, stopRef.lon, 16.2)
                                             panel = Panel.Stop(
                                                 StopTap(stopRef.idHashHex, stopRef.name),
+                                            )
+                                        },
+                                    )
+                                }
+                            }
+
+                            is Panel.TripMini -> Column(
+                                modifier = Modifier.clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClickLabel = "Espandi la scheda della corsa",
+                                    onClick = { panel = Panel.TripFull(state.ref) },
+                                ),
+                            ) {
+                                val info = tripInfo
+                                if (info != null && info.ref.vehKey == state.ref.vehKey) {
+                                    TripMiniContent(info)
+                                }
+                            }
+
+                            is Panel.TripFull -> Column {
+                                val info = tripInfo
+                                if (info != null && info.ref.vehKey == state.ref.vehKey) {
+                                    TripFullContent(
+                                        info = info,
+                                        fixAgeSec = resolved?.busMetaByKey
+                                            ?.get(state.ref.vehKey)?.fixAgeSec,
+                                        onStopTap = { stop ->
+                                            exitRouteMode()
+                                            controller.flyTo(stop.lat, stop.lon, 16.2)
+                                            panel = Panel.Stop(
+                                                StopTap(stop.idHashHex, stop.name),
                                             )
                                         },
                                     )

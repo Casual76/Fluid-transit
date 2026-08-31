@@ -211,6 +211,23 @@ class BundleBuilder(
     }
 
     private fun readRoutes(): Routes {
+        // Il nome leggibile dell'azienda ("at - Firenze urbano"), non il suo
+        // codice ("UFI"): e' quello che la scheda linea mostra, e la
+        // categoria urbano/extraurbano si legge da li'. Trovato sul device:
+        // la scheda diceva "Urbano · UFI" e le extraurbane risultavano
+        // urbane, perche' agency.txt non veniva mai letto.
+        val agencyNames = HashMap<String, String>()
+        val agencyFile = File(gtfsDir, "agency.txt")
+        if (agencyFile.exists()) {
+            CsvCursor.open(agencyFile) { csv ->
+                val cId = csv.column("agency_id")
+                val cName = csv.requireColumn("agency_name")
+                while (csv.nextRow()) {
+                    agencyNames[csv.string(cId)] = csv.string(cName)
+                }
+            }
+        }
+
         val r = Routes()
         CsvCursor.open(File(gtfsDir, "routes.txt")) { csv ->
             val cId = csv.requireColumn("route_id")
@@ -225,7 +242,8 @@ class BundleBuilder(
                 r.ids.add(id)
                 r.shortName.add(csv.string(cShort))
                 r.longName.add(csv.string(cLong))
-                r.agency.add(csv.string(cAgency))
+                val agencyId = csv.string(cAgency)
+                r.agency.add(agencyNames[agencyId] ?: agencyId)
                 r.type.add(csv.int(cType, 3))
                 r.color.add(csv.string(cColor).toIntOrNull(16) ?: 0)
             }

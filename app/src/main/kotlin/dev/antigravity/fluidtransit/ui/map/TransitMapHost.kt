@@ -132,7 +132,11 @@ class TransitMapController(private val context: Context) {
             val box = android.graphics.RectF(
                 screen.x - pad, screen.y - pad, screen.x + pad, screen.y + pad,
             )
-            val hits = m.queryRenderedFeatures(box, MapCatalog.LAYER_FERMATE)
+            val hits = m.queryRenderedFeatures(
+                box,
+                MapCatalog.LAYER_FERMATE,
+                MapCatalog.LAYER_FERMATE_LINEA,
+            )
             val f = hits.firstOrNull()
             val hash = f?.getStringProperty("h")
             if (hash != null) {
@@ -180,6 +184,7 @@ class TransitMapController(private val context: Context) {
                 // in sottofondo): l'aggiunta e' idempotente.
                 addOverlay(style)
                 applyFilter(style)
+                applyRouteMode(style)
                 enableLocationIfAllowed(style)
                 applyFollow(follow)
             }
@@ -303,7 +308,6 @@ class TransitMapController(private val context: Context) {
             )
         }
         if (firstSymbol != null) style.addLayerBelow(lineaSel, firstSymbol) else style.addLayer(lineaSel)
-        applyHighlight(style)
 
         val fermate = CircleLayer(MapCatalog.LAYER_FERMATE, MapCatalog.OVERLAY_SOURCE).apply {
             sourceLayer = "fermate"
@@ -354,9 +358,53 @@ class TransitMapController(private val context: Context) {
             )
         }
         style.addLayer(nomi)
+
+        // Le fermate della linea selezionata: stessi vestiti, ma visibili da
+        // qualunque zoom, perche' in modalita' linea si guarda l'intera tratta.
+        val fermateLinea = CircleLayer(MapCatalog.LAYER_FERMATE_LINEA, MapCatalog.OVERLAY_SOURCE).apply {
+            sourceLayer = "fermate"
+            minZoom = 6f
+            setFilter(Expression.literal(false))
+            setProperties(
+                PropertyFactory.circleColor(if (darkTheme) "#1E1E24" else "#FFFFFF"),
+                PropertyFactory.circleStrokeColor(if (darkTheme) "#B9B9C6" else "#4A4A55"),
+                PropertyFactory.circleStrokeWidth(1.8f),
+                PropertyFactory.circleRadius(
+                    Expression.interpolate(
+                        Expression.linear(), Expression.zoom(),
+                        Expression.stop(7f, 2.4f),
+                        Expression.stop(12f, 3.6f),
+                        Expression.stop(16f, 5.2f),
+                    ),
+                ),
+            )
+        }
+        style.addLayer(fermateLinea)
+        val fermateLineaNomi =
+            SymbolLayer(MapCatalog.LAYER_FERMATE_LINEA_NOMI, MapCatalog.OVERLAY_SOURCE).apply {
+                sourceLayer = "fermate"
+                minZoom = 12.5f
+                setFilter(Expression.literal(false))
+                setProperties(
+                    PropertyFactory.textField(Expression.get("n")),
+                    PropertyFactory.textFont(arrayOf("Noto Sans Regular")),
+                    PropertyFactory.textSize(11f),
+                    PropertyFactory.textOffset(arrayOf(0f, 1.1f)),
+                    PropertyFactory.textAnchor("top"),
+                    PropertyFactory.textColor(if (darkTheme) "#E8E8F0" else "#2B2B33"),
+                    PropertyFactory.textHaloColor(if (darkTheme) "#101014" else "#FFFFFF"),
+                    PropertyFactory.textHaloWidth(1.4f),
+                    PropertyFactory.textOptional(true),
+                )
+            }
+        style.addLayer(fermateLineaNomi)
+        applyRouteMode(style)
     }
 
     private fun applyFilter(style: Style) {
+        // In modalita' linea comanda applyRouteMode: i chip riprendono il
+        // controllo all'uscita.
+        if (highlightedRoute != null) return
         // I due layer di tratte hanno gia' il filtro di categoria addosso:
         // il chip li accende e spegne per visibilita'.
         val showUrban = filter != CategoryFilter.EXTRA
@@ -444,28 +492,59 @@ class TransitMapController(private val context: Context) {
     }
 
     private var highlightedRoute: String? = null
+    private var routeStopHashes: Array<String>? = null
 
     /**
-     * Accende una tratta: la sua geometria si disegna piena e larga su un
-     * layer dedicato visibile anche da lontano (le tratte normali partono da
-     * zoom 12), cosi' "vedere l'intera tratta" funziona a qualsiasi zoom.
-     * `null` spegne. E' la stessa meccanica che i bus live useranno in Fase 4.
+     * La modalita' linea: si accende la tratta scelta e la mappa si pulisce —
+     * le altre linee spariscono, le fermate normali pure, e al loro posto
+     * compaiono le fermate DELLA linea, visibili anche da lontano. E' la
+     * stessa meccanica che i bus live useranno in Fase 4.
      */
-    fun highlightRoute(routeIdHashHex: String?) {
+    fun enterRouteMode(routeIdHashHex: String, stopIdHashes: Array<String>) {
         highlightedRoute = routeIdHashHex
-        map?.getStyle { applyHighlight(it) }
+        routeStopHashes = stopIdHashes
+        map?.getStyle { applyRouteMode(it) }
     }
 
-    private fun applyHighlight(style: Style) {
-        val layer = style.getLayer(MapCatalog.LAYER_LINEA_SEL) as? LineLayer ?: return
+    fun exitRouteMode() {
+        highlightedRoute = null
+        routeStopHashes = null
+        map?.getStyle { applyRouteMode(it) }
+    }
+
+    val inRouteMode: Boolean get() = highlightedRoute != null
+
+    private fun applyRouteMode(style: Style) {
         val rh = highlightedRoute
-        layer.setFilter(
+        val active = rh != null
+
+        (style.getLayer(MapCatalog.LAYER_LINEA_SEL) as? LineLayer)?.setFilter(
             if (rh == null) {
                 Expression.literal(false)
             } else {
                 Expression.eq(Expression.get("rh"), Expression.literal(rh))
             },
         )
+
+        // In modalita' linea il resto della rete si toglie di mezzo; il
+        // filtro dei chip torna a comandare quando si esce.
+        if (active) {
+            for (id in arrayOf(MapCatalog.LAYER_LINEE_URBANE, MapCatalog.LAYER_LINEE_EXTRA)) {
+                style.getLayer(id)?.setProperties(PropertyFactory.visibility("none"))
+            }
+        }
+        for (id in arrayOf(MapCatalog.LAYER_FERMATE, MapCatalog.LAYER_FERMATE_NOMI)) {
+            style.getLayer(id)?.setProperties(
+                PropertyFactory.visibility(if (active) "none" else "visible"),
+            )
+        }
+        if (!active) applyFilter(style)
+
+        val stopFilter = routeStopHashes?.let { hashes ->
+            Expression.`in`(Expression.get("h"), Expression.literal(hashes as Array<Any>))
+        } ?: Expression.literal(false)
+        (style.getLayer(MapCatalog.LAYER_FERMATE_LINEA) as? CircleLayer)?.setFilter(stopFilter)
+        (style.getLayer(MapCatalog.LAYER_FERMATE_LINEA_NOMI) as? SymbolLayer)?.setFilter(stopFilter)
     }
 }
 

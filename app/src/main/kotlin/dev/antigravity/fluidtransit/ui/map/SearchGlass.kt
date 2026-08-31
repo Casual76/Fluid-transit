@@ -50,6 +50,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.antigravity.fluidengine.ui.fluid.ContinuousCornerShape
+import dev.antigravity.fluidengine.ui.fluid.FluidGlassIconButton
 import dev.antigravity.fluidengine.ui.fluid.FluidHairline
 import dev.antigravity.fluidengine.ui.fluid.FluidRadius
 import dev.antigravity.fluidengine.ui.fluid.GlassBackdropState
@@ -134,7 +135,7 @@ fun SearchGlass(
             Icon(
                 imageVector = if (open) Icons.AutoMirrored.Rounded.ArrowBack else Icons.Rounded.Search,
                 contentDescription = if (open) "Chiudi la ricerca" else null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .size(28.dp)
                     .clickable(
@@ -161,7 +162,7 @@ fun SearchGlass(
                             Text(
                                 text = "Fermata o linea…",
                                 style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = MaterialTheme.colorScheme.onSurface,
                             )
                         }
                         inner()
@@ -174,24 +175,21 @@ fun SearchGlass(
                 Text(
                     text = "Cerca fermate e linee",
                     style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
             }
-            Icon(
-                imageVector = Icons.Rounded.Mic,
-                contentDescription = "Cerca con la voce",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .size(40.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        role = Role.Button,
-                        onClick = onMic,
-                    )
-                    .padding(8.dp),
-            )
+            FluidGlassIconButton(
+                onClick = onMic,
+                backdrop = backdrop,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Mic,
+                    contentDescription = "Cerca con la voce",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
         }
 
         // --- il pannello che scende ---------------------------------------

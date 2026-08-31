@@ -1,10 +1,8 @@
 package dev.antigravity.fluidtransit.ui.map
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,8 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
@@ -27,22 +23,13 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import dev.antigravity.fluidengine.ui.fluid.ContinuousCornerShape
-import dev.antigravity.fluidengine.ui.fluid.FluidGrabber
 import dev.antigravity.fluidengine.ui.fluid.FluidHairline
-import dev.antigravity.fluidengine.ui.fluid.FluidRadius
 import dev.antigravity.fluidengine.ui.fluid.FluidSpinner
-import dev.antigravity.fluidengine.ui.fluid.GlassBackdropState
-import dev.antigravity.fluidengine.ui.fluid.GlassDefaults
-import dev.antigravity.fluidengine.ui.fluid.GlassEdge
-import dev.antigravity.fluidengine.ui.fluid.GlassRole
-import dev.antigravity.fluidengine.ui.fluid.glassSurface
 import dev.antigravity.fluidengine.ui.theme.FluidEmptyState
 import dev.antigravity.fluidtransit.routing.BundleReader
 import dev.antigravity.fluidtransit.routing.Ftb
@@ -54,10 +41,9 @@ import kotlinx.coroutines.withContext
 /**
  * Sfuma il contenuto ai bordi verticali dello scorrimento: senza, le righe
  * si troncano di netto contro il pannello — il "taglio brutto" segnalato
- * alla prima prova. Richiede la composizione fuori schermo, che il pannello
- * gia' paga per il vetro.
+ * alla prima prova.
  */
-private fun Modifier.fadeVerticalEdges(edge: androidx.compose.ui.unit.Dp = 16.dp): Modifier = this
+fun Modifier.fadeVerticalEdges(edge: androidx.compose.ui.unit.Dp = 16.dp): Modifier = this
     .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
     .drawWithContent {
         drawContent()
@@ -81,26 +67,20 @@ private fun Modifier.fadeVerticalEdges(edge: androidx.compose.ui.unit.Dp = 16.dp
     }
 
 /**
- * La scheda di una fermata, in stile iOS come da riferimento Apple Maps:
- * un pannello **staccato dai bordi**, con angoli continui, in fluid glass —
- * non una ModalBottomSheet a tutta larghezza, che oltre a essere un'altra
- * lingua visiva vive in una finestra separata e non puo' campionare la
- * mappa che ha sotto.
- *
- * Ogni linea ha la pillola del SUO colore, lo stesso della tratta sulla
- * mappa: escono entrambi dal campo colorDisplay del bundle. In Fase 4 qui
- * arrivano i minuti veri dal realtime; in Fase 7 il pulsante "sono su
- * questo bus".
+ * Il contenuto della scheda fermata: prossimi passaggi dal bundle, ogni
+ * linea con la pillola del SUO colore — lo stesso della tratta sulla mappa.
+ * Il vetro, il grabber e i gesti vivono in [BottomGlassPanel]: questo e'
+ * solo il dentro, cosi' il passaggio a scheda linea e' un morphing della
+ * stessa superficie. In Fase 4 qui arrivano i minuti veri e il tasto (in
+ * vetro, come tutti i tasti nei pannelli) del prossimo bus live.
  */
 @Composable
-fun StopCard(
+fun StopPanelContent(
     reader: BundleReader,
-    backdrop: GlassBackdropState,
     stopIdHashHex: String,
     fallbackName: String,
     onDismiss: () -> Unit,
     onRouteTap: (routeIndex: Int) -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     class DepartureRow(
         val routeIndex: Int,
@@ -139,147 +119,117 @@ fun StopCard(
         }
     }
 
-    Column(
-        modifier = modifier
+    Row(
+        modifier = Modifier
             .fillMaxWidth()
-            .glassSurface(
-                state = backdrop,
-                tint = GlassDefaults.floatingTint(),
-                shape = ContinuousCornerShape(FluidRadius.Sheet),
-                edge = GlassEdge.None,
-                role = GlassRole.Modal,
-            ),
+            .padding(start = 20.dp, end = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
+        Text(
+            text = data?.name ?: fallbackName,
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Icon(
+            imageVector = Icons.Rounded.Close,
+            contentDescription = "Chiudi",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 10.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            FluidGrabber()
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 20.dp, end = 8.dp, top = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = data?.name ?: fallbackName,
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Icon(
-                imageVector = Icons.Rounded.Close,
-                contentDescription = "Chiudi",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .size(40.dp)
-                    .clickable(
-                        interactionSource = androidx.compose.runtime.remember { MutableInteractionSource() },
-                        indication = null,
-                        role = Role.Button,
-                        onClick = onDismiss,
-                    )
-                    .padding(8.dp),
-            )
-        }
-
-        val current = data
-        when {
-            current == null -> {
-                Spacer(Modifier.height(20.dp))
-                Row(modifier = Modifier.padding(horizontal = 20.dp)) { FluidSpinner() }
-                Spacer(Modifier.height(24.dp))
-            }
-
-            current.rows.isEmpty() -> {
-                FluidEmptyState(
-                    title = "Nessun passaggio nelle prossime due ore",
-                    detail = "Da questa fermata non parte niente a breve.",
-                    modifier = Modifier.padding(horizontal = 20.dp),
+                .size(40.dp)
+                .clickable(
+                    interactionSource = androidx.compose.runtime.remember { MutableInteractionSource() },
+                    indication = null,
+                    role = Role.Button,
+                    onClick = onDismiss,
                 )
-                Spacer(Modifier.height(16.dp))
-            }
+                .padding(8.dp),
+        )
+    }
 
-            else -> {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 340.dp)
-                        .fadeVerticalEdges()
-                        .padding(horizontal = 20.dp),
-                ) {
-                    items(current.rows.size) { i ->
-                        val row = current.rows[i]
-                        if (i > 0) FluidHairline()
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            // Toccando la pillola, la mappa accende la tratta
-                            // e la inquadra per intero: la scheda si toglie.
+    val current = data
+    when {
+        current == null -> {
+            Spacer(Modifier.height(20.dp))
+            Row(modifier = Modifier.padding(horizontal = 20.dp)) { FluidSpinner() }
+            Spacer(Modifier.height(24.dp))
+        }
+
+        current.rows.isEmpty() -> {
+            FluidEmptyState(
+                title = "Nessun passaggio nelle prossime due ore",
+                detail = "Da questa fermata non parte niente a breve.",
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+            Spacer(Modifier.height(16.dp))
+        }
+
+        else -> {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 340.dp)
+                    .fadeVerticalEdges()
+                    .padding(horizontal = 20.dp),
+            ) {
+                items(current.rows.size) { i ->
+                    val row = current.rows[i]
+                    if (i > 0) FluidHairline()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        // Il tocco sulla pillola trasforma la scheda in
+                        // scheda linea, con la tratta accesa sulla mappa.
+                        RoutePill(
+                            text = row.line,
+                            colorRgb = row.colorRgb,
+                            modifier = Modifier.clickable(
+                                interactionSource = androidx.compose.runtime.remember {
+                                    MutableInteractionSource()
+                                },
+                                indication = null,
+                                role = Role.Button,
+                                onClickLabel = "Mostra la linea ${row.line}",
+                                onClick = { onRouteTap(row.routeIndex) },
+                            ),
+                        )
+                        Text(
+                            text = row.destination,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Column(horizontalAlignment = Alignment.End) {
                             Text(
-                                text = row.line,
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                maxLines = 1,
-                                modifier = Modifier
-                                    .widthIn(min = 44.dp)
-                                    .background(
-                                        color = Color(0xFF000000 or row.colorRgb.toLong()),
-                                        shape = ContinuousCornerShape(FluidRadius.Small),
-                                    )
-                                    .clickable(
-                                        interactionSource = androidx.compose.runtime.remember {
-                                            MutableInteractionSource()
-                                        },
-                                        indication = null,
-                                        role = Role.Button,
-                                        onClickLabel = "Mostra la tratta della linea ${row.line}",
-                                        onClick = { onRouteTap(row.routeIndex) },
-                                    )
-                                    .padding(horizontal = 10.dp, vertical = 5.dp),
-                            )
-                            Text(
-                                text = row.destination,
-                                style = MaterialTheme.typography.bodyMedium,
+                                text = if (row.inMinutes < 60) "${row.inMinutes} min" else row.time,
+                                style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
                             )
-                            Column(horizontalAlignment = Alignment.End) {
+                            if (row.inMinutes < 60) {
                                 Text(
-                                    text = if (row.inMinutes < 60) "${row.inMinutes} min" else row.time,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.onSurface,
+                                    text = row.time,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                                if (row.inMinutes < 60) {
-                                    Text(
-                                        text = row.time,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
                             }
                         }
                     }
                 }
-                Text(
-                    text = "Orari programmati: i minuti veri arrivano col tempo reale.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
-                )
             }
+            Text(
+                text = "Orari programmati: i minuti veri arrivano col tempo reale.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+            )
         }
     }
 }

@@ -35,6 +35,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.navigationBarsPadding
+import java.time.Instant
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -53,8 +58,19 @@ import kotlinx.coroutines.withContext
  * basso a sinistra sopra l'attribuzione, tasto posizione in basso a destra.
  * Tutto come da spec decisa con l'utente il 31/08.
  */
+/** Cosa mostra il pannello dal basso. Uno stato solo: il morphing e' un cambio di contenuto. */
+private sealed interface Panel {
+    class Stop(val tap: StopTap) : Panel
+    class RouteMini(val routeIndex: Int) : Panel
+    class RouteFull(val routeIndex: Int) : Panel
+}
+
 @Composable
-fun MapScreen(app: FluidTransitApp, backdrop: GlassBackdropState) {
+fun MapScreen(
+    app: FluidTransitApp,
+    backdrop: GlassBackdropState,
+    onTabBarHidden: (Boolean) -> Unit = {},
+) {
     val context = LocalContext.current
     // Lo scuro della mappa segue il tema DELL'APP, non quello di sistema:
     // chi forza "Scuro" dalle Impostazioni deve vedere anche la mappa scura.
@@ -69,7 +85,13 @@ fun MapScreen(app: FluidTransitApp, backdrop: GlassBackdropState) {
     var follow by rememberSaveable { mutableStateOf(FollowMode.FREE) }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
-    var selectedStop by remember { mutableStateOf<StopTap?>(null) }
+    var panel by remember { mutableStateOf<Panel?>(null) }
+    var routeDirection by remember { mutableStateOf(0) }
+
+    // La modalita' linea prende il posto della tab bar: la shell lo sa da qui.
+    LaunchedEffect(panel) {
+        onTabBarHidden(panel is Panel.RouteMini || panel is Panel.RouteFull)
+    }
 
     var locationGranted by remember {
         mutableStateOf(
@@ -108,29 +130,42 @@ fun MapScreen(app: FluidTransitApp, backdrop: GlassBackdropState) {
         value = withContext(Dispatchers.Default) { SearchIndex.build(reader) }
     }
 
-    controller.onStopTap = { tap -> selectedStop = tap }
+    fun exitRouteMode() {
+        controller.exitRouteMode()
+        panel = null
+    }
+
+    controller.onStopTap = { tap ->
+        // Aprire una fermata chiude la modalita' linea: il pannello torna scheda fermata.
+        controller.exitRouteMode()
+        panel = Panel.Stop(tap)
+    }
     controller.onEmptyTap = {
-        selectedStop = null
-        controller.highlightRoute(null)
+        // Il tocco a vuoto e' una delle tre uscite decise.
+        exitRouteMode()
     }
     controller.onGesture = { if (follow != FollowMode.FREE) follow = FollowMode.FREE }
 
-    // Il tap sulla pillola di una linea nella scheda: la tratta si accende
-    // sulla mappa e la camera fa zoom out finche' non la si vede tutta.
+    // Il tap sulla pillola di una linea: la mappa si pulisce (resta la
+    // tratta accesa e le SUE fermate), la camera inquadra tutto, e il
+    // pannello si trasforma nello stato mini della scheda linea.
     // In Fase 4 la stessa meccanica rispondera' al tap su un bus live.
     fun showRoute(routeIndex: Int) {
         val reader = ready?.reader ?: return
-        selectedStop = null
         follow = FollowMode.FREE
+        routeDirection = 0
+        panel = Panel.RouteMini(routeIndex)
         scope.launch(Dispatchers.Default) {
             var minLat = 90.0
             var maxLat = -90.0
             var minLon = 180.0
             var maxLon = -180.0
+            val hashes = LinkedHashSet<String>()
             for (p in reader.patternsOfRoute(routeIndex)) {
                 val n = reader.patternStopCount(p)
                 for (i in 0 until n) {
                     val s = reader.patternStop(p, i)
+                    hashes.add(java.lang.Long.toHexString(reader.stopIdHash(s)))
                     val lat = reader.stopLat(s)
                     val lon = reader.stopLon(s)
                     if (lat < minLat) minLat = lat
@@ -142,10 +177,26 @@ fun MapScreen(app: FluidTransitApp, backdrop: GlassBackdropState) {
             if (minLat > maxLat) return@launch
             val rh = java.lang.Long.toHexString(reader.routeIdHash(routeIndex))
             withContext(kotlinx.coroutines.Dispatchers.Main) {
-                controller.highlightRoute(rh)
+                controller.enterRouteMode(rh, hashes.toTypedArray())
                 controller.flyToBounds(minLat, minLon, maxLat, maxLon)
             }
         }
+    }
+
+    // I dati della scheda linea, calcolati quando serve.
+    val currentRouteIndex = when (val p = panel) {
+        is Panel.RouteMini -> p.routeIndex
+        is Panel.RouteFull -> p.routeIndex
+        else -> null
+    }
+    val routeInfo by produceState<RouteInfo?>(initialValue = null, currentRouteIndex, ready?.buildId) {
+        val reader = ready?.reader
+        val idx = currentRouteIndex
+        if (reader == null || idx == null) {
+            value = null
+            return@produceState
+        }
+        value = withContext(Dispatchers.Default) { RouteInfo.build(reader, idx, Instant.now()) }
     }
 
     // Le ricerche recenti e i suggerimenti del pannello.
@@ -189,8 +240,20 @@ fun MapScreen(app: FluidTransitApp, backdrop: GlassBackdropState) {
             RecentSearches.Entry(s.kind, s.key, s.title, s.subtitle, s.colorRgb, s.lat, s.lon),
         )
         recentsVersion++
-        controller.flyTo(s.lat, s.lon, if (s.kind == "stop") 16.2 else 13.2)
-        if (s.kind == "stop") selectedStop = StopTap(s.key, s.title)
+        if (s.kind == "stop") {
+            controller.exitRouteMode()
+            controller.flyTo(s.lat, s.lon, 16.2)
+            panel = Panel.Stop(StopTap(s.key, s.title))
+        } else {
+            // La chiave e' l'hash del route_id: stabile fra i bundle, al
+            // contrario dell'indice che ogni notte cambia.
+            val reader = ready?.reader
+            val hash = s.key.toULongOrNull(16)?.toLong()
+            if (reader != null && hash != null) {
+                val idx = reader.findRouteByIdHash(hash)
+                if (idx >= 0) showRoute(idx)
+            }
+        }
     }
 
     // Ogni cambio di stato scende nella mappa da un punto solo.
@@ -270,7 +333,9 @@ fun MapScreen(app: FluidTransitApp, backdrop: GlassBackdropState) {
 
                             is SearchIndex.Hit.Route -> Suggestion(
                                 kind = "route",
-                                key = hit.routeIndex.toString(),
+                                key = ready?.reader
+                                    ?.let { java.lang.Long.toHexString(it.routeIdHash(hit.routeIndex)) }
+                                    ?: "",
                                 title = hit.title,
                                 subtitle = hit.destination,
                                 colorRgb = hit.colorRgb,
@@ -374,30 +439,107 @@ fun MapScreen(app: FluidTransitApp, backdrop: GlassBackdropState) {
                 .padding(end = 14.dp, bottom = bottomInset),
         )
 
-        // --- la scheda fermata, staccata dai bordi come da riferimento ---
+        // --- l'unico pannello dal basso: fermata, linea, o linea ridotta ---
+        // Il passaggio fra i tre e' un morphing della stessa superficie di
+        // vetro; in modalita' linea il pannello prende il posto della tab bar.
         val reader = ready?.reader
+        val inRoutePanel = panel is Panel.RouteMini || panel is Panel.RouteFull
+        val bottomPad by androidx.compose.animation.core.animateDpAsState(
+            targetValue = if (inRoutePanel) 10.dp else FluidTabBarDefaults.ContentInset + 10.dp,
+            label = "panelBottomPad",
+        )
         androidx.compose.animation.AnimatedVisibility(
-            visible = selectedStop != null && reader != null,
+            visible = panel != null && reader != null,
             enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it / 2 }) +
                 androidx.compose.animation.fadeIn(),
             exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it / 2 }) +
                 androidx.compose.animation.fadeOut(),
-            modifier = Modifier.align(Alignment.BottomCenter),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding(),
         ) {
-            val tapped = selectedStop
-            if (tapped != null && reader != null) {
-                BackHandler { selectedStop = null }
-                StopCard(
-                    reader = reader,
+            val p = panel
+            if (p != null && reader != null) {
+                BackHandler {
+                    when (p) {
+                        is Panel.RouteFull -> panel = Panel.RouteMini(p.routeIndex)
+                        else -> exitRouteMode()
+                    }
+                }
+                BottomGlassPanel(
                     backdrop = backdrop,
-                    stopIdHashHex = tapped.idHashHex,
-                    fallbackName = tapped.name,
-                    onDismiss = { selectedStop = null },
-                    onRouteTap = ::showRoute,
+                    wholeSurfaceDrag = p is Panel.RouteMini,
+                    showGrabber = p !is Panel.RouteMini,
+                    onDragDismiss = {
+                        when (p) {
+                            is Panel.RouteFull -> panel = Panel.RouteMini(p.routeIndex)
+                            else -> exitRouteMode()
+                        }
+                    },
                     modifier = Modifier
                         .padding(horizontal = 14.dp)
-                        .padding(bottom = FluidTabBarDefaults.ContentInset + 10.dp),
-                )
+                        .padding(bottom = bottomPad),
+                ) {
+                    androidx.compose.animation.AnimatedContent(
+                        targetState = p,
+                        transitionSpec = {
+                            androidx.compose.animation.fadeIn() togetherWith
+                                androidx.compose.animation.fadeOut()
+                        },
+                        contentKey = { state ->
+                            when (state) {
+                                is Panel.Stop -> "stop-${state.tap.idHashHex}"
+                                is Panel.RouteMini -> "mini-${state.routeIndex}"
+                                is Panel.RouteFull -> "full-${state.routeIndex}"
+                            }
+                        },
+                        label = "panelContent",
+                    ) { state ->
+                        when (state) {
+                            is Panel.Stop -> Column {
+                                StopPanelContent(
+                                    reader = reader,
+                                    stopIdHashHex = state.tap.idHashHex,
+                                    fallbackName = state.tap.name,
+                                    onDismiss = { panel = null },
+                                    onRouteTap = ::showRoute,
+                                )
+                            }
+
+                            is Panel.RouteMini -> Column(
+                                modifier = Modifier.clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClickLabel = "Espandi la scheda della linea",
+                                    onClick = { panel = Panel.RouteFull(state.routeIndex) },
+                                ),
+                            ) {
+                                val info = routeInfo
+                                if (info != null && info.routeIndex == state.routeIndex) {
+                                    RouteMiniContent(info, routeDirection)
+                                }
+                            }
+
+                            is Panel.RouteFull -> Column {
+                                val info = routeInfo
+                                if (info != null && info.routeIndex == state.routeIndex) {
+                                    RouteFullContent(
+                                        info = info,
+                                        direction = routeDirection,
+                                        onDirectionChange = { routeDirection = it },
+                                        onStopTap = { stopRef ->
+                                            controller.exitRouteMode()
+                                            controller.flyTo(stopRef.lat, stopRef.lon, 16.2)
+                                            panel = Panel.Stop(
+                                                StopTap(stopRef.idHashHex, stopRef.name),
+                                            )
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

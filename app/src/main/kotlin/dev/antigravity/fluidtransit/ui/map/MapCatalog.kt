@@ -164,6 +164,10 @@ object MapCatalog {
     const val LAYER_FERMATE = "ft-fermate"
     const val LAYER_FERMATE_NOMI = "ft-fermate-nomi"
 
+    /** Le fermate della sola linea selezionata: visibili anche da lontano. */
+    const val LAYER_FERMATE_LINEA = "ft-fermate-linea"
+    const val LAYER_FERMATE_LINEA_NOMI = "ft-fermate-linea-nomi"
+
     /**
      * Gli stadi di zoom decisi: niente sotto, e le tratte extraurbane —
      * lunghe, da guardare da lontano — compaiono prima delle urbane.

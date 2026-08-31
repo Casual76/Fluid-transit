@@ -78,6 +78,10 @@ fun AppRoot(app: FluidTransitApp) {
 @Composable
 private fun AppShell(app: FluidTransitApp) {
     var route by rememberSaveable { mutableStateOf(RouteMap) }
+
+    // La modalita' linea della mappa prende il posto della tab bar: quando
+    // il suo pannello ridotto e' giu', la barra si sfila con lui.
+    var mapHidesTabBar by remember { mutableStateOf(false) }
     val chromeController = rememberFluidChromeController()
     val scrollToTop = remember { FluidScrollToTopBus() }
     val modalHost = rememberFluidGlassModalHostState()
@@ -113,27 +117,39 @@ private fun AppShell(app: FluidTransitApp) {
                         RouteToday -> TodayTab()
                         RouteFavorites -> FavoritesTab()
                         RouteSettings -> SettingsTab(app)
-                        else -> MapScreen(app, mapBackdrop)
+                        else -> MapScreen(
+                            app,
+                            mapBackdrop,
+                            onTabBarHidden = { mapHidesTabBar = it },
+                        )
                     }
                 }
             }
 
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(
-                        horizontal = FluidTabBarDefaults.HorizontalMargin,
-                        vertical = FluidTabBarDefaults.BottomMargin,
-                    ),
+            androidx.compose.animation.AnimatedVisibility(
+                visible = !(route == RouteMap && mapHidesTabBar),
+                enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it }) +
+                    androidx.compose.animation.fadeIn(),
+                exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it }) +
+                    androidx.compose.animation.fadeOut(),
+                modifier = Modifier.align(Alignment.BottomCenter),
             ) {
-                FluidTabBar(
-                    items = Tabs,
-                    selectedRoute = route,
-                    onSelect = { route = it.route },
-                    onReselect = { scrollToTop.request() },
-                    backdrop = backdrop,
-                )
+                Box(
+                    modifier = Modifier
+                        .navigationBarsPadding()
+                        .padding(
+                            horizontal = FluidTabBarDefaults.HorizontalMargin,
+                            vertical = FluidTabBarDefaults.BottomMargin,
+                        ),
+                ) {
+                    FluidTabBar(
+                        items = Tabs,
+                        selectedRoute = route,
+                        onSelect = { route = it.route },
+                        onReselect = { scrollToTop.request() },
+                        backdrop = backdrop,
+                    )
+                }
             }
 
             // Sopra la tab bar, alla radice: un pop-up su cui la capsula di

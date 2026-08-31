@@ -51,7 +51,31 @@ class TransitMapController(private val context: Context) {
     private var darkTheme = false
     private var locationEnabled = false
     var onStopTap: ((StopTap) -> Unit)? = null
+    var onEmptyTap: (() -> Unit)? = null
     var onGesture: (() -> Unit)? = null
+
+    /** A camera ferma: lat, lon, zoom, bearing, tilt. Per sopravvivere alla rotazione. */
+    var onCameraIdle: ((DoubleArray) -> Unit)? = null
+
+    /** Il centro attuale della camera: per le "fermate vicine" senza GPS. */
+    fun cameraCenter(): Pair<Double, Double>? =
+        map?.cameraPosition?.target?.let { it.latitude to it.longitude }
+
+    /**
+     * Quanto logo e attribuzione MapLibre devono alzarsi da fondo schermo
+     * per non finire sotto la tab bar. In pixel, dalla UI che conosce i dp.
+     */
+    var chromeBottomPx: Int = 0
+        set(value) {
+            field = value
+            map?.let { applyOrnamentMargins(it) }
+        }
+
+    private fun applyOrnamentMargins(m: MapLibreMap) {
+        val side = (8 * context.resources.displayMetrics.density).toInt()
+        m.uiSettings.setLogoMargins(side, 0, 0, chromeBottomPx)
+        m.uiSettings.setAttributionMargins(side * 12, 0, 0, chromeBottomPx)
+    }
 
     /**
      * L'ultimo stato chiesto dalla UI. `getMapAsync` consegna la mappa dopo
@@ -72,6 +96,7 @@ class TransitMapController(private val context: Context) {
 
     fun bind(map: MapLibreMap) {
         this.map = map
+        applyOrnamentMargins(map)
         desired?.let { d ->
             apply(d.mode, d.dark, d.overlayUrl, d.filter, d.locationEnabled, d.follow)
         }
@@ -84,14 +109,27 @@ class TransitMapController(private val context: Context) {
                 onGesture?.invoke()
             }
         }
+        map.addOnCameraIdleListener {
+            val p = map.cameraPosition
+            val t = p.target ?: return@addOnCameraIdleListener
+            onCameraIdle?.invoke(
+                doubleArrayOf(t.latitude, t.longitude, p.zoom, p.bearing, p.tilt),
+            )
+        }
         map.addOnMapClickListener { point ->
             val m = this.map ?: return@addOnMapClickListener false
             val screen = m.projection.toScreenLocation(point)
             val hits = m.queryRenderedFeatures(screen, MapCatalog.LAYER_FERMATE)
-            val f = hits.firstOrNull() ?: return@addOnMapClickListener false
-            val hash = f.getStringProperty("h") ?: return@addOnMapClickListener false
-            onStopTap?.invoke(StopTap(hash, f.getStringProperty("n") ?: ""))
-            true
+            val f = hits.firstOrNull()
+            val hash = f?.getStringProperty("h")
+            if (hash != null) {
+                onStopTap?.invoke(StopTap(hash, f.getStringProperty("n") ?: ""))
+            } else {
+                // Tocco sul vuoto: chi ha pannelli aperti li chiude, come su
+                // ogni mappa che si rispetti.
+                onEmptyTap?.invoke()
+            }
+            hash != null
         }
     }
 
@@ -117,6 +155,7 @@ class TransitMapController(private val context: Context) {
                 ?: Style.Builder().fromJson(MapCatalog.styleJson(mode))
             m.setStyle(builder) { style ->
                 hideBasemapTransitPois(style)
+                enableBuildings3d(style, mode)
                 addOverlay(style)
                 applyFilter(style)
                 enableLocationIfAllowed(style)
@@ -155,6 +194,22 @@ class TransitMapController(private val context: Context) {
                 val existing = layer.filter
                 layer.setFilter(if (existing == null) exclude else Expression.all(existing, exclude))
             }
+        }
+    }
+
+    /**
+     * Gli edifici estrusi della basemap: nello stile Liberty il layer
+     * `building-3d` esiste gia' (con le altezze vere di OSM) ma parte
+     * spento. In Stradale si accende — visibili anche dall'alto, come
+     * chiesto — in Ibrida no: sopra una foto aerea sono volumi inventati,
+     * e li' il layer nemmeno esiste.
+     */
+    private fun enableBuildings3d(style: Style, mode: MapCatalog.MapMode) {
+        if (mode != MapCatalog.MapMode.STREETS) return
+        runCatching {
+            style.getLayer("building-3d")?.setProperties(
+                PropertyFactory.visibility("visible"),
+            )
         }
     }
 
@@ -285,22 +340,22 @@ class TransitMapController(private val context: Context) {
         if (!locationEnabled) return
         val component = m.locationComponent
         if (!component.isLocationComponentActivated) return
+        // Mai animateCamera mentre un tracking e' attivo: lo annulla, ed e'
+        // il motivo per cui la bussola "funzionava" sul puck ma la camera
+        // non girava (trovato sul device). Zoom e inclinazione, durante il
+        // tracking, passano dalle API dedicate del LocationComponent.
         when (follow) {
             FollowMode.FREE -> component.cameraMode = CameraMode.NONE
             FollowMode.FOLLOW -> {
-                component.cameraMode = CameraMode.TRACKING
-                val flat = CameraPosition.Builder(m.cameraPosition).tilt(0.0).bearing(0.0).build()
-                m.animateCamera(CameraUpdateFactory.newCameraPosition(flat), 500)
+                // Vista dall'alto, nord in alto, che segue la posizione.
+                component.cameraMode = CameraMode.TRACKING_GPS_NORTH
+                component.tiltWhileTracking(0.0)
             }
             FollowMode.COMPASS -> {
-                // La bussola decisa: heading-up, 3D con inclinazione fissa,
-                // zoom ravvicinato. E' l'unico posto dove il 3D si accende.
+                // Heading-up con inclinazione fissa e zoom ravvicinato.
                 component.cameraMode = CameraMode.TRACKING_COMPASS
-                val tilted = CameraPosition.Builder(m.cameraPosition)
-                    .tilt(MapCatalog.NAV_TILT)
-                    .zoom(maxOf(m.cameraPosition.zoom, MapCatalog.NAV_ZOOM))
-                    .build()
-                m.animateCamera(CameraUpdateFactory.newCameraPosition(tilted), 600)
+                component.tiltWhileTracking(MapCatalog.NAV_TILT)
+                component.zoomWhileTracking(maxOf(m.cameraPosition.zoom, MapCatalog.NAV_ZOOM))
             }
         }
     }
@@ -327,6 +382,7 @@ class TransitMapController(private val context: Context) {
 fun TransitMap(
     controller: TransitMapController,
     modifier: Modifier = Modifier,
+    initialCamera: DoubleArray? = null,
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val currentController = rememberUpdatedState(controller)
@@ -335,12 +391,20 @@ fun TransitMap(
     AndroidView(
         modifier = modifier,
         factory = { context ->
+            val start = initialCamera?.takeIf { it.size >= 5 }
             val options = MapLibreMapOptions.createFromAttributes(context)
                 .textureMode(true)
                 .camera(
                     CameraPosition.Builder()
-                        .target(LatLng(MapCatalog.HOME_LAT, MapCatalog.HOME_LON))
-                        .zoom(MapCatalog.HOME_ZOOM)
+                        .target(
+                            LatLng(
+                                start?.get(0) ?: MapCatalog.HOME_LAT,
+                                start?.get(1) ?: MapCatalog.HOME_LON,
+                            ),
+                        )
+                        .zoom(start?.get(2) ?: MapCatalog.HOME_ZOOM)
+                        .bearing(start?.get(3) ?: 0.0)
+                        .tilt(start?.get(4) ?: 0.0)
                         .build(),
                 )
             MapView(context, options).apply {

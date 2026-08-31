@@ -103,7 +103,53 @@ fun MapScreen(app: FluidTransitApp, backdrop: GlassBackdropState) {
     }
 
     controller.onStopTap = { tap -> selectedStop = tap }
+    controller.onEmptyTap = { selectedStop = null }
     controller.onGesture = { if (follow != FollowMode.FREE) follow = FollowMode.FREE }
+
+    // Le ricerche recenti e i suggerimenti del pannello.
+    val recentStore = remember { RecentSearches(context) }
+    var recentsVersion by remember { mutableStateOf(0) }
+    val recents = remember(recentsVersion) { recentStore.load() }
+    val nearby by produceState(initialValue = emptyList<Suggestion>(), searchOpen, ready?.buildId) {
+        val reader = ready?.reader
+        if (!searchOpen || reader == null) {
+            value = emptyList()
+            return@produceState
+        }
+        val center = controller.cameraCenter() ?: return@produceState
+        value = withContext(Dispatchers.Default) {
+            reader.stopsNear(center.first, center.second, 700.0)
+                .sortedBy {
+                    dev.antigravity.fluidtransit.routing.BundleReader.haversine(
+                        center.first, center.second, reader.stopLat(it), reader.stopLon(it),
+                    )
+                }
+                .take(5)
+                .map { s ->
+                    Suggestion(
+                        kind = "stop",
+                        key = java.lang.Long.toHexString(reader.stopIdHash(s)),
+                        title = reader.stopName(s),
+                        subtitle = "Fermata",
+                        colorRgb = 0,
+                        lat = reader.stopLat(s),
+                        lon = reader.stopLon(s),
+                    )
+                }
+        }
+    }
+
+    fun pick(s: Suggestion) {
+        searchOpen = false
+        query = ""
+        follow = FollowMode.FREE
+        recentStore.add(
+            RecentSearches.Entry(s.kind, s.key, s.title, s.subtitle, s.colorRgb, s.lat, s.lon),
+        )
+        recentsVersion++
+        controller.flyTo(s.lat, s.lon, if (s.kind == "stop") 16.2 else 13.2)
+        if (s.kind == "stop") selectedStop = StopTap(s.key, s.title)
+    }
 
     // Ogni cambio di stato scende nella mappa da un punto solo.
     LaunchedEffect(mode, dark, ready?.overlayUrl, filter, locationGranted, follow) {
@@ -123,17 +169,32 @@ fun MapScreen(app: FluidTransitApp, backdrop: GlassBackdropState) {
         if (locationGranted) follow = FollowMode.FOLLOW
     }
 
+    // Logo e attribuzione MapLibre sopra la tab bar, non sotto.
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    LaunchedEffect(Unit) {
+        controller.chromeBottomPx = with(density) {
+            (FluidTabBarDefaults.ContentInset + 6.dp).toPx()
+        }.toInt()
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         // La mappa e' la sorgente del vetro: tutto il chrome la rifrange.
+        // La camera sopravvive a rotazione e ritorno dall'ultima schermata.
+        val savedCamera = rememberSaveable { mutableStateOf<DoubleArray?>(null) }
+        controller.onCameraIdle = { savedCamera.value = it }
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .glassBackdropSource(backdrop),
         ) {
-            TransitMap(controller = controller, modifier = Modifier.fillMaxSize())
+            TransitMap(
+                controller = controller,
+                modifier = Modifier.fillMaxSize(),
+                initialCamera = savedCamera.value,
+            )
         }
 
-        // --- chrome in alto: ricerca + filtri ---------------------------
+        // --- chrome in alto: la barra che diventa pannello, e i filtri ---
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -141,9 +202,57 @@ fun MapScreen(app: FluidTransitApp, backdrop: GlassBackdropState) {
                 .padding(horizontal = 14.dp)
                 .padding(top = 8.dp),
         ) {
-            MapSearchBar(
+            if (searchOpen) {
+                BackHandler {
+                    searchOpen = false
+                    query = ""
+                }
+            }
+            val queryResults = remember(query, searchIndex) {
+                if (query.length < 2) {
+                    emptyList()
+                } else {
+                    searchIndex?.search(query).orEmpty().map { hit ->
+                        when (hit) {
+                            is SearchIndex.Hit.Stop -> Suggestion(
+                                kind = "stop",
+                                key = ready?.reader
+                                    ?.let { java.lang.Long.toHexString(it.stopIdHash(hit.stopIndex)) }
+                                    ?: "",
+                                title = hit.title,
+                                subtitle = "Fermata",
+                                colorRgb = 0,
+                                lat = hit.lat,
+                                lon = hit.lon,
+                            )
+
+                            is SearchIndex.Hit.Route -> Suggestion(
+                                kind = "route",
+                                key = hit.routeIndex.toString(),
+                                title = hit.title,
+                                subtitle = hit.destination,
+                                colorRgb = hit.colorRgb,
+                                lat = hit.lat,
+                                lon = hit.lon,
+                            )
+                        }
+                    }
+                }
+            }
+            SearchGlass(
                 backdrop = backdrop,
-                onTap = { searchOpen = true },
+                open = searchOpen,
+                query = query,
+                results = queryResults,
+                recents = recents.filter { it.kind == "stop" }.map { it.toSuggestion() },
+                nearby = nearby,
+                recentLines = recents.filter { it.kind == "route" }.map { it.toSuggestion() },
+                onOpen = { searchOpen = true },
+                onClose = {
+                    searchOpen = false
+                    query = ""
+                },
+                onQueryChange = { query = it },
                 onMic = {
                     val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                         putExtra(
@@ -155,13 +264,18 @@ fun MapScreen(app: FluidTransitApp, backdrop: GlassBackdropState) {
                     }
                     runCatching { micLauncher.launch(intent) }
                 },
+                onPick = ::pick,
             )
-            Spacer(Modifier.height(10.dp))
-            CategoryChipsRow(
-                backdrop = backdrop,
-                selected = filter,
-                onSelect = { filter = it },
-            )
+            androidx.compose.animation.AnimatedVisibility(visible = !searchOpen) {
+                Column {
+                    Spacer(Modifier.height(10.dp))
+                    CategoryChipsRow(
+                        backdrop = backdrop,
+                        selected = filter,
+                        onSelect = { filter = it },
+                    )
+                }
+            }
         }
 
         // --- angoli bassi: livelli a sinistra, posizione a destra --------
@@ -174,7 +288,6 @@ fun MapScreen(app: FluidTransitApp, backdrop: GlassBackdropState) {
                 "Passa alla vista stradale"
             },
             backdrop = backdrop,
-            selected = mode == MapCatalog.MapMode.HYBRID,
             onClick = {
                 mode = if (mode == MapCatalog.MapMode.STREETS) {
                     MapCatalog.MapMode.HYBRID
@@ -198,7 +311,6 @@ fun MapScreen(app: FluidTransitApp, backdrop: GlassBackdropState) {
                 FollowMode.COMPASS -> "Torna alla vista normale"
             },
             backdrop = backdrop,
-            selected = follow != FollowMode.FREE,
             onClick = {
                 if (!locationGranted) {
                     permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -215,34 +327,33 @@ fun MapScreen(app: FluidTransitApp, backdrop: GlassBackdropState) {
                 .padding(end = 14.dp, bottom = bottomInset),
         )
 
-        // --- pannelli sopra tutto ----------------------------------------
-        if (searchOpen) {
-            BackHandler { searchOpen = false }
-            SearchPanel(
-                index = searchIndex,
-                initialQuery = query,
-                onQueryChange = { query = it },
-                onPick = { hit ->
-                    searchOpen = false
-                    follow = FollowMode.FREE
-                    when (hit) {
-                        is SearchIndex.Hit.Stop -> controller.flyTo(hit.lat, hit.lon, 16.2)
-                        is SearchIndex.Hit.Route -> controller.flyTo(hit.lat, hit.lon, 13.2)
-                    }
-                },
-                onClose = { searchOpen = false },
-            )
-        }
-
+        // --- la scheda fermata, staccata dai bordi come da riferimento ---
         val reader = ready?.reader
-        val tapped = selectedStop
-        if (tapped != null && reader != null) {
-            StopSheet(
-                reader = reader,
-                stopIdHashHex = tapped.idHashHex,
-                fallbackName = tapped.name,
-                onDismiss = { selectedStop = null },
-            )
+        androidx.compose.animation.AnimatedVisibility(
+            visible = selectedStop != null && reader != null,
+            enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it / 2 }) +
+                androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it / 2 }) +
+                androidx.compose.animation.fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            val tapped = selectedStop
+            if (tapped != null && reader != null) {
+                BackHandler { selectedStop = null }
+                StopCard(
+                    reader = reader,
+                    backdrop = backdrop,
+                    stopIdHashHex = tapped.idHashHex,
+                    fallbackName = tapped.name,
+                    onDismiss = { selectedStop = null },
+                    modifier = Modifier
+                        .padding(horizontal = 14.dp)
+                        .padding(bottom = FluidTabBarDefaults.ContentInset + 10.dp),
+                )
+            }
         }
     }
 }
+
+private fun RecentSearches.Entry.toSuggestion() =
+    Suggestion(kind, key, title, subtitle, colorRgb, lat, lon)

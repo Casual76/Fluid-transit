@@ -20,5 +20,6 @@ node_modules/
 # Dati di lavoro degli spike: scaricabili, mai versionati.
 # Il feed GTFS della Regione e' 129 MB zip / 584 MB estratto.
 spikes/**/work/
+tools/**/work/
 *.ftb
 *.pmtiles

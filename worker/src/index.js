@@ -33,7 +33,7 @@ const NO_CACHE = {
   cacheTtlByStatus: { '200-299': -1, '300-399': -1, '400-599': -1 },
 };
 
-const MAX_AGE_SECONDS = 45;
+const MAX_AGE_SECONDS = 25;
 const HEARTBEAT_KEY = 'rt/cron-heartbeat';
 
 /**
@@ -43,7 +43,7 @@ const HEARTBEAT_KEY = 'rt/cron-heartbeat';
  * possono tardare. Con l'app che polla ogni 30 s, basta un utente perche'
  * il proxy si tenga fresco da solo.
  */
-const LAZY_REFRESH_AFTER_SECONDS = 120;
+const LAZY_REFRESH_AFTER_SECONDS = 55;
 
 let lazyRefreshInFlight = false;
 

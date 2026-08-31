@@ -59,6 +59,7 @@ class RealtimeClient(
     val resolvedPercent = MutableStateFlow<Int?>(null)
 
     private var proxyFailures = 0
+    private var staleStrikes = 0
     private var directHoldUntilMs = 0L
     private var vehiclesEtag: String? = null
     private var delaysEtag: String? = null
@@ -77,25 +78,33 @@ class RealtimeClient(
         if (proxyOk && nowMs >= directHoldUntilMs) {
             try {
                 val fetched = fetchBinary("$PROXY_BASE/vehicles", vehiclesEtag)
+                val age: Long?
                 if (fetched != null) {
                     val (bytes, etag) = fetched
                     val parsed = RtCodec.parseVehicles(bytes)
                     vehiclesEtag = etag
-                    val age = feedAge(parsed.feedTimestamp)
-                    if (age != null && age > STALE_SECONDS) {
-                        // Il proxy risponde ma serve roba vecchia: e' un
-                        // fallimento morbido, si prova la strada diretta.
-                        registerProxyFailure("feed del proxy vecchio di ${age}s")
-                    } else {
-                        proxyFailures = 0
-                        _vehicles.value = parsed
-                        publish(Source.PROXY, age, null)
-                        return@withContext
-                    }
+                    age = feedAge(parsed.feedTimestamp)
+                    // Anche un dato vecchio e' il migliore che abbiamo: si
+                    // mostra comunque, e' l'eta' a dire quanto fidarsi.
+                    _vehicles.value = parsed
                 } else {
                     // 304: dati identici, si aggiorna solo l'eta'.
-                    proxyFailures = 0
-                    publish(Source.PROXY, feedAge(_vehicles.value?.feedTimestamp), null)
+                    age = feedAge(_vehicles.value?.feedTimestamp)
+                }
+                proxyFailures = 0
+                if (age == null || age <= STALE_SECONDS) {
+                    staleStrikes = 0
+                    publish(Source.PROXY, age, null)
+                    return@withContext
+                }
+                // Feed stantio. La richiesta stessa ha appena svegliato il
+                // refresh pigro del proxy: quasi sempre il prossimo giro da
+                // 30 s trova dati freschi. La strada diretta scatta solo
+                // dopo tre giri stantii DI FILA — buttarsi sull'origine al
+                // primo colpo era il motivo del ritmo lento da 3 minuti.
+                staleStrikes++
+                if (staleStrikes < 3) {
+                    publish(Source.PROXY, age, "feed vecchio di ${age}s, riprovo")
                     return@withContext
                 }
             } catch (e: Exception) {
@@ -107,6 +116,7 @@ class RealtimeClient(
         try {
             val bytes = fetchRaw(DIRECT_VEHICLES)
             val parsed = GtfsRtLite.parseVehiclePositions(bytes, Instant.now().epochSecond)
+            staleStrikes = 0
             _vehicles.value = parsed
             // In DIRECT i ritardi non si scaricano: quelli vecchi mentirebbero.
             _delays.value = null

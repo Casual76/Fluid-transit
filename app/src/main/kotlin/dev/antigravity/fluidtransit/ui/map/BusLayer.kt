@@ -47,6 +47,8 @@ class BusOverlay {
          * decisa si orienta cosi' — e chi e' fermo resta un pallino.
          */
         var derivedBearing: Int = -1,
+        /** Quando il TARGET si e' mosso l'ultima volta: detta il ritmo del glide. */
+        var lastMoveMs: Long = 0L,
     ) {
         fun at(nowMs: Long): Pair<Double, Double> {
             if (durationMs <= 0) return toLat to toLon
@@ -67,6 +69,16 @@ class BusOverlay {
             if (prev == null) {
                 anims[b.vehKey] = Anim(b.lat, b.lon, b.lat, b.lon, nowMs, 0, b)
             } else {
+                val targetMoved = dev.antigravity.fluidtransit.routing.BundleReader
+                    .haversine(prev.toLat, prev.toLon, b.lat, b.lon)
+                if (targetMoved < 8) {
+                    // Stessa posizione di prima (l'origine si rigenera ogni
+                    // ~2 min, meta' degli snapshot sono fotocopie): il glide
+                    // in corso continua indisturbato, si aggiornano solo i
+                    // vestiti del marker.
+                    prev.render = b
+                    continue
+                }
                 val (curLat, curLon) = prev.at(nowMs)
                 val jump = dev.antigravity.fluidtransit.routing.BundleReader
                     .haversine(curLat, curLon, b.lat, b.lon)
@@ -77,13 +89,22 @@ class BusOverlay {
                     prev.derivedBearing = -1
                 } else {
                     prev.fromLat = curLat; prev.fromLon = curLon
-                    prev.durationMs = GLIDE_MS
+                    // Il ritmo lo detta il feed di QUESTO mezzo: se una
+                    // posizione nuova arriva ogni ~2 min, uno scatto da 28 s
+                    // seguito da 90 di gelo sembra morto — meglio scivolare
+                    // piano per tutto l'intervallo osservato.
+                    prev.durationMs = if (prev.lastMoveMs > 0) {
+                        (nowMs - prev.lastMoveMs).coerceIn(MIN_GLIDE_MS, MAX_GLIDE_MS)
+                    } else {
+                        MIN_GLIDE_MS
+                    }
                     // Sopra i ~25 m il movimento e' vero e la rotta si
                     // deriva; sotto, e' rumore GPS e la freccia resta com'e'.
                     if (jump > 25) {
                         prev.derivedBearing = bearingDegrees(curLat, curLon, b.lat, b.lon)
                     }
                 }
+                prev.lastMoveMs = nowMs
                 prev.toLat = b.lat; prev.toLon = b.lon
                 prev.startMs = nowMs
                 prev.render = b
@@ -119,8 +140,9 @@ class BusOverlay {
     fun clear() = anims.clear()
 
     private companion object {
-        /** Poco meno del poll da 30 s: il glide finisce appena prima del dato nuovo. */
-        const val GLIDE_MS = 28_000L
+        /** I limiti del glide adattivo: mai piu' scattoso di 25 s, mai piu' lento di 130. */
+        const val MIN_GLIDE_MS = 25_000L
+        const val MAX_GLIDE_MS = 130_000L
 
         /** Rotta iniziale (gradi da nord, orari) dal punto vecchio al nuovo. */
         fun bearingDegrees(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Int {

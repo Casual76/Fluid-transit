@@ -129,11 +129,21 @@ jobs:
           done
 
           # Gate 3, corse per giorno della settimana: entro +-20% rispetto
-          # allo stesso giorno del build precedente. Intercetta "il feed e'
-          # valido ma lunedi' ha zero corse". La finestra di ieri e' spostata
-          # di un giorno: il giorno d di oggi e' il giorno d+1 di ieri.
+          # allo STESSO GIORNO del build precedente. Intercetta "il feed e'
+          # valido ma lunedi' ha zero corse". Lo sfasamento fra le due
+          # finestre non si assume (il primo tentativo assumeva "un giorno" e
+          # un semplice ri-run sullo stesso feed confrontava il sabato con la
+          # domenica): si calcola dalle date di inizio dichiarate.
+          oldFrom=$(jq -r .validFrom $old)
+          newFrom=$(jq -r .validFrom $new)
+          offset=$(( ( $(date -u -d "$newFrom" +%s) - $(date -u -d "$oldFrom" +%s) ) / 86400 ))
+          echo "finestre: $oldFrom -> $newFrom (sfasamento $offset giorni)"
+          if [ "$offset" -lt 0 ] || [ "$offset" -gt 6 ]; then
+            echo "::warning::sfasamento fuori scala, gate settimanale saltato"
+            exit $fail
+          fi
           for d in 0 1 2 3 4 5; do
-            a=$(jq -r ".tripsActivePerDay[$((d + 1))] // empty" $old)
+            a=$(jq -r ".tripsActivePerDay[$((d + offset))] // empty" $old)
             b=$(jq -r ".tripsActivePerDay[$d] // empty" $new)
             if [ -n "$a" ] && [ -n "$b" ] && [ "$a" -gt 0 ]; then
               delta=$(( (b - a) * 100 / a )); [ $delta -lt 0 ] && delta=$((-delta))

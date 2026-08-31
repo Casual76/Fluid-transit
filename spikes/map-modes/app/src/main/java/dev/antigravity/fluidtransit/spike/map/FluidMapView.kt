@@ -43,8 +43,13 @@ data class MapFocus(val target: LatLng, val zoom: Double, val nonce: Int)
 /**
  * La mappa.
  *
- * Il pezzo che in Fase 3 diventa il fondo dell'app: sopra ci andranno le
- * fermate, le linee, i bus vivi e i pannelli in vetro. Qui è nuda apposta.
+ * ⚠️ **BANCO DI PROVA, NON FUNZIONALITÀ.** Regge le modalità abbastanza da
+ * poterle guardare, e nient'altro. Non ci sono la posizione dell'utente, le
+ * fermate, le linee, i bus, la gestione degli errori di rete, il
+ * comportamento offline, il ripristino dello stato: tutto questo è Fase 3.
+ *
+ * Il ciclo di vita e la forma delle opzioni si portano avanti; le scelte su
+ * cosa la mappa debba mostrare e come vada guidata no — vanno chieste.
  *
  * Il ciclo di vita della `MapView` è manuale perché `MapView` è una View di
  * Android e non sa niente di Compose: saltarne anche solo `onStop` lascia il
@@ -166,6 +171,12 @@ private suspend fun awaitMap(mapView: MapView, holder: Array<MapLibreMap?>): Map
  * puro non c'è vettoriale affatto e non si può fare niente: l'interruttore
  * resta senza effetto, e la UI lo dice invece di lasciar credere che sia
  * rotto.
+ *
+ * ⚠️ Il ramo dell'ibrida esiste solo perché questo è un banco di prova.
+ * **Nell'app quella combinazione non va offerta**: i volumi coprono la foto
+ * aerea e non abbiamo texture da metterci sopra. Il codice qui sotto la
+ * rende soltanto meno brutta abbassando l'opacità, che è una toppa, non una
+ * soluzione.
  */
 private fun applyBuildings3d(style: Style, enabled: Boolean) {
     val visibility = PropertyFactory.visibility(if (enabled) Property.VISIBLE else Property.NONE)

@@ -3,12 +3,19 @@ package dev.antigravity.fluidtransit.spike.map
 /**
  * Le sorgenti della mappa e le modalità di visualizzazione.
  *
- * È il file che in Fase 3 si sposta nell'app così com'è, ed è scritto per
- * quello: tutto ciò che riguarda "da dove vengono le tile" sta qui e solo qui.
- * Il motivo non è ordine fine a sé stesso — la basemap arriva da OpenFreeMap,
- * che è gratuito e senza chiave ma è infrastruttura di qualcun altro, e il
- * giorno in cui andasse cambiata deve essere una modifica a questo file e non
- * una caccia al tesoro dentro la UI.
+ * ⚠️ **BANCO DI PROVA, NON FUNZIONALITÀ.** Questo modulo serviva a rispondere a
+ * una domanda sola — le sorgenti scelte funzionano davvero su un telefono? — e
+ * la risposta è sì. Non è un pezzo di app scritto in anticipo.
+ *
+ * Quello che sopravvive alla Fase 3 è la *forma*: tutto ciò che riguarda "da
+ * dove vengono le tile" sta in un file solo, perché la basemap è infrastruttura
+ * di qualcun altro e il giorno in cui andasse cambiata dev'essere una modifica
+ * qui e non una caccia al tesoro dentro la UI.
+ *
+ * Quello che **non** sopravvive sono le scelte: quante modalità offrire e con
+ * che nomi, quale sia quella di partenza, se il satellite sia attivo di
+ * default. Nessuna di queste è stata decisa — sono messe lì per poter essere
+ * guardate. Vanno chieste prima di scrivere l'app, non ereditate da qui.
  */
 object MapCatalog {
 
@@ -134,8 +141,13 @@ object MapCatalog {
      * pasticcio. Le etichette hanno un alone spesso perché il fondo sotto è
      * imprevedibile — bianco su tetti chiari sparisce.
      *
-     * La sorgente vettoriale resta disponibile anche per gli edifici estrusi,
-     * che qui si possono accendere sopra la foto.
+     * La sorgente vettoriale resta disponibile anche per gli edifici estrusi.
+     *
+     * ⚠️ Nell'app **gli edifici 3D non vanno offerti in questa modalità**:
+     * sopra una foto aerea sono volumi di un colore inventato che coprono la
+     * foto, e senza fotogrammetria non c'è alcuna texture da metterci. Qui
+     * l'interruttore resta acceso apposta, perché il punto del banco di prova
+     * era proprio vedere che effetto fa.
      */
     private val HYBRID_STYLE = """
     {

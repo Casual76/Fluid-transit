@@ -1,9 +1,20 @@
-# spikes/map-modes — le basi della mappa
+# spikes/map-modes — banco di prova della mappa
 
-Prototipo della mappa che l'app userà davvero, con una UI minima per guardare
-le modalità una accanto all'altra. **Non è l'app**: l'app nasce in Fase 2 e la
-mappa vera si monta in Fase 3. Quello che è scritto per durare è il codice
-sotto la UI.
+> ⚠️ **Questo non è una funzionalità.** È servito a rispondere a una domanda
+> sola — *le sorgenti scelte funzionano davvero su un telefono?* — e la
+> risposta è sì. La mappa dell'app non è iniziata: manca tutto quello che la
+> renderebbe utile (posizione dell'utente, fermate, linee, bus, comportamento
+> senza rete, stato che sopravvive alla rotazione) e **nessuna delle scelte di
+> esperienza utente che si vedono qui è stata decisa**. Sono messe lì per
+> poterle guardare.
+>
+> Esempio concreto di cosa non va preso per buono: **in modalità ibrida gli
+> edifici 3D non dovrebbero essere disponibili**. Sopra una foto aerea sono
+> volumi di un colore inventato che coprono la foto. Qui l'interruttore resta
+> acceso apposta, perché il punto era vedere che effetto fa.
+>
+> A implementare le cose come vanno fatte si penserà durante la Fase 3, e le
+> scelte di esperienza utente si chiedono prima — non si ereditano da qui.
 
 ```
 ./gradlew :app:assembleDebug
@@ -80,10 +91,23 @@ caricata".
 
 ## Da fare in Fase 3
 
+Tecnico:
+
 - Sostituire la UI di prova con i pannelli in vetro dell'engine.
 - Posizione dell'utente, fermate, linee, bus vivi sopra la mappa.
-- Decidere se il satellite resta attivo di default: il tetto della Worker è
-  100.000 richieste/giorno e questa è l'unica voce che scala con gli utenti.
-  La cache lo rende molto meno preoccupante, ma non lo azzera al primo caricamento.
+- Comportamento senza rete, errori delle sorgenti, stato che sopravvive alla
+  rotazione e al ritorno da background: qui non c'è niente di tutto questo.
 - Verificare la mappa su un dispositivo Android 10-12: qui è provata solo su
   Android 16 di fascia alta, dove tutto va per definizione.
+
+Da **chiedere**, non da decidere guardando questo prototipo:
+
+- quante modalità offrire davvero, e con che nomi;
+- quale sia la modalità di partenza;
+- se il satellite sia attivo di default — il tetto della Worker è 100.000
+  richieste/giorno e questa è l'unica voce che scala con gli utenti; la cache
+  lo rende molto meno preoccupante ma non azzera il primo caricamento;
+- se offrire gli edifici 3D, e in quali modalità (nell'ibrida no);
+- se l'inclinazione sia un cursore, un gesto, o non sia esposta affatto;
+- dove vada il selettore delle modalità, e se sia sempre visibile;
+- se esista una modalità notturna, e se segua l'ora o l'impostazione di sistema.

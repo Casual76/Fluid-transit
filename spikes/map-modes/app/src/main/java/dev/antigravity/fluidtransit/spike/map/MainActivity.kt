@@ -11,6 +11,15 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.WellKnownTileServer
 import org.maplibre.android.module.http.HttpRequestUtil
 
+/**
+ * ⚠️ Banco di prova delle modalità di mappa. **Non è l'app**, e nemmeno un suo
+ * primo pezzo: esisteva per verificare che OpenFreeMap e le ortofoto della
+ * Regione funzionassero davvero su un telefono. Verificato.
+ *
+ * Nessuna scelta di esperienza utente qui dentro è stata decisa — dalla
+ * modalità di partenza al tema, dai controlli alla diagnostica a schermo. Vanno
+ * tutte chieste prima di scrivere l'app vera, in Fase 2 e 3.
+ */
 class MainActivity : ComponentActivity() {
 
     private val stats by lazy { NetworkStats(cacheDir) }

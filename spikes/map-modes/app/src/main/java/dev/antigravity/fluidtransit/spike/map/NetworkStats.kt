@@ -14,7 +14,8 @@ import java.io.IOException
 /**
  * Traffico della mappa: misurato, e ridotto dove si può.
  *
- * Non è strumentazione da prototipo destinata a sparire. Risponde a una
+ * È l'unica parte di questo banco di prova che vale già come lavoro vero — il
+ * resto serviva solo a vedere che le sorgenti funzionassero. Risponde a una
  * domanda concreta del piano: il satellite è **l'unica funzione dell'app il
  * cui traffico cresce con gli utenti** — le ortofoto vengono da un server
  * della pubblica amministrazione senza CDN e andranno dietro la nostra cache,

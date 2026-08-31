@@ -35,12 +35,20 @@ import androidx.compose.ui.unit.sp
 import org.maplibre.android.geometry.LatLng
 
 /**
- * Pannello di prova. **Non è la UI dell'app**: è il minimo che serve per
- * guardare le modalità una accanto all'altra e decidere.
+ * Pannello di prova. **Non è la UI dell'app**, e non è nemmeno una bozza di
+ * come dovrebbe essere: è il minimo che serve per guardare le modalità una
+ * accanto all'altra.
+ *
+ * Niente di quello che si vede qui è una decisione presa. Che il selettore
+ * sia una fila di chip in basso, che l'inclinazione sia un cursore, che le
+ * modalità si chiamino così, che la diagnostica di rete sia visibile: sono
+ * tutte scelte fatte per comodità del banco di prova, in cinque minuti, e
+ * vanno **chieste** prima di scrivere l'app invece di scivolarci dentro
+ * perché "c'erano già".
  *
  * In Fase 3 sopra la mappa ci andranno i pannelli in vetro dell'engine —
  * ricerca, scheda fermata, foglio itinerari — e di questo file non resta
- * niente. Resta invece tutto ciò che sta sotto: [FluidMapView], [MapCatalog]
+ * niente. Resta la forma di ciò che sta sotto: [FluidMapView], [MapCatalog]
  * e [NetworkStats].
  */
 @Composable
@@ -100,6 +108,11 @@ fun MapModesScreen(stats: NetworkStats) {
                     // Nel satellite puro non c'è vettoriale, quindi non ci sono
                     // edifici da estrudere. Dirlo è meglio che lasciare un
                     // interruttore che sembra rotto.
+                    //
+                    // ⚠️ Nell'app l'interruttore va tolto anche dall'ibrida, non
+                    // solo dal satellite: i volumi coprono la foto aerea. Qui
+                    // resta disponibile apposta, perché il banco di prova serve
+                    // proprio a vedere che effetto fa prima di decidere.
                     val threeDPossible = options.mode != MapCatalog.MapMode.SATELLITE
                     ToggleRow(
                         label = "Edifici 3D",

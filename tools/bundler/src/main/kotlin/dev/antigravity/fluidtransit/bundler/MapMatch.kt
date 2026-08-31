@@ -31,10 +31,19 @@ class MapMatcher(baseUrl: String) {
     class Matched(val lat: DoubleArray, val lon: DoubleArray)
 
     /**
+     * L'interruttore di sicurezza: se Valhalla muore a meta' corsa, migliaia
+     * di richieste in timeout appenderebbero il job per ore. Dopo troppi
+     * fallimenti CONSECUTIVI il matcher si arrende in blocco e ogni shape
+     * resta la traccia GPS; un successo azzera il conto.
+     */
+    private val consecutiveFailures = java.util.concurrent.atomic.AtomicInteger()
+
+    /**
      * Riproietta una traccia. Ritorna null quando il risultato non e'
      * affidabile: il chiamante tiene la geometria originale.
      */
     fun match(la: DoubleArray, lo: DoubleArray): Matched? {
+        if (consecutiveFailures.get() > MAX_CONSECUTIVE_FAILURES) return null
         val idx = downsample(la, lo)
         if (idx.size < 2) return null
 
@@ -49,7 +58,12 @@ class MapMatcher(baseUrl: String) {
                 "\"trace_options\":{\"search_radius\":40}}",
         )
 
-        val response = post(body.toString()) ?: post(body.toString()) ?: return null
+        val response = post(body.toString()) ?: post(body.toString())
+        if (response == null) {
+            consecutiveFailures.incrementAndGet()
+            return null
+        }
+        consecutiveFailures.set(0)
 
         val outLat = ArrayList<Double>(la.size * 2)
         val outLon = ArrayList<Double>(la.size * 2)
@@ -71,7 +85,7 @@ class MapMatcher(baseUrl: String) {
 
     private fun post(body: String): String? = try {
         val request = HttpRequest.newBuilder(endpoint)
-            .timeout(Duration.ofSeconds(60))
+            .timeout(Duration.ofSeconds(30))
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(body))
             .build()
@@ -84,6 +98,9 @@ class MapMatcher(baseUrl: String) {
     private companion object {
         /** Sotto i 25 m i punti GPS sono ridondanza: il grafo interpola meglio. */
         const val SPACING_M = 25.0
+
+        /** Fallimenti consecutivi oltre i quali il matcher si spegne per questo build. */
+        const val MAX_CONSECUTIVE_FAILURES = 50
 
         /** Tetto di punti per richiesta, sotto i limiti di servizio di Valhalla. */
         const val MAX_POINTS = 900

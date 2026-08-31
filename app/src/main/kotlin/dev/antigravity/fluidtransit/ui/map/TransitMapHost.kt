@@ -521,6 +521,24 @@ class TransitMapController(private val context: Context) {
             else -> Expression.literal(true)
         }
         layer.setFilter(expr)
+        // In modalita' linea i bus DELLA linea si vedono da qualunque zoom,
+        // come le sue fermate: la camera che inquadra un'extraurbana intera
+        // sta spesso sotto la soglia normale.
+        if (rh != null) {
+            layer.minZoom = 6f
+            layer.setProperties(PropertyFactory.iconOpacity(1f))
+        } else {
+            layer.minZoom = MapCatalog.BUS_MIN_ZOOM
+            layer.setProperties(
+                PropertyFactory.iconOpacity(
+                    Expression.interpolate(
+                        Expression.linear(), Expression.zoom(),
+                        Expression.stop(MapCatalog.BUS_MIN_ZOOM, 0f),
+                        Expression.stop(MapCatalog.BUS_MIN_ZOOM + 0.8f, 1f),
+                    ),
+                ),
+            )
+        }
     }
 
     /** Il nuovo snapshot risolto: ogni bus riparte da dov'e' verso la nuova meta. */
@@ -547,7 +565,7 @@ class TransitMapController(private val context: Context) {
     fun tickBuses() {
         val m = map ?: return
         if (busOverlay.isEmpty) return
-        if (m.cameraPosition.zoom < MapCatalog.BUS_MIN_ZOOM - 0.5) return
+        if (highlightedRoute == null && m.cameraPosition.zoom < MapCatalog.BUS_MIN_ZOOM - 0.5) return
         val style = m.style ?: return
         pushBusFeatures(style)
     }

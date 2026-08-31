@@ -316,7 +316,10 @@ fun MapScreen(
     val vehiclesActive = ready != null &&
         (
             cameraZoom >= MapCatalog.BUS_MIN_ZOOM - 0.6 ||
-                panel is Panel.TripMini || panel is Panel.TripFull
+                panel is Panel.TripMini || panel is Panel.TripFull ||
+                // In modalita' linea i bus della tratta si vedono da
+                // qualunque zoom: il polling deve accompagnarli.
+                panel is Panel.RouteMini || panel is Panel.RouteFull
             )
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     LaunchedEffect(vehiclesActive) {

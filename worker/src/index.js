@@ -34,10 +34,27 @@ const NO_CACHE = {
 };
 
 const MAX_AGE_SECONDS = 45;
+const HEARTBEAT_KEY = 'rt/cron-heartbeat';
 
 export default {
   async scheduled(controller, env, ctx) {
-    ctx.waitUntil(refresh(env));
+    // Il battito: si scrive a OGNI invocazione, qualunque sia l'esito.
+    // Distingue "il cron non parte" da "parte e fallisce" — senza log
+    // persistenti e' l'unico testimone, e /rt/v1/health lo riporta.
+    ctx.waitUntil(
+      (async () => {
+        let outcome;
+        try {
+          outcome = await refresh(env);
+        } catch (e) {
+          outcome = 'errore: ' + String(e);
+        }
+        await env.RT.put(
+          HEARTBEAT_KEY,
+          JSON.stringify({ at: Math.floor(Date.now() / 1000), outcome }),
+        );
+      })(),
+    );
   },
 
   async fetch(request, env, ctx) {
@@ -227,6 +244,13 @@ async function serveSection(request, env, ctx, kind) {
 }
 
 async function serveHealth(env) {
+  let heartbeat = null;
+  try {
+    const hb = await env.RT.get(HEARTBEAT_KEY);
+    if (hb) heartbeat = JSON.parse(await hb.text());
+  } catch {
+    heartbeat = null;
+  }
   let header = null;
   try {
     const head = await env.RT.get(SNAPSHOT_KEY, { range: { offset: 0, length: HEADER_LEN } });
@@ -243,6 +267,7 @@ async function serveHealth(env) {
       vehicles: { count: header.vehicleCount, feedAgeSeconds: header.vpTimestamp ? now - header.vpTimestamp : null },
       updates: { count: header.delayCount, feedAgeSeconds: header.tuTimestamp ? now - header.tuTimestamp : null },
       alerts: { bytes: header.alertsLen, feedAgeSeconds: header.alTimestamp ? now - header.alTimestamp : null },
+      cron: heartbeat ? { ageSeconds: now - heartbeat.at, outcome: heartbeat.outcome } : null,
     }
     : { ok: false, error: 'snapshot non ancora generato' };
   return new Response(JSON.stringify(body, null, 2), {

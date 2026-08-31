@@ -47,6 +47,7 @@ export default {
       case '/rt/v1/updates': return serveSection(request, env, ctx, 2);
       case '/rt/v1/alerts': return serveSection(request, env, ctx, 3);
       case '/rt/v1/health': return serveHealth(env);
+      case '/rt/v1/refresh': return serveRefresh(env);
       default:
         return new Response('Fluid Transit realtime proxy. Endpoints: /rt/v1/{vehicles,updates,alerts,health}\n', {
           status: url.pathname === '/' ? 200 : 404,
@@ -65,6 +66,24 @@ async function fetchFeed(name) {
   });
   if (!res.ok) throw new Error(`${name}: HTTP ${res.status}`);
   return new Uint8Array(await res.arrayBuffer());
+}
+
+/**
+ * Lo stesso lavoro del cron, a comando: per il debug e per forzare un giro.
+ * Costa quanto un tick di cron; niente da proteggere.
+ */
+async function serveRefresh(env) {
+  try {
+    const outcome = await refresh(env);
+    return new Response(JSON.stringify({ ok: true, outcome }, null, 2), {
+      headers: { "content-type": "application/json", "cache-control": "no-store" },
+    });
+  } catch (e) {
+    return new Response(
+      JSON.stringify({ ok: false, error: String(e), stack: e && e.stack }, null, 2),
+      { status: 500, headers: { "content-type": "application/json", "cache-control": "no-store" } },
+    );
+  }
 }
 
 async function refresh(env) {
@@ -91,7 +110,7 @@ async function refresh(env) {
       .map((r, i) => (r.status === 'rejected' ? `${i}:${r.reason}` : null))
       .filter(Boolean)
       .join(' | '));
-    return;
+    return 'feed non raggiunti';
   }
 
   const [vpBytes, tuBytes, alBytes] = results.map((r) => r.value);
@@ -105,7 +124,7 @@ async function refresh(env) {
     alTimestamp = parseFeed(alBytes, 'header').timestamp || 0;
   } catch (e) {
     console.log('parse fallito, snapshot non toccato:', String(e));
-    return;
+    return 'parse fallito: ' + String(e);
   }
 
   // L'origine si rigenera ogni ~2 minuti: se niente e' cambiato, niente
@@ -117,7 +136,7 @@ async function refresh(env) {
     prev.tuTimestamp === (tu.timestamp || 0) &&
     prev.alTimestamp === alTimestamp
   ) {
-    return;
+    return 'invariato: timestamp identici, nessuna scrittura';
   }
 
   const snapshot = buildSnapshot({
@@ -128,6 +147,7 @@ async function refresh(env) {
     flags: 0,
   });
   await env.RT.put(SNAPSHOT_KEY, snapshot);
+  return 'scritto: ' + vp.vehicles.length + ' veicoli, ' + tu.updates.length + ' update, ' + snapshot.length + ' B';
 }
 
 // --- richieste --------------------------------------------------------------

@@ -36,6 +36,30 @@ const NO_CACHE = {
 const MAX_AGE_SECONDS = 45;
 const HEARTBEAT_KEY = 'rt/cron-heartbeat';
 
+/**
+ * Refresh pigro: se una richiesta scopre uno snapshot piu' vecchio di cosi',
+ * ne avvia uno in waitUntil. E' la cintura oltre alle bretelle del cron —
+ * osservato sul campo: la schedule risulta registrata ma le prime esecuzioni
+ * possono tardare. Con l'app che polla ogni 30 s, basta un utente perche'
+ * il proxy si tenga fresco da solo.
+ */
+const LAZY_REFRESH_AFTER_SECONDS = 120;
+
+let lazyRefreshInFlight = false;
+
+function maybeLazyRefresh(env, ctx, generatedAt) {
+  const age = Math.floor(Date.now() / 1000) - (generatedAt || 0);
+  if (age < LAZY_REFRESH_AFTER_SECONDS || lazyRefreshInFlight) return;
+  lazyRefreshInFlight = true;
+  ctx.waitUntil(
+    refresh(env)
+      .catch(() => {})
+      .finally(() => {
+        lazyRefreshInFlight = false;
+      }),
+  );
+}
+
 export default {
   async scheduled(controller, env, ctx) {
     // Il battito: si scrive a OGNI invocazione, qualunque sia l'esito.
@@ -63,7 +87,7 @@ export default {
       case '/rt/v1/vehicles': return serveSection(request, env, ctx, 1);
       case '/rt/v1/updates': return serveSection(request, env, ctx, 2);
       case '/rt/v1/alerts': return serveSection(request, env, ctx, 3);
-      case '/rt/v1/health': return serveHealth(env);
+      case '/rt/v1/health': return serveHealth(env, ctx);
       case '/rt/v1/refresh': return serveRefresh(env);
       default:
         return new Response('Fluid Transit realtime proxy. Endpoints: /rt/v1/{vehicles,updates,alerts,health}\n', {
@@ -199,6 +223,7 @@ async function serveSection(request, env, ctx, kind) {
     }
     const snapshot = new Uint8Array(await obj.arrayBuffer());
     const header = readHeader(snapshot);
+    if (header) maybeLazyRefresh(env, ctx, header.generatedAt);
     if (!header) {
       return new Response(JSON.stringify({ error: 'snapshot corrotto' }), {
         status: 503,
@@ -243,7 +268,7 @@ async function serveSection(request, env, ctx, kind) {
   return response;
 }
 
-async function serveHealth(env) {
+async function serveHealth(env, ctx) {
   let heartbeat = null;
   try {
     const hb = await env.RT.get(HEARTBEAT_KEY);
@@ -259,6 +284,7 @@ async function serveHealth(env) {
     header = null;
   }
   const now = Math.floor(Date.now() / 1000);
+  if (header) maybeLazyRefresh(env, ctx, header.generatedAt);
   const body = header
     ? {
       ok: true,

@@ -84,11 +84,12 @@ class BundleRoundtripTest {
         byCell.values.forEach { cell -> cell.forEach { grid.i32(it) } }
         w.section(Ftb.S_STOP_GRID, grid)
 
-        // ROUTES: shortName, longName, agency, type, color, idHash (28 B).
+        // ROUTES: shortName, longName, agency, type, colorFeed, colorDisplay, idHash (32 B).
         val routes = ByteBuf().i32(1).i32(0)
             .i32(routeShort).i32(routeLong).i32(agency)
             .i32(3) // GTFS route_type 3 = bus
-            .i32(0x9B6DD6) // ametista, gia' che ci siamo
+            .i32(0x15AC96) // il colore di categoria del feed
+            .i32(0x9B6DD6) // il colore di visualizzazione assegnato
             .i64(Ftb.hash64(routeId))
         w.section(Ftb.S_ROUTES, routes)
 
@@ -181,7 +182,8 @@ class BundleRoundtripTest {
             assertEquals("1", r.routeShortName(0))
             assertEquals("at - Test urbano", r.routeAgency(0))
             assertEquals(3, r.routeType(0))
-            assertEquals(0x9B6DD6, r.routeColor(0))
+            assertEquals(0x15AC96, r.routeColor(0))
+            assertEquals(0x9B6DD6, r.routeDisplayColor(0))
         }
     }
 

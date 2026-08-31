@@ -111,58 +111,14 @@ fun main(args: Array<String>) {
         }
     }
 
-    // --- il grafo di sovrapposizione e la colorazione ----------------------
-    // Peso dell'arco = quante fermate condividono: quando la palette non
-    // basta, si riusa il colore del vicino con cui ci si sovrappone meno.
-    val adjacency = HashMap<Long, Int>() // (min<<32|max) -> peso
-    for (s in routesAtStop) {
-        val list = s.toIntArray().also { it.sort() }
-        for (i in list.indices) {
-            for (j in i + 1 until list.size) {
-                val key = (list[i].toLong() shl 32) or list[j].toLong()
-                adjacency[key] = (adjacency[key] ?: 0) + 1
-            }
-        }
-    }
-    val neighbors = Array(routes.size) { HashMap<Int, Int>() }
-    for ((key, weight) in adjacency) {
-        val a = (key ushr 32).toInt()
-        val b = (key and 0xffffffff).toInt()
-        neighbors[a][b] = weight
-        neighbors[b][a] = weight
-    }
-
-    val order = routes.indices.sortedWith(
-        compareByDescending<Int> { neighbors[it].size }.thenBy { routes[it].id },
+    // --- la colorazione, condivisa col bundler -----------------------------
+    // Stessa funzione, stessi input deterministici: il colore che finisce
+    // nelle tile e' lo stesso scritto nel record ROUTES del bundle.
+    val paletteIdx = RouteColoring.assign(
+        routes.map { it.id },
+        routesAtStop.map { it as Collection<Int> },
     )
-    for (r in order) {
-        val usedWeight = IntArray(PALETTE.size)
-        var anyFree = false
-        for ((n, w) in neighbors[r]) {
-            val c = routes[n].color
-            if (c >= 0) usedWeight[c] += w
-        }
-        for (c in PALETTE.indices) if (usedWeight[c] == 0) anyFree = true
-        // Fra i liberi il primo; se la palette e' esaurita dai vicini, quello
-        // col minor peso di sovrapposizione. Partenza ruotata sull'hash della
-        // linea, cosi' linee lontane e mai adiacenti non escono tutte del
-        // primo colore della palette.
-        val start = ((Ftb.hash64(routes[r].id) % PALETTE.size + PALETTE.size) % PALETTE.size).toInt()
-        var best = -1
-        for (k in PALETTE.indices) {
-            val c = (start + k) % PALETTE.size
-            if (usedWeight[c] == 0) {
-                best = c
-                break
-            }
-        }
-        if (best < 0) {
-            best = 0
-            for (c in PALETTE.indices) if (usedWeight[c] < usedWeight[best]) best = c
-        }
-        routes[r].color = best
-        if (anyFree) Unit
-    }
+    for (r in routes.indices) routes[r].color = paletteIdx[r]
 
     // --- shapes, in streaming: geometrie per linea -------------------------
     // Raggruppate per shape_id come stop_times lo e' per corsa; l'ordine
@@ -216,7 +172,7 @@ fun main(args: Array<String>) {
             val r = routes[route]
             val sb = StringBuilder(simplified.size * 24 + 128)
             sb.append("{\"type\":\"Feature\",\"properties\":{\"c\":\"")
-                .append(PALETTE[r.color])
+                .append(RouteColoring.hex(r.color))
                 .append("\",\"n\":").append(jsonString(r.shortName))
                 .append(",\"cat\":\"").append(r.category)
                 .append("\",\"rh\":\"").append(java.lang.Long.toHexString(Ftb.hash64(r.id)))
@@ -272,46 +228,22 @@ fun main(args: Array<String>) {
         }
     }
 
-    val colorUse = IntArray(PALETTE.size)
+    val colorUse = IntArray(RouteColoring.PALETTE.size)
     for (r in routes) if (r.color >= 0) colorUse[r.color]++
-    // Quante coppie adiacenti hanno lo stesso colore: e' la misura di quanto
-    // la promessa "linee sovrapposte, colori diversi" e' mantenuta.
-    var conflicts = 0
-    for ((key, _) in adjacency) {
-        val a = (key ushr 32).toInt()
-        val b = (key and 0xffffffff).toInt()
-        if (routes[a].color == routes[b].color) conflicts++
-    }
+    val (conflicts, pairs) = RouteColoring.conflicts(
+        paletteIdx,
+        routesAtStop.map { it as Collection<Int> },
+    )
 
     println("overlay: ${System.currentTimeMillis() - t0} ms")
     println("  linee:    $featuresOut geometrie da ${shapeToRoute.size} shape ($pointsIn -> $pointsOut punti, DP ${TOLERANCE_M} m)")
     println("  fermate:  $stopsOut")
     println("  colori:   ${colorUse.joinToString()} per tinta")
-    println("  conflitti: $conflicts coppie sovrapposte con lo stesso colore su ${adjacency.size}")
+    println("  conflitti: $conflicts coppie sovrapposte con lo stesso colore su $pairs")
 }
 
 /** Tolleranza della semplificazione: sotto i 12 m una tratta urbana resta riconoscibile a ogni zoom della mappa. */
 private const val TOLERANCE_M = 12.0
-
-/**
- * Dodici tinte distinte, tarate per leggibilita' su basemap chiara e scura:
- * sature ma non fluorescenti, spaziate sul cerchio cromatico, senza gialli
- * pallidi (spariscono sul chiaro) e senza blu notte (spariscono sullo scuro).
- */
-private val PALETTE = arrayOf(
-    "#E5484D", // rosso
-    "#2E90FA", // azzurro
-    "#12A594", // verde acqua
-    "#F76B15", // arancio
-    "#8E4EC6", // viola
-    "#5B9E31", // verde foglia
-    "#E5006A", // magenta
-    "#0B6BCB", // blu
-    "#B8860B", // ocra
-    "#00A2C7", // ciano
-    "#D6409F", // rosa acceso
-    "#7C66DC", // indaco
-)
 
 private fun metersApart(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
     val kx = 111_320.0 * Math.cos(Math.toRadians(lat1))

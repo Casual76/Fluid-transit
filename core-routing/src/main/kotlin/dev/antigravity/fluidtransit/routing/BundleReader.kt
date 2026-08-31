@@ -281,11 +281,18 @@ class BundleReader(file: File, private val verifyCrcOnFirstUse: Boolean = true) 
     fun routeAgency(i: Int): String = string(sec(Ftb.S_ROUTES).getInt(routeBase(i) + 8))
     fun routeType(i: Int): Int = sec(Ftb.S_ROUTES).getInt(routeBase(i) + 12)
 
-    /** Colore della linea come 0xRRGGBB, o 0 se il feed non lo dichiara. */
+    /** Colore dichiarato dal feed come 0xRRGGBB (e' un colore di categoria), o 0. */
     fun routeColor(i: Int): Int = sec(Ftb.S_ROUTES).getInt(routeBase(i) + 16)
 
+    /**
+     * Il colore con cui la linea si disegna davvero, come 0xRRGGBB: assegnato
+     * dal bundler con la colorazione del grafo di sovrapposizione, identico a
+     * quello dell'overlay sulla mappa.
+     */
+    fun routeDisplayColor(i: Int): Int = sec(Ftb.S_ROUTES).getInt(routeBase(i) + 20)
+
     /** Hash del `route_id` del feed: identita' stabile della linea. */
-    fun routeIdHash(i: Int): Long = sec(Ftb.S_ROUTES).getLong(routeBase(i) + 20)
+    fun routeIdHash(i: Int): Long = sec(Ftb.S_ROUTES).getLong(routeBase(i) + 24)
 
     /**
      * Risolve l'hash di un `route_id` nell'indice odierno, o -1.

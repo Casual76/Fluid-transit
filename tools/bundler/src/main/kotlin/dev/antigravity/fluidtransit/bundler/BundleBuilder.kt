@@ -627,17 +627,31 @@ class BundleBuilder(
         // --- ROUTES --------------------------------------------------------
         val routeRemap = HashMap<Int, Int>()
         val keptRoutes = c.usedRoutes.toIntArray().also { it.sort() }
-        val routeHashes = hashAllUnique("route_id", keptRoutes.map { routes.ids[it] })
+        keptRoutes.forEachIndexed { newIdx, r -> routeRemap[r] = newIdx }
+        val keptRouteIds = keptRoutes.map { routes.ids[it] }
+        val routeHashes = hashAllUnique("route_id", keptRouteIds)
+
+        // Il colore di visualizzazione: colorazione del grafo di
+        // sovrapposizione, la stessa che l'overlay scrive nelle tile.
+        val routesAtStopForColor = Array(kept.size) { HashSet<Int>() }
+        for (p in c.patternStops.indices) {
+            val newRoute = routeRemap.getValue(c.patternRoute[p])
+            for (s in c.patternStops[p]) {
+                routesAtStopForColor[newIndexOf.getValue(s)].add(newRoute)
+            }
+        }
+        val paletteIdx = RouteColoring.assign(keptRouteIds, routesAtStopForColor.asIterable())
+
         val routesBuf = ByteBuf(keptRoutes.size * Ftb.ROUTE_RECORD + 8)
         routesBuf.i32(keptRoutes.size)
         routesBuf.i32(0)
         keptRoutes.forEachIndexed { newIdx, r ->
-            routeRemap[r] = newIdx
             routesBuf.i32(strings.intern(routes.shortName[r]))
             routesBuf.i32(strings.intern(routes.longName[r]))
             routesBuf.i32(strings.intern(routes.agency[r]))
             routesBuf.i32(routes.type[r])
             routesBuf.i32(routes.color[r])
+            routesBuf.i32(RouteColoring.PALETTE[paletteIdx[newIdx]])
             routesBuf.i64(routeHashes[newIdx])
         }
 

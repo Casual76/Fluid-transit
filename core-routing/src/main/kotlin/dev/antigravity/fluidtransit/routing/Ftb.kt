@@ -52,8 +52,13 @@ object Ftb {
     /** "FTB1" in little-endian. */
     const val MAGIC = 0x31425446
 
-    /** Cambia solo quando il layout non e' piu' leggibile da un reader vecchio. */
-    const val FORMAT_VERSION = 2
+    /**
+     * Cambia solo quando il layout non e' piu' leggibile da un reader vecchio.
+     * v3: ROUTES guadagna il colore di visualizzazione assegnato dal bundler
+     * (la colorazione del grafo di sovrapposizione) - lo stesso colore che
+     * l'overlay scrive nelle tile, cosi' mappa e schede dicono la stessa cosa.
+     */
+    const val FORMAT_VERSION = 3
 
     const val HEADER_SIZE = 4096
     const val SECTION_ALIGN = 4096
@@ -119,8 +124,8 @@ object Ftb {
     /** lat i32 · lon i32 · nameIdx i32 · codeIdx i32 · parent i32 · idHash i64. */
     const val STOP_RECORD = 28
 
-    /** shortName i32 · longName i32 · agency i32 · type i32 · color i32 · idHash i64. */
-    const val ROUTE_RECORD = 28
+    /** shortName i32 · longName i32 · agency i32 · type i32 · colorFeed i32 · colorDisplay i32 · idHash i64. */
+    const val ROUTE_RECORD = 32
 
     /** route i32 · firstStop i32 · stopCount u16 · dir u8 · pad u8 · firstTrip i32 · tripCount i32. */
     const val PATTERN_RECORD = 20

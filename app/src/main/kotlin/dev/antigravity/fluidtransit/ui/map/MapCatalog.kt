@@ -158,12 +158,18 @@ object MapCatalog {
     // --- overlay della rete (il PMTiles nostro) ----------------------------
 
     const val OVERLAY_SOURCE = "ft-rete"
-    const val LAYER_LINEE = "ft-linee"
+    const val LAYER_LINEE_EXTRA = "ft-linee-extra"
+    const val LAYER_LINEE_URBANE = "ft-linee-urbane"
+    const val LAYER_LINEA_SEL = "ft-linea-selezionata"
     const val LAYER_FERMATE = "ft-fermate"
     const val LAYER_FERMATE_NOMI = "ft-fermate-nomi"
 
-    /** Gli stadi di zoom decisi: niente sotto, tratte da qui in su. */
-    const val LINEE_MIN_ZOOM = 12.2f
+    /**
+     * Gli stadi di zoom decisi: niente sotto, e le tratte extraurbane —
+     * lunghe, da guardare da lontano — compaiono prima delle urbane.
+     */
+    const val LINEE_EXTRA_MIN_ZOOM = 10.2f
+    const val LINEE_URBANE_MIN_ZOOM = 12.2f
     const val FERMATE_MIN_ZOOM = 13.8f
     const val NOMI_MIN_ZOOM = 16.2f
 

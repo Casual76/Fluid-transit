@@ -8,7 +8,6 @@ import android.speech.RecognizerIntent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -18,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.LocationSearching
@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -43,6 +44,7 @@ import dev.antigravity.fluidengine.ui.fluid.glassBackdropSource
 import dev.antigravity.fluidtransit.FluidTransitApp
 import dev.antigravity.fluidtransit.data.bundle.BundleManager.BundleState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -54,7 +56,11 @@ import kotlinx.coroutines.withContext
 @Composable
 fun MapScreen(app: FluidTransitApp, backdrop: GlassBackdropState) {
     val context = LocalContext.current
-    val dark = isSystemInDarkTheme()
+    // Lo scuro della mappa segue il tema DELL'APP, non quello di sistema:
+    // chi forza "Scuro" dalle Impostazioni deve vedere anche la mappa scura.
+    // La luminanza dello sfondo Material e' la verita' gia' risolta da
+    // FluidTheme, qualunque sia la combinazione di impostazioni.
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val bundleState by app.bundleManager.state.collectAsStateWithLifecycle()
     val ready = bundleState as? BundleState.Ready
 
@@ -103,8 +109,44 @@ fun MapScreen(app: FluidTransitApp, backdrop: GlassBackdropState) {
     }
 
     controller.onStopTap = { tap -> selectedStop = tap }
-    controller.onEmptyTap = { selectedStop = null }
+    controller.onEmptyTap = {
+        selectedStop = null
+        controller.highlightRoute(null)
+    }
     controller.onGesture = { if (follow != FollowMode.FREE) follow = FollowMode.FREE }
+
+    // Il tap sulla pillola di una linea nella scheda: la tratta si accende
+    // sulla mappa e la camera fa zoom out finche' non la si vede tutta.
+    // In Fase 4 la stessa meccanica rispondera' al tap su un bus live.
+    fun showRoute(routeIndex: Int) {
+        val reader = ready?.reader ?: return
+        selectedStop = null
+        follow = FollowMode.FREE
+        scope.launch(Dispatchers.Default) {
+            var minLat = 90.0
+            var maxLat = -90.0
+            var minLon = 180.0
+            var maxLon = -180.0
+            for (p in reader.patternsOfRoute(routeIndex)) {
+                val n = reader.patternStopCount(p)
+                for (i in 0 until n) {
+                    val s = reader.patternStop(p, i)
+                    val lat = reader.stopLat(s)
+                    val lon = reader.stopLon(s)
+                    if (lat < minLat) minLat = lat
+                    if (lat > maxLat) maxLat = lat
+                    if (lon < minLon) minLon = lon
+                    if (lon > maxLon) maxLon = lon
+                }
+            }
+            if (minLat > maxLat) return@launch
+            val rh = java.lang.Long.toHexString(reader.routeIdHash(routeIndex))
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                controller.highlightRoute(rh)
+                controller.flyToBounds(minLat, minLon, maxLat, maxLon)
+            }
+        }
+    }
 
     // Le ricerche recenti e i suggerimenti del pannello.
     val recentStore = remember { RecentSearches(context) }
@@ -299,6 +341,10 @@ fun MapScreen(app: FluidTransitApp, backdrop: GlassBackdropState) {
                 .align(Alignment.BottomStart)
                 .padding(start = 14.dp, bottom = bottomInset),
         )
+        // In bussola l'icona del tasto GIRA col nord: e' l'unica bussola
+        // dell'app (quella di MapLibre in alto e' spenta).
+        var bearing by remember { mutableStateOf(0f) }
+        controller.onBearing = { bearing = it.toFloat() }
         MapCornerButton(
             icon = when (follow) {
                 FollowMode.FREE -> Icons.Rounded.LocationSearching
@@ -311,6 +357,7 @@ fun MapScreen(app: FluidTransitApp, backdrop: GlassBackdropState) {
                 FollowMode.COMPASS -> "Torna alla vista normale"
             },
             backdrop = backdrop,
+            iconRotation = { if (follow == FollowMode.COMPASS) -bearing else 0f },
             onClick = {
                 if (!locationGranted) {
                     permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -346,6 +393,7 @@ fun MapScreen(app: FluidTransitApp, backdrop: GlassBackdropState) {
                     stopIdHashHex = tapped.idHashHex,
                     fallbackName = tapped.name,
                     onDismiss = { selectedStop = null },
+                    onRouteTap = ::showRoute,
                     modifier = Modifier
                         .padding(horizontal = 14.dp)
                         .padding(bottom = FluidTabBarDefaults.ContentInset + 10.dp),

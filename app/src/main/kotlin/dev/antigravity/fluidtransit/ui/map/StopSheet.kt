@@ -26,6 +26,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -50,6 +52,35 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
+ * Sfuma il contenuto ai bordi verticali dello scorrimento: senza, le righe
+ * si troncano di netto contro il pannello — il "taglio brutto" segnalato
+ * alla prima prova. Richiede la composizione fuori schermo, che il pannello
+ * gia' paga per il vetro.
+ */
+private fun Modifier.fadeVerticalEdges(edge: androidx.compose.ui.unit.Dp = 16.dp): Modifier = this
+    .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        val h = edge.toPx()
+        drawRect(
+            brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                0f to Color.Transparent, 1f to Color.Black, endY = h,
+            ),
+            size = androidx.compose.ui.geometry.Size(size.width, h),
+            blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+        )
+        drawRect(
+            brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                0f to Color.Black, 1f to Color.Transparent,
+                startY = size.height - h, endY = size.height,
+            ),
+            topLeft = androidx.compose.ui.geometry.Offset(0f, size.height - h),
+            size = androidx.compose.ui.geometry.Size(size.width, h),
+            blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+        )
+    }
+
+/**
  * La scheda di una fermata, in stile iOS come da riferimento Apple Maps:
  * un pannello **staccato dai bordi**, con angoli continui, in fluid glass —
  * non una ModalBottomSheet a tutta larghezza, che oltre a essere un'altra
@@ -68,9 +99,11 @@ fun StopCard(
     stopIdHashHex: String,
     fallbackName: String,
     onDismiss: () -> Unit,
+    onRouteTap: (routeIndex: Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     class DepartureRow(
+        val routeIndex: Int,
         val line: String,
         val colorRgb: Int,
         val destination: String,
@@ -93,6 +126,7 @@ fun StopCard(
                 rows = departures.map { d ->
                     val local = ZonedDateTime.ofInstant(d.instant, Ftb.ROME)
                     DepartureRow(
+                        routeIndex = d.routeIndex,
                         line = reader.routeShortName(d.routeIndex)
                             .ifEmpty { reader.routeLongName(d.routeIndex) },
                         colorRgb = reader.routeDisplayColor(d.routeIndex),
@@ -176,6 +210,7 @@ fun StopCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(max = 340.dp)
+                        .fadeVerticalEdges()
                         .padding(horizontal = 20.dp),
                 ) {
                     items(current.rows.size) { i ->
@@ -188,6 +223,8 @@ fun StopCard(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
+                            // Toccando la pillola, la mappa accende la tratta
+                            // e la inquadra per intero: la scheda si toglie.
                             Text(
                                 text = row.line,
                                 style = MaterialTheme.typography.labelLarge,
@@ -199,6 +236,15 @@ fun StopCard(
                                     .background(
                                         color = Color(0xFF000000 or row.colorRgb.toLong()),
                                         shape = ContinuousCornerShape(FluidRadius.Small),
+                                    )
+                                    .clickable(
+                                        interactionSource = androidx.compose.runtime.remember {
+                                            MutableInteractionSource()
+                                        },
+                                        indication = null,
+                                        role = Role.Button,
+                                        onClickLabel = "Mostra la tratta della linea ${row.line}",
+                                        onClick = { onRouteTap(row.routeIndex) },
                                     )
                                     .padding(horizontal = 10.dp, vertical = 5.dp),
                             )

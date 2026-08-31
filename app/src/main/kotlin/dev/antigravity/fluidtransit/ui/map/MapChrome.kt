@@ -22,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -42,12 +43,18 @@ private class ChipSpec(
     val filter: CategoryFilter,
     val label: String,
     val icon: ImageVector,
+    /**
+     * Quota di larghezza. Non uguale per tutti: "Extraurbani" e' tre volte
+     * "Tutti" e con quote pari mandava a capo l'ultima lettera — visto sul
+     * device. "Tutti" cede lo spazio che non gli serve.
+     */
+    val weight: Float,
 )
 
 private val Chips = listOf(
-    ChipSpec(CategoryFilter.ALL, "Tutti", Icons.Rounded.DirectionsBus),
-    ChipSpec(CategoryFilter.URBAN, "Urbani", Icons.Rounded.LocationCity),
-    ChipSpec(CategoryFilter.EXTRA, "Extraurbani", Icons.Rounded.Landscape),
+    ChipSpec(CategoryFilter.ALL, "Tutti", Icons.Rounded.DirectionsBus, 0.78f),
+    ChipSpec(CategoryFilter.URBAN, "Urbani", Icons.Rounded.LocationCity, 1.0f),
+    ChipSpec(CategoryFilter.EXTRA, "Extraurbani", Icons.Rounded.Landscape, 1.42f),
 )
 
 /**
@@ -75,7 +82,7 @@ fun CategoryChipsRow(
             val isSelected = chip.filter == selected
             Row(
                 modifier = Modifier
-                    .weight(1f)
+                    .weight(chip.weight)
                     .height(40.dp)
                     .glassSurface(
                         state = backdrop,
@@ -106,6 +113,8 @@ fun CategoryChipsRow(
                 Text(
                     text = chip.label,
                     style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                    softWrap = false,
                     color = if (isSelected) {
                         MaterialTheme.colorScheme.primary
                     } else {
@@ -126,6 +135,12 @@ fun MapCornerButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     selected: Boolean = false,
+    /**
+     * Rotazione dell'icona in gradi. In modalita' bussola il tasto
+     * posizione ruota col nord — e' l'unica bussola dell'app, quella di
+     * MapLibre in alto e' spenta.
+     */
+    iconRotation: () -> Float = { 0f },
 ) {
     FluidGlassIconButton(
         onClick = onClick,
@@ -141,7 +156,9 @@ fun MapCornerButton(
             } else {
                 MaterialTheme.colorScheme.onSurface
             },
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier
+                .size(22.dp)
+                .graphicsLayer { rotationZ = iconRotation() },
         )
     }
 }

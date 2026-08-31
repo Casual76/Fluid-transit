@@ -57,6 +57,9 @@ class TransitMapController(private val context: Context) {
     /** A camera ferma: lat, lon, zoom, bearing, tilt. Per sopravvivere alla rotazione. */
     var onCameraIdle: ((DoubleArray) -> Unit)? = null
 
+    /** Il bearing continuo, per l'icona-bussola del tasto posizione. */
+    var onBearing: ((Double) -> Unit)? = null
+
     /** Il centro attuale della camera: per le "fermate vicine" senza GPS. */
     fun cameraCenter(): Pair<Double, Double>? =
         map?.cameraPosition?.target?.let { it.latitude to it.longitude }
@@ -97,6 +100,10 @@ class TransitMapController(private val context: Context) {
     fun bind(map: MapLibreMap) {
         this.map = map
         applyOrnamentMargins(map)
+        // Niente bussola di MapLibre in alto: quando serve, e' l'icona del
+        // tasto posizione a fare da bussola — deciso guardando la build.
+        map.uiSettings.isCompassEnabled = false
+        map.addOnCameraMoveListener { onBearing?.invoke(map.cameraPosition.bearing) }
         desired?.let { d ->
             apply(d.mode, d.dark, d.overlayUrl, d.filter, d.locationEnabled, d.follow)
         }
@@ -119,7 +126,13 @@ class TransitMapController(private val context: Context) {
         map.addOnMapClickListener { point ->
             val m = this.map ?: return@addOnMapClickListener false
             val screen = m.projection.toScreenLocation(point)
-            val hits = m.queryRenderedFeatures(screen, MapCatalog.LAYER_FERMATE)
+            // La hitbox di un pallino da pochi dp e' impossibile da centrare
+            // col dito: si interroga un quadrato da ~44 dp intorno al tocco.
+            val pad = 22 * context.resources.displayMetrics.density
+            val box = android.graphics.RectF(
+                screen.x - pad, screen.y - pad, screen.x + pad, screen.y + pad,
+            )
+            val hits = m.queryRenderedFeatures(box, MapCatalog.LAYER_FERMATE)
             val f = hits.firstOrNull()
             val hash = f?.getStringProperty("h")
             if (hash != null) {
@@ -222,9 +235,58 @@ class TransitMapController(private val context: Context) {
         // il primo layer di simboli, cosi' i nomi delle strade restano sopra.
         val firstSymbol = style.layers.firstOrNull { it is SymbolLayer }?.id
 
-        val linee = LineLayer(MapCatalog.LAYER_LINEE, MapCatalog.OVERLAY_SOURCE).apply {
+        // Due layer di tratte con soglie diverse: le extraurbane — lunghe,
+        // da guardare da lontano — entrano in scena prima delle urbane.
+        fun lineLayer(id: String, cat: String, minZ: Float, fullAt: Float) =
+            LineLayer(id, MapCatalog.OVERLAY_SOURCE).apply {
+                sourceLayer = "linee"
+                minZoom = minZ
+                setFilter(Expression.eq(Expression.get("cat"), Expression.literal(cat)))
+                setProperties(
+                    PropertyFactory.lineColor(Expression.toColor(Expression.get("c"))),
+                    PropertyFactory.lineCap("round"),
+                    PropertyFactory.lineJoin("round"),
+                    PropertyFactory.lineWidth(
+                        Expression.interpolate(
+                            Expression.linear(), Expression.zoom(),
+                            Expression.stop(minZ, 1.1f),
+                            Expression.stop(14f, 2.2f),
+                            Expression.stop(16f, 3.6f),
+                            Expression.stop(18f, 6f),
+                        ),
+                    ),
+                    // La transizione fluida chiesta: le tratte sfumano dentro.
+                    PropertyFactory.lineOpacity(
+                        Expression.interpolate(
+                            Expression.linear(), Expression.zoom(),
+                            Expression.stop(minZ, 0f),
+                            Expression.stop(fullAt, 0.85f),
+                        ),
+                    ),
+                )
+            }
+
+        val lineeExtra = lineLayer(
+            MapCatalog.LAYER_LINEE_EXTRA, "e",
+            MapCatalog.LINEE_EXTRA_MIN_ZOOM, 11.2f,
+        )
+        val lineeUrbane = lineLayer(
+            MapCatalog.LAYER_LINEE_URBANE, "u",
+            MapCatalog.LINEE_URBANE_MIN_ZOOM, 13.2f,
+        )
+        if (firstSymbol != null) {
+            style.addLayerBelow(lineeExtra, firstSymbol)
+            style.addLayerBelow(lineeUrbane, firstSymbol)
+        } else {
+            style.addLayer(lineeExtra)
+            style.addLayer(lineeUrbane)
+        }
+
+        // La tratta selezionata: sopra le linee normali, visibile da lontano.
+        val lineaSel = LineLayer(MapCatalog.LAYER_LINEA_SEL, MapCatalog.OVERLAY_SOURCE).apply {
             sourceLayer = "linee"
-            minZoom = MapCatalog.LINEE_MIN_ZOOM
+            minZoom = 6f
+            setFilter(Expression.literal(false))
             setProperties(
                 PropertyFactory.lineColor(Expression.toColor(Expression.get("c"))),
                 PropertyFactory.lineCap("round"),
@@ -232,23 +294,16 @@ class TransitMapController(private val context: Context) {
                 PropertyFactory.lineWidth(
                     Expression.interpolate(
                         Expression.linear(), Expression.zoom(),
-                        Expression.stop(12.5f, 1.1f),
-                        Expression.stop(14f, 2.2f),
-                        Expression.stop(16f, 3.6f),
-                        Expression.stop(18f, 6f),
+                        Expression.stop(7f, 2.6f),
+                        Expression.stop(12f, 4f),
+                        Expression.stop(16f, 6.5f),
                     ),
                 ),
-                // La transizione fluida chiesta: le tratte sfumano dentro.
-                PropertyFactory.lineOpacity(
-                    Expression.interpolate(
-                        Expression.linear(), Expression.zoom(),
-                        Expression.stop(MapCatalog.LINEE_MIN_ZOOM, 0f),
-                        Expression.stop(13.2f, 0.85f),
-                    ),
-                ),
+                PropertyFactory.lineOpacity(0.95f),
             )
         }
-        if (firstSymbol != null) style.addLayerBelow(linee, firstSymbol) else style.addLayer(linee)
+        if (firstSymbol != null) style.addLayerBelow(lineaSel, firstSymbol) else style.addLayer(lineaSel)
+        applyHighlight(style)
 
         val fermate = CircleLayer(MapCatalog.LAYER_FERMATE, MapCatalog.OVERLAY_SOURCE).apply {
             sourceLayer = "fermate"
@@ -302,7 +357,16 @@ class TransitMapController(private val context: Context) {
     }
 
     private fun applyFilter(style: Style) {
-        val expr = when (filter) {
+        // I due layer di tratte hanno gia' il filtro di categoria addosso:
+        // il chip li accende e spegne per visibilita'.
+        val showUrban = filter != CategoryFilter.EXTRA
+        val showExtra = filter != CategoryFilter.URBAN
+        style.getLayer(MapCatalog.LAYER_LINEE_URBANE)
+            ?.setProperties(PropertyFactory.visibility(if (showUrban) "visible" else "none"))
+        style.getLayer(MapCatalog.LAYER_LINEE_EXTRA)
+            ?.setProperties(PropertyFactory.visibility(if (showExtra) "visible" else "none"))
+
+        val stopExpr = when (filter) {
             CategoryFilter.ALL -> Expression.literal(true)
             CategoryFilter.URBAN -> Expression.`in`(
                 Expression.get("cat"),
@@ -313,9 +377,8 @@ class TransitMapController(private val context: Context) {
                 Expression.literal(arrayOf<Any>("e", "ue")),
             )
         }
-        (style.getLayer(MapCatalog.LAYER_LINEE) as? LineLayer)?.setFilter(expr)
-        (style.getLayer(MapCatalog.LAYER_FERMATE) as? CircleLayer)?.setFilter(expr)
-        (style.getLayer(MapCatalog.LAYER_FERMATE_NOMI) as? SymbolLayer)?.setFilter(expr)
+        (style.getLayer(MapCatalog.LAYER_FERMATE) as? CircleLayer)?.setFilter(stopExpr)
+        (style.getLayer(MapCatalog.LAYER_FERMATE_NOMI) as? SymbolLayer)?.setFilter(stopExpr)
     }
 
     @SuppressLint("MissingPermission") // il chiamante passa locationEnabled solo col permesso
@@ -366,6 +429,42 @@ class TransitMapController(private val context: Context) {
                 CameraPosition.Builder().target(LatLng(lat, lon)).zoom(zoom).build(),
             ),
             900,
+        )
+    }
+
+    /** Inquadra un riquadro geografico con un margine comodo. */
+    fun flyToBounds(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) {
+        val m = map ?: return
+        val bounds = org.maplibre.android.geometry.LatLngBounds.Builder()
+            .include(LatLng(minLat, minLon))
+            .include(LatLng(maxLat, maxLon))
+            .build()
+        val pad = (72 * context.resources.displayMetrics.density).toInt()
+        m.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, pad), 900)
+    }
+
+    private var highlightedRoute: String? = null
+
+    /**
+     * Accende una tratta: la sua geometria si disegna piena e larga su un
+     * layer dedicato visibile anche da lontano (le tratte normali partono da
+     * zoom 12), cosi' "vedere l'intera tratta" funziona a qualsiasi zoom.
+     * `null` spegne. E' la stessa meccanica che i bus live useranno in Fase 4.
+     */
+    fun highlightRoute(routeIdHashHex: String?) {
+        highlightedRoute = routeIdHashHex
+        map?.getStyle { applyHighlight(it) }
+    }
+
+    private fun applyHighlight(style: Style) {
+        val layer = style.getLayer(MapCatalog.LAYER_LINEA_SEL) as? LineLayer ?: return
+        val rh = highlightedRoute
+        layer.setFilter(
+            if (rh == null) {
+                Expression.literal(false)
+            } else {
+                Expression.eq(Expression.get("rh"), Expression.literal(rh))
+            },
         )
     }
 }

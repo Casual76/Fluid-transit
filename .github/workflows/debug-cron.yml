@@ -1,0 +1,42 @@
+name: Debug cron Worker
+
+# Diagnostica una tantum per la Fase 4: il cron di fluid-transit-rt risulta
+# registrato da wrangler ma non scatta. Questo workflow interroga l'API di
+# Cloudflare (il token vive gia' nei secret) per vedere le schedule com'e'
+# registrata davvero, e la ri-scrive: a volte una PUT esplicita sblocca
+# quello che la registrazione contestuale al deploy non ha attivato.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Leggi le schedule registrate
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          echo "== schedules =="
+          curl -sS "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/workers/scripts/fluid-transit-rt/schedules" \
+            -H "Authorization: Bearer $CF_TOKEN" | tee schedules.json
+          echo
+          echo "== script settings =="
+          curl -sS "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/workers/scripts/fluid-transit-rt/script-settings" \
+            -H "Authorization: Bearer $CF_TOKEN"
+          echo
+
+      - name: Ri-scrivi la schedule
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          curl -sS -X PUT "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/workers/scripts/fluid-transit-rt/schedules" \
+            -H "Authorization: Bearer $CF_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data '[{"cron": "* * * * *"}]'
+          echo

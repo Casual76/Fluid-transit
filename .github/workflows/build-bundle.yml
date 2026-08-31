@@ -61,6 +61,27 @@ jobs:
           ./gradlew --no-daemon :bundler:run --console=plain --args="$GITHUB_WORKSPACE/work/gtfs $GITHUB_WORKSPACE/work/toscana.ftb - $GITHUB_WORKSPACE/work/fragment.json"
           cat work/fragment.json
 
+      - name: Overlay della rete (tippecanoe)
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon :bundler:overlay --console=plain --args="$GITHUB_WORKSPACE/work/gtfs $GITHUB_WORKSPACE/work/overlay"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libsqlite3-dev zlib1g-dev >/dev/null
+          git clone -q --depth 1 https://github.com/felt/tippecanoe.git /tmp/tippecanoe
+          make -C /tmp/tippecanoe -j"$(nproc)" >/dev/null 2>&1
+          T=/tmp/tippecanoe/tippecanoe
+          # Due passate con finestre di zoom diverse - le linee esistono da
+          # lontano, le fermate solo da vicino - poi tile-join le fonde in un
+          # archivio solo. Da z14 in su MapLibre fa overzoom da solo.
+          $T -o work/linee.pmtiles -l linee -Z6 -z14 \
+             --drop-densest-as-needed --coalesce --reorder --hilbert \
+             --force work/overlay/linee.geojsonl
+          $T -o work/fermate.pmtiles -l fermate -Z11 -z14 \
+             --drop-densest-as-needed --force work/overlay/fermate.geojsonl
+          /tmp/tippecanoe/tile-join -o work/rete.pmtiles --force \
+             work/linee.pmtiles work/fermate.pmtiles
+          ls -la work/*.pmtiles
+
       - name: Golden gate, contro i CSV
         run: |
           ./gradlew --no-daemon :bundler:verify --console=plain --args="$GITHUB_WORKSPACE/work/gtfs $GITHUB_WORKSPACE/work/toscana.ftb" | tee work/verify.log
@@ -85,7 +106,10 @@ jobs:
 
           # Se il contenuto non e' cambiato, non si pubblica: e' il
           # "pubblica solo se cambiato" reso possibile dal build deterministico.
-          if [ "$(jq -r .buildId $new)" = "$(jq -r .buildId $old)" ]; then
+          # La pubblicazione precedente deve pero' essere completa: senza
+          # overlayUrl nell'indice vecchio si ripubblica comunque.
+          if [ "$(jq -r .buildId $new)" = "$(jq -r .buildId $old)" ] &&
+             [ -n "$(jq -r '.overlayUrl // empty' $old)" ]; then
             echo "skip=true" >> "$GITHUB_ENV"
             echo "bundle identico a ieri (buildId invariato): niente da pubblicare"
             exit 0
@@ -134,6 +158,8 @@ jobs:
           asset="toscana-${buildId}.ftb.gz"
           gzip -9 -c work/toscana.ftb > "work/$asset"
           gzBytes=$(stat -c%s "work/$asset")
+          overlayAsset="rete-${buildId}.pmtiles"
+          cp work/rete.pmtiles "work/$overlayAsset"
 
           # L'index.json che l'app scarica: url, sha256 del file DECOMPRESSO
           # (l'app verifica dopo il gunzip), e i conteggi per i gate di domani.
@@ -142,9 +168,10 @@ jobs:
           # indice le ha promesso.
           jq --arg url "https://github.com/${GITHUB_REPOSITORY}/releases/download/dati/$asset" \
              --arg sha "$sha" \
+             --arg overlay "https://github.com/${GITHUB_REPOSITORY}/releases/download/dati/$overlayAsset" \
              --argjson bytes "$gzBytes" \
              --argjson rawBytes "$bytes" \
-             '. + {url: $url, sha256: $sha, bytes: $bytes, rawBytes: $rawBytes}' \
+             '. + {url: $url, sha256: $sha, bytes: $bytes, rawBytes: $rawBytes, overlayUrl: $overlay}' \
              work/fragment.json > work/index.json
           cat work/index.json
 
@@ -153,16 +180,19 @@ jobs:
             gh release create dati --title "Dati orari" \
               --notes "Bundle orari rigenerato ogni notte dal feed CC-BY della Regione Toscana. Non e' una release dell'app."
           fi
-          # Prima il bundle, poi l'indice: l'indice e' lo switch atomico.
+          # Prima i dati, poi l'indice: l'indice e' lo switch atomico.
           gh release upload dati "work/$asset" --clobber
+          gh release upload dati "work/$overlayAsset" --clobber
           gh release upload dati work/index.json --clobber
-          echo "pubblicato buildId=$buildId ($gzBytes byte gzip)"
+          echo "pubblicato buildId=$buildId ($gzBytes byte bundle, $(stat -c%s work/$overlayAsset) byte overlay)"
 
-          # Pulizia: si tengono gli ultimi 3 bundle, per le app rimaste su un
-          # indice vecchio. Un fallimento qui non deve annullare la pubblicazione.
-          gh release view dati --json assets -q '.assets[].name' \
-            | grep '^toscana-.*\.ftb\.gz$' | sort | head -n -3 \
-            | while read -r old; do
-                echo "rimuovo asset vecchio: $old"
-                gh release delete-asset dati "$old" --yes || true
-              done
+          # Pulizia: si tengono gli ultimi 3 di ciascuno, per le app rimaste
+          # su un indice vecchio. Un fallimento qui non annulla la pubblicazione.
+          for pattern in '^toscana-.*\.ftb\.gz$' '^rete-.*\.pmtiles$'; do
+            gh release view dati --json assets -q '.assets[].name' \
+              | grep "$pattern" | sort | head -n -3 \
+              | while read -r old; do
+                  echo "rimuovo asset vecchio: $old"
+                  gh release delete-asset dati "$old" --yes || true
+                done
+          done

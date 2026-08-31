@@ -37,6 +37,16 @@ tasks.register<JavaExec>("verify") {
     maxHeapSize = "1g"
 }
 
+// L'overlay della rete per la mappa: GeoJSONL di linee (coi colori assegnati)
+// e fermate, che il workflow passa a tippecanoe.
+tasks.register<JavaExec>("overlay") {
+    group = "build"
+    description = "Genera linee.geojsonl e fermate.geojsonl per tippecanoe."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "dev.antigravity.fluidtransit.bundler.BuildOverlayKt"
+    maxHeapSize = "2g"
+}
+
 tasks.test {
     useJUnitPlatform()
 }

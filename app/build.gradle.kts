@@ -71,4 +71,9 @@ dependencies {
     implementation("androidx.core:core-ktx:1.18.0")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
+
+    // La mappa. MapLibre porta gia' OkHttp; la versione esplicita serve per
+    // condividere il client (cache tile + trucchi PMTiles) con il resto.
+    implementation("org.maplibre.gl:android-sdk:11.11.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }

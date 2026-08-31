@@ -38,7 +38,7 @@ import dev.antigravity.fluidengine.ui.fluid.rememberGlassBackdrop
 import dev.antigravity.fluidtransit.FluidTransitApp
 import dev.antigravity.fluidtransit.data.bundle.BundleManager.BundleState
 import dev.antigravity.fluidtransit.ui.favorites.FavoritesTab
-import dev.antigravity.fluidtransit.ui.map.MapTab
+import dev.antigravity.fluidtransit.ui.map.MapScreen
 import dev.antigravity.fluidtransit.ui.settings.SettingsTab
 import dev.antigravity.fluidtransit.ui.today.TodayTab
 import dev.antigravity.fluidtransit.ui.welcome.WelcomeScreen
@@ -83,7 +83,16 @@ private fun AppShell(app: FluidTransitApp) {
     val modalHost = rememberFluidGlassModalHostState()
     val notificationHost = rememberFluidNotificationHostState()
     val fallbackBackdrop = rememberGlassBackdrop()
-    val backdrop = chromeController.activeBackdrop.value ?: fallbackBackdrop
+
+    // La mappa e' un AndroidView e non passa dal registro dei FluidScreen:
+    // il suo backdrop si crea qui e si consegna sia alla schermata (che lo
+    // riempie) sia alla tab bar (che lo rifrange) quando la Mappa e' davanti.
+    val mapBackdrop = rememberGlassBackdrop()
+    val backdrop = if (route == RouteMap) {
+        mapBackdrop
+    } else {
+        chromeController.activeBackdrop.value ?: fallbackBackdrop
+    }
 
     CompositionLocalProvider(
         LocalFluidGlassModalHostState provides modalHost,
@@ -104,7 +113,7 @@ private fun AppShell(app: FluidTransitApp) {
                         RouteToday -> TodayTab()
                         RouteFavorites -> FavoritesTab()
                         RouteSettings -> SettingsTab(app)
-                        else -> MapTab(app)
+                        else -> MapScreen(app, mapBackdrop)
                     }
                 }
             }

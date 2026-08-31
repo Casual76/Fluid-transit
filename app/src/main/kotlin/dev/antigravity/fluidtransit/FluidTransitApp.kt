@@ -52,6 +52,19 @@ class FluidTransitApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // Le due trappole di MapLibre trovate in Fase 1, nell'ordine giusto:
+        // getInstance a tre argomenti con chiave nulla, e il client OkHttp
+        // registrato DOPO — invertendole si ottiene la stessa eccezione della
+        // prima, che punta al posto sbagliato.
+        org.maplibre.android.MapLibre.getInstance(
+            this,
+            null,
+            org.maplibre.android.WellKnownTileServer.MapLibre,
+        )
+        org.maplibre.android.module.http.HttpRequestUtil.setOkHttpClient(
+            dev.antigravity.fluidtransit.ui.map.MapHttp.client(this),
+        )
+
         bundleManager.start()
         // Il manifest remoto, se la copia in cache e' vecchia. Non blocca
         // niente: finche' non arriva l'app usa l'ultima risposta valida.

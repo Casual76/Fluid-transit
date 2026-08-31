@@ -51,7 +51,12 @@ class BundleManager(
 
         data class Downloading(val progress: Float) : BundleState
 
-        data class Ready(val reader: BundleReader, val buildId: Long) : BundleState
+        data class Ready(
+            val reader: BundleReader,
+            val buildId: Long,
+            /** Il PMTiles della rete (linee+fermate) pubblicato accanto al bundle, se noto. */
+            val overlayUrl: String?,
+        ) : BundleState
 
         data class Failed(val message: String) : BundleState
     }
@@ -61,6 +66,7 @@ class BundleManager(
 
     private val dir = File(context.filesDir, "bundles")
     private val active = File(dir, "active.ftb")
+    private val meta = File(dir, "active.meta.json")
     private val mutex = Mutex()
     private var wifiCallback: ConnectivityManager.NetworkCallback? = null
 
@@ -71,17 +77,51 @@ class BundleManager(
                 if (active.isFile) {
                     runCatching { openAndSmoke(active) }
                         .onSuccess { reader ->
-                            _state.value = BundleState.Ready(reader, reader.buildId)
+                            _state.value = BundleState.Ready(reader, reader.buildId, readMetaOverlay())
                             return@withLock
                         }
                         .onFailure {
-                            // Un bundle attivo che non si apre e' corrotto:
-                            // si riscarica, non si tiene.
+                            // Un bundle attivo che non si apre e' corrotto o di
+                            // un formato vecchio: si riscarica, non si tiene.
                             active.delete()
+                            meta.delete()
                         }
                 }
                 requestDownload(userApprovedMetered = false)
             }
+            // Con un bundle gia' attivo, il controllo di freschezza corre in
+            // sottofondo: se stanotte e' uscito un bundle nuovo si scarica e
+            // si sostituisce senza passare dalla schermata di benvenuto.
+            if (state.value is BundleState.Ready) {
+                mutex.withLock { refreshSilently() }
+            }
+        }
+    }
+
+    private fun readMetaOverlay(): String? = runCatching {
+        JSONObject(meta.readText()).optString("overlayUrl").takeIf { it.isNotEmpty() }
+    }.getOrNull()
+
+    /**
+     * Aggiornamento silenzioso: nessun cambio di stato finche' il nuovo
+     * bundle non e' installato. Su rete a consumo non fa niente - il bundle
+     * di ieri e' ancora valido e la domanda non vale la pena.
+     */
+    private fun refreshSilently() {
+        val current = state.value as? BundleState.Ready ?: return
+        val cm = context.getSystemService(ConnectivityManager::class.java)
+        if (cm.isActiveNetworkMetered) return
+        runCatching {
+            val index = fetchIndex()
+            if (index.buildId == java.lang.Long.toHexString(current.buildId)) {
+                // Stesso bundle: al massimo e' arrivato l'overlay che prima mancava.
+                if (current.overlayUrl == null && index.overlayUrl != null) {
+                    writeMeta(index)
+                    _state.value = BundleState.Ready(current.reader, current.buildId, index.overlayUrl)
+                }
+                return
+            }
+            installFrom(index)
         }
     }
 
@@ -120,32 +160,16 @@ class BundleManager(
         _state.value = BundleState.Downloading(0f)
         try {
             val index = fetchIndex()
-            val part = File(dir, "incoming.ftb.part")
-            downloadGunzip(index.url, part) { done ->
+            installFrom(index) { done ->
                 _state.value = BundleState.Downloading(
                     if (index.bytes > 0) (done.toFloat() / index.bytes).coerceIn(0f, 1f) else 0f,
                 )
             }
-            if (index.sha256.isNotEmpty()) {
-                val actual = sha256Of(part)
-                check(actual.equals(index.sha256, ignoreCase = true)) {
-                    "bundle corrotto in transito (sha256 diverso)"
-                }
-            }
-            // La query di fumo prima della promozione: un bundle che non si
-            // apre non deve mai diventare quello attivo.
-            openAndSmoke(part).close()
-            val previous = (state.value as? BundleState.Ready)?.reader
-            if (active.isFile) active.delete()
-            check(part.renameTo(active)) { "impossibile installare il bundle scaricato" }
-            val reader = openAndSmoke(active)
-            _state.value = BundleState.Ready(reader, reader.buildId)
-            previous?.close()
         } catch (e: Exception) {
             _state.value = if (active.isFile) {
                 // C'era gia' un bundle valido: si continua con quello.
                 runCatching { openAndSmoke(active) }
-                    .map { BundleState.Ready(it, it.buildId) as BundleState }
+                    .map { BundleState.Ready(it, it.buildId, readMetaOverlay()) as BundleState }
                     .getOrElse { BundleState.Failed(e.message ?: "errore sconosciuto") }
             } else {
                 BundleState.Failed(e.message ?: "errore sconosciuto")
@@ -153,7 +177,46 @@ class BundleManager(
         }
     }
 
-    private class BundleIndex(val buildId: String, val url: String, val bytes: Long, val sha256: String)
+    /** Scarica, verifica, promuove e pubblica il nuovo Ready. */
+    private fun installFrom(index: BundleIndex, onProgress: (Long) -> Unit = {}) {
+        val part = File(dir, "incoming.ftb.part")
+        downloadGunzip(index.url, part, onProgress)
+        if (index.sha256.isNotEmpty()) {
+            val actual = sha256Of(part)
+            check(actual.equals(index.sha256, ignoreCase = true)) {
+                "bundle corrotto in transito (sha256 diverso)"
+            }
+        }
+        // La query di fumo prima della promozione: un bundle che non si
+        // apre non deve mai diventare quello attivo.
+        openAndSmoke(part).close()
+        val previous = (state.value as? BundleState.Ready)?.reader
+        if (active.isFile) active.delete()
+        check(part.renameTo(active)) { "impossibile installare il bundle scaricato" }
+        writeMeta(index)
+        val reader = openAndSmoke(active)
+        _state.value = BundleState.Ready(reader, reader.buildId, index.overlayUrl)
+        previous?.close()
+    }
+
+    private fun writeMeta(index: BundleIndex) {
+        runCatching {
+            meta.writeText(
+                JSONObject()
+                    .put("buildId", index.buildId)
+                    .put("overlayUrl", index.overlayUrl ?: JSONObject.NULL)
+                    .toString(),
+            )
+        }
+    }
+
+    private class BundleIndex(
+        val buildId: String,
+        val url: String,
+        val bytes: Long,
+        val sha256: String,
+        val overlayUrl: String?,
+    )
 
     private fun fetchIndex(): BundleIndex {
         val json = JSONObject(httpGetText(INDEX_URL))
@@ -162,6 +225,7 @@ class BundleManager(
             url = json.getString("url"),
             bytes = json.optLong("bytes", -1),
             sha256 = json.optString("sha256"),
+            overlayUrl = json.optString("overlayUrl").takeIf { it.isNotEmpty() },
         )
     }
 

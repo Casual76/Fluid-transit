@@ -1,6 +1,6 @@
 name: Deploy Worker
 
-# Fase 1 / spike 1. Il deploy passa da qui e non dalla macchina di sviluppo
+# Il deploy passa da qui e non dalla macchina di sviluppo
 # per un motivo pratico: in locale non c'e' Node, quindi non c'e' wrangler.
 # Passare dalla Action ha anche il vantaggio di essere l'unico percorso di
 # pubblicazione, riproducibile, con le credenziali gia' nei secret del repo.
@@ -46,4 +46,4 @@ jobs:
       - name: URL pubblicato
         run: |
           echo "### Worker pubblicato" >> "$GITHUB_STEP_SUMMARY"
-          echo '`https://fluid-transit-probe.fluid-transit.workers.dev`' >> "$GITHUB_STEP_SUMMARY"
+          echo '`https://fluid-transit-rt.fluid-transit.workers.dev`' >> "$GITHUB_STEP_SUMMARY"

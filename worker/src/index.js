@@ -1,325 +1,236 @@
 /**
- * Fluid Transit — Worker di probe (Fase 1, spike 1).
+ * Fluid Transit — il proxy realtime (Fase 4).
  *
- * La domanda a cui questo Worker esiste per rispondere e' una sola:
- * l'origine `regionetoscana.smartregion.toscana.it` serve i feed anche
- * quando la richiesta parte dalla rete Cloudflare, o filtra gli IP
- * datacenter? Se filtra, il proxy previsto dal piano non e' realizzabile
- * e va deciso un piano B prima di scrivere codice di prodotto.
+ * Principio: ZERO parsing sul percorso richiesta. Il piano gratuito da'
+ * ~10 ms di CPU a richiesta ma 30 s a invocazione cron, quindi:
  *
- * Domande secondarie, tutte verificate qui perche' costano una riga in
- * piu' ciascuna e ognuna condiziona il design della Fase 4:
- *   - i byte che tornano sono un FeedMessage valido e fresco?
- *   - dall'edge Cloudflare l'origine manda ETag / Last-Modified / gzip
- *     (dall'IP residenziale no: ogni fetch e' integrale)?
- *   - una raffica di richieste ravvicinate viene rate-limitata?
- *   - lo statico da 129 MB supporta le richieste Range?
+ *   cron (1/min)  = fetch dei 3 feed + decoder protobuf statico + snapshot
+ *                   binario compatto scritto UNA volta su R2 (rt/latest.bin);
+ *   richiesta     = lettura R2 + copia di intervalli di byte gia' pronti,
+ *                   dietro la Cache API con max-age 45 s.
+ *
+ * L'origine si rigenera ogni ~2 minuti e non manda validatori: meta' dei
+ * poll sono ridondanti e non si possono evitare — ma la SCRITTURA si evita:
+ * se i tre timestamp non sono cambiati, il cron non riscrive niente e le
+ * operazioni di classe A su R2 si dimezzano.
+ *
+ * Gli id del feed viaggiano come hash FNV-1a 64 (identici al bundle): l'app
+ * risolve i record via TRIP_ID_INDEX / routeIdHash senza stringhe.
  */
 
-import { peekFeed } from './gtfsrt-peek.js';
+import { parseFeed } from './gtfsrt.js';
+import {
+  SNAPSHOT_KEY, HEADER_LEN, buildSnapshot, readHeader, sliceSection,
+} from './snapshot.js';
 
-const ORIGIN = 'https://regionetoscana.smartregion.toscana.it/mobility/artifacts';
-const RT_BASE = `${ORIGIN}/gtfs-rt`;
-const STATIC_URL = `${ORIGIN}/gtfs`;
+const ORIGIN = 'https://regionetoscana.smartregion.toscana.it/mobility/artifacts/gtfs-rt';
+const UA = 'FluidTransit-RT/1.0 (+https://github.com/Casual76/Fluid-transit)';
+const ATTRIBUTION =
+  'Dati: Regione Toscana / Autolinee Toscane, CC-BY 4.0 - dati modificati (aggregati e ricodificati)';
 
-const FEEDS = ['vehicle-positions', 'trip-updates', 'alerts'];
-
-// User-Agent identificativo: se qualcuno in Regione guarda i log deve poter
-// capire chi siamo e come contattarci. Vale anche come cortesia minima verso
-// un servizio pubblico gratuito.
-const UA = 'FluidTransit-Probe/0.1 (+https://github.com/Casual76/Fluid-transit)';
-
-/**
- * Cloudflare mette in cache le subrequest anche verso origini esterne. Per
- * misurare l'origine e non la cache dell'edge, ogni fetch della probe la
- * scavalca esplicitamente: TTL negativo = "non cachare".
- */
+/** La cache dell'edge sui fetch verso l'origine e' inutile qui: niente validatori. */
 const NO_CACHE = {
   cacheTtlByStatus: { '200-299': -1, '300-399': -1, '400-599': -1 },
 };
 
-/** Header che decidono se le richieste condizionali sono possibili. */
-const HEADERS_OF_INTEREST = [
-  'content-type',
-  'content-length',
-  'content-encoding',
-  'content-disposition',
-  'etag',
-  'last-modified',
-  'cache-control',
-  'expires',
-  'age',
-  'vary',
-  'accept-ranges',
-  'content-range',
-  'server',
-  'via',
-  'date',
-  'cf-cache-status',
-  'x-kong-upstream-latency',
-  'x-kong-request-id',
-  'retry-after',
-];
-
-function collectHeaders(headers) {
-  const out = {};
-  for (const name of HEADERS_OF_INTEREST) {
-    const value = headers.get(name);
-    if (value !== null) out[name] = value;
-  }
-  return out;
-}
-
-function errorMessage(e) {
-  return String(e && e.message ? e.message : e);
-}
-
-async function probeFeed(name, extraHeaders = {}) {
-  const url = `${RT_BASE}/${name}`;
-  const started = Date.now();
-  const result = { feed: name, url };
-  try {
-    const res = await fetch(url, {
-      headers: { 'User-Agent': UA, Accept: 'application/octet-stream', ...extraHeaders },
-      cf: NO_CACHE,
-    });
-    result.status = res.status;
-    result.statusText = res.statusText;
-    result.headers = collectHeaders(res.headers);
-    result.ttfbMs = Date.now() - started;
-
-    if (res.status === 304) {
-      result.notModified = true;
-      result.totalMs = Date.now() - started;
-      return result;
-    }
-
-    const body = new Uint8Array(await res.arrayBuffer());
-    result.totalMs = Date.now() - started;
-    // Il conteggio vero dei byte, non il content-length: l'origine risponde
-    // in chunked e Cloudflare puo' aver decompresso per conto suo.
-    result.bytes = body.length;
-
-    const peek = peekFeed(body);
-    result.protobufValid = peek.ok;
-    if (!peek.ok) {
-      result.protobufError = peek.error;
-      // Se non e' protobuf puo' essere una pagina di blocco: i primi byte in
-      // chiaro dicono subito se e' l'HTML di un WAF.
-      result.bodyPreview = new TextDecoder().decode(body.subarray(0, 300));
-    } else {
-      result.entityCount = peek.entityCount;
-      result.gtfsRealtimeVersion = peek.header ? peek.header.version : null;
-      result.incrementality = peek.header ? peek.header.incrementality : 0;
-      result.feedTimestamp = peek.header ? peek.header.timestamp : null;
-      if (peek.header && peek.header.timestamp) {
-        // L'eta' calcolata sul timestamp dell'ORIGINE, non sul momento del
-        // poll: e' esattamente il valore che in Fase 4 diventa X-Feed-Age.
-        result.feedAgeSeconds = Math.round(Date.now() / 1000) - peek.header.timestamp;
-      }
-    }
-  } catch (e) {
-    result.error = errorMessage(e);
-    result.totalMs = Date.now() - started;
-  }
-  return result;
-}
-
-/** Tutti e tre i feed in parallelo, come fara' il cron della Fase 4. */
-async function probeAll(request) {
-  const started = Date.now();
-  const feeds = await Promise.all(FEEDS.map((f) => probeFeed(f)));
-  return {
-    verdict: verdictOf(feeds),
-    reachable: feeds.every((f) => f.status === 200),
-    wallClockMs: Date.now() - started,
-    colo: request.cf ? request.cf.colo : null,
-    country: request.cf ? request.cf.country : null,
-    checkedAt: new Date().toISOString(),
-    feeds,
-  };
-}
-
-function verdictOf(feeds) {
-  if (feeds.every((f) => f.status === 200 && f.protobufValid)) {
-    return 'OK - origine raggiungibile dalla rete Cloudflare, feed validi';
-  }
-  if (feeds.some((f) => f.status === 403 || f.status === 429 || f.status === 503)) {
-    return 'BLOCCATO - l origine rifiuta la richiesta dall edge: design del proxy da rivedere';
-  }
-  if (feeds.some((f) => f.error)) {
-    return 'ERRORE DI RETE - vedi campo error';
-  }
-  return 'PARZIALE - vedi i singoli feed';
-}
-
-/**
- * Le richieste condizionali sono possibili? Dall'IP residenziale l'origine
- * non manda ne' ETag ne' Last-Modified, quindi in teoria no. Qui si provano
- * comunque i validatori: un'origine che rispondesse 304 a `If-None-Match: *`
- * cambierebbe completamente il costo del cron.
- */
-async function probeConditional() {
-  const feed = 'vehicle-positions';
-  const [wildcard, sinceNow] = await Promise.all([
-    probeFeed(feed, { 'If-None-Match': '*' }),
-    probeFeed(feed, { 'If-Modified-Since': new Date().toUTCString() }),
-  ]);
-  const honoured = wildcard.status === 304 || sinceNow.status === 304;
-  return {
-    question: 'l origine onora le richieste condizionali?',
-    answer: honoured
-      ? 'SI - almeno un validatore produce 304, il cron puo risparmiare banda'
-      : 'NO - ogni fetch resta integrale, il proxy resta giustificato',
-    ifNoneMatchWildcard: wildcard,
-    ifModifiedSinceNow: sinceNow,
-  };
-}
-
-/**
- * Raffica sequenziale. Il cron della Fase 4 colpisce l'origine 1.440 volte al
- * giorno da IP Cloudflare: se c'e' un rate limit va scoperto adesso.
- */
-async function probeBurst(n) {
-  const attempts = [];
-  for (let i = 0; i < n; i++) {
-    const r = await probeFeed('vehicle-positions');
-    attempts.push({
-      i,
-      status: r.status,
-      bytes: r.bytes === undefined ? null : r.bytes,
-      totalMs: r.totalMs,
-      feedTimestamp: r.feedTimestamp === undefined ? null : r.feedTimestamp,
-      retryAfter: r.headers ? r.headers['retry-after'] || null : null,
-      error: r.error || null,
-    });
-  }
-  const throttled = attempts.filter((a) => a.status === 429 || a.status === 503);
-  const distinctTimestamps = new Set(attempts.map((a) => a.feedTimestamp)).size;
-  return {
-    question: `${n} richieste consecutive vengono rate-limitate?`,
-    answer:
-      throttled.length === 0
-        ? 'NO - nessuna risposta 429/503'
-        : `SI - ${throttled.length} risposte rifiutate`,
-    // Quanti timestamp distinti compaiono in una raffica dice ogni quanto
-    // l'origine rigenera davvero il feed: se e' 1, il cron al minuto e' gia'
-    // piu' fitto della sorgente.
-    distinctFeedTimestamps: distinctTimestamps,
-    attempts,
-  };
-}
-
-/**
- * Lo statico: 129 MB scaricati ogni notte dalla GitHub Action, non dalla
- * Worker. Qui interessa solo sapere se supporta Range - sarebbe la
- * differenza fra riscaricare tutto e riprendere un download interrotto.
- */
-async function probeStatic() {
-  const started = Date.now();
-  const out = { url: STATIC_URL };
-  try {
-    const res = await fetch(STATIC_URL, {
-      method: 'GET',
-      headers: { 'User-Agent': UA, Range: 'bytes=0-1023' },
-      cf: NO_CACHE,
-    });
-    out.status = res.status;
-    out.headers = collectHeaders(res.headers);
-    out.rangeHonoured = res.status === 206;
-    if (res.status === 206) {
-      const body = new Uint8Array(await res.arrayBuffer());
-      out.bytesReturned = body.length;
-      // "PK\x03\x04" = firma di uno zip. Conferma che il primo KB e' davvero
-      // l'inizio dell'archivio e non una pagina di errore.
-      out.looksLikeZip =
-        body[0] === 0x50 && body[1] === 0x4b && body[2] === 0x03 && body[3] === 0x04;
-    } else if (res.status === 200) {
-      // Il corpo integrale sarebbe 129 MB: non va letto dentro la Worker.
-      out.note = 'Range ignorato: risposta integrale, un download interrotto riparte da zero';
-      await res.body.cancel();
-    }
-  } catch (e) {
-    out.error = errorMessage(e);
-  }
-  out.totalMs = Date.now() - started;
-  return out;
-}
-
-const json = (data, status = 200) =>
-  new Response(JSON.stringify(data, null, 2), {
-    status,
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      'cache-control': 'no-store',
-      // CC-BY: attribuzione anche sulle risposte macchina, come da piano.
-      'x-data-source': 'Regione Toscana / Autolinee Toscane - CC-BY 4.0, dati modificati',
-    },
-  });
+const MAX_AGE_SECONDS = 45;
 
 export default {
-  async fetch(request) {
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(refresh(env));
+  },
+
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    const path = url.pathname.replace(/\/+$/, '') || '/';
-
-    switch (path) {
-      case '/':
-        return json({
-          worker: 'fluid-transit-probe',
-          scopo: 'Fase 1 / spike 1 - verificare che l origine risponda alla rete Cloudflare',
-          endpoints: {
-            '/probe': 'i tre feed RT in parallelo, con validazione protobuf ed eta del feed',
-            '/probe/conditional': 'ETag / Last-Modified sono utilizzabili?',
-            '/probe/burst?n=8': 'una raffica viene rate-limitata?',
-            '/probe/static': 'lo zip GTFS supporta le richieste Range?',
-            '/raw?feed=vehicle-positions': 'passthrough dei byte grezzi, per ispezione locale',
-          },
-          colo: request.cf ? request.cf.colo : null,
-        });
-
-      case '/probe': {
-        const feed = url.searchParams.get('feed');
-        if (feed) {
-          if (!FEEDS.includes(feed)) {
-            return json({ error: `feed sconosciuto: ${feed}`, noti: FEEDS }, 400);
-          }
-          return json(await probeFeed(feed));
-        }
-        return json(await probeAll(request));
-      }
-
-      case '/probe/conditional':
-        return json(await probeConditional());
-
-      case '/probe/burst': {
-        const raw = parseInt(url.searchParams.get('n') || '5', 10) || 5;
-        return json(await probeBurst(Math.min(Math.max(raw, 1), 20)));
-      }
-
-      case '/probe/static':
-        return json(await probeStatic());
-
-      case '/raw': {
-        const feed = url.searchParams.get('feed') || 'vehicle-positions';
-        if (!FEEDS.includes(feed)) {
-          return json({ error: `feed sconosciuto: ${feed}`, noti: FEEDS }, 400);
-        }
-        const res = await fetch(`${RT_BASE}/${feed}`, {
-          headers: { 'User-Agent': UA },
-          cf: NO_CACHE,
-        });
-        return new Response(res.body, {
-          status: res.status,
-          headers: {
-            'content-type': 'application/octet-stream',
-            'cache-control': 'no-store',
-            'x-origin-status': String(res.status),
-          },
-        });
-      }
-
+    switch (url.pathname) {
+      case '/rt/v1/vehicles': return serveSection(request, env, ctx, 1);
+      case '/rt/v1/updates': return serveSection(request, env, ctx, 2);
+      case '/rt/v1/alerts': return serveSection(request, env, ctx, 3);
+      case '/rt/v1/health': return serveHealth(env);
       default:
-        return json({ error: 'not found', path }, 404);
+        return new Response('Fluid Transit realtime proxy. Endpoints: /rt/v1/{vehicles,updates,alerts,health}\n', {
+          status: url.pathname === '/' ? 200 : 404,
+          headers: { 'content-type': 'text/plain; charset=utf-8' },
+        });
     }
   },
 };
+
+// --- cron -------------------------------------------------------------------
+
+async function fetchFeed(name) {
+  const res = await fetch(`${ORIGIN}/${name}`, {
+    headers: { 'User-Agent': UA, Accept: 'application/octet-stream' },
+    cf: NO_CACHE,
+  });
+  if (!res.ok) throw new Error(`${name}: HTTP ${res.status}`);
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+async function refresh(env) {
+  // I timestamp dello snapshot precedente: una range read da 64 byte.
+  let prev = null;
+  try {
+    const head = await env.RT.get(SNAPSHOT_KEY, { range: { offset: 0, length: HEADER_LEN } });
+    if (head) prev = readHeader(new Uint8Array(await head.arrayBuffer()));
+  } catch {
+    prev = null;
+  }
+
+  const results = await Promise.allSettled([
+    fetchFeed('vehicle-positions'),
+    fetchFeed('trip-updates'),
+    fetchFeed('alerts'),
+  ]);
+
+  // Un feed mancato = si tiene lo snapshot precedente intero. Meglio dati
+  // di un minuto fa, coerenti fra loro, che uno snapshot mezzo vuoto: la
+  // staleness la denuncia X-Feed-Age, non un buco nei record.
+  if (results.some((r) => r.status === 'rejected')) {
+    console.log('feed non raggiunti:', results
+      .map((r, i) => (r.status === 'rejected' ? `${i}:${r.reason}` : null))
+      .filter(Boolean)
+      .join(' | '));
+    return;
+  }
+
+  const [vpBytes, tuBytes, alBytes] = results.map((r) => r.value);
+
+  let vp;
+  let tu;
+  let alTimestamp = 0;
+  try {
+    vp = parseFeed(vpBytes, 'vehicles');
+    tu = parseFeed(tuBytes, 'updates');
+    alTimestamp = parseFeed(alBytes, 'header').timestamp || 0;
+  } catch (e) {
+    console.log('parse fallito, snapshot non toccato:', String(e));
+    return;
+  }
+
+  // L'origine si rigenera ogni ~2 minuti: se niente e' cambiato, niente
+  // scrittura — e' la meta' di operazioni di classe A che il piano prevede
+  // di risparmiare.
+  if (
+    prev &&
+    prev.vpTimestamp === (vp.timestamp || 0) &&
+    prev.tuTimestamp === (tu.timestamp || 0) &&
+    prev.alTimestamp === alTimestamp
+  ) {
+    return;
+  }
+
+  const snapshot = buildSnapshot({
+    generatedAt: Math.floor(Date.now() / 1000),
+    vp,
+    tu,
+    alertsBytes: alBytes,
+    flags: 0,
+  });
+  await env.RT.put(SNAPSHOT_KEY, snapshot);
+}
+
+// --- richieste --------------------------------------------------------------
+
+async function gzipBytes(bytes) {
+  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+function feedAgeHeader(feedTs) {
+  if (!feedTs) return null;
+  return String(Math.max(0, Math.floor(Date.now() / 1000) - feedTs));
+}
+
+/**
+ * kind: 1 = vehicles, 2 = updates (entrambi record fissi col mini-header),
+ * 3 = alerts (il FeedMessage grezzo: l'app oggi non lo usa, ma il costo di
+ * servirlo e' zero e la Fase 6/8 lo trovera' gia' qui).
+ */
+async function serveSection(request, env, ctx, kind) {
+  const cache = caches.default;
+  const cacheKey = new Request(new URL(request.url).origin + new URL(request.url).pathname);
+
+  let response = await cache.match(cacheKey);
+  if (!response) {
+    const obj = await env.RT.get(SNAPSHOT_KEY);
+    if (!obj) {
+      return new Response(JSON.stringify({ error: 'snapshot non ancora generato' }), {
+        status: 503,
+        headers: { 'content-type': 'application/json', 'retry-after': '60' },
+      });
+    }
+    const snapshot = new Uint8Array(await obj.arrayBuffer());
+    const header = readHeader(snapshot);
+    if (!header) {
+      return new Response(JSON.stringify({ error: 'snapshot corrotto' }), {
+        status: 503,
+        headers: { 'content-type': 'application/json', 'retry-after': '60' },
+      });
+    }
+
+    let body;
+    let contentType = 'application/octet-stream';
+    let feedTs;
+    if (kind === 3) {
+      body = snapshot.subarray(header.alertsOff, header.alertsOff + header.alertsLen);
+      contentType = 'application/x-protobuf';
+      feedTs = header.alTimestamp;
+    } else {
+      body = sliceSection(snapshot, header, kind);
+      feedTs = kind === 1 ? header.vpTimestamp : header.tuTimestamp;
+    }
+
+    const gz = await gzipBytes(body);
+    const headers = new Headers({
+      'content-type': contentType,
+      'content-encoding': 'gzip',
+      'cache-control': `public, max-age=${MAX_AGE_SECONDS}`,
+      etag: `W/"${header.generatedAt.toString(16)}-${(feedTs || 0).toString(16)}"`,
+      'x-data-source': ATTRIBUTION,
+      'x-snapshot-generated': String(header.generatedAt),
+    });
+    const age = feedAgeHeader(feedTs);
+    if (age !== null) headers.set('x-feed-age', age);
+
+    response = new Response(gz, { headers, encodeBody: 'manual' });
+    ctx.waitUntil(cache.put(cacheKey, response.clone()));
+  }
+
+  // Richieste condizionali dell'app: il 304 costa zero byte.
+  const inm = request.headers.get('if-none-match');
+  const etag = response.headers.get('etag');
+  if (inm && etag && inm === etag) {
+    return new Response(null, { status: 304, headers: { etag } });
+  }
+  return response;
+}
+
+async function serveHealth(env) {
+  let header = null;
+  try {
+    const head = await env.RT.get(SNAPSHOT_KEY, { range: { offset: 0, length: HEADER_LEN } });
+    if (head) header = readHeader(new Uint8Array(await head.arrayBuffer()));
+  } catch {
+    header = null;
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const body = header
+    ? {
+      ok: true,
+      generatedAt: header.generatedAt,
+      snapshotAgeSeconds: now - header.generatedAt,
+      vehicles: { count: header.vehicleCount, feedAgeSeconds: header.vpTimestamp ? now - header.vpTimestamp : null },
+      updates: { count: header.delayCount, feedAgeSeconds: header.tuTimestamp ? now - header.tuTimestamp : null },
+      alerts: { bytes: header.alertsLen, feedAgeSeconds: header.alTimestamp ? now - header.alTimestamp : null },
+    }
+    : { ok: false, error: 'snapshot non ancora generato' };
+  return new Response(JSON.stringify(body, null, 2), {
+    status: header ? 200 : 503,
+    headers: {
+      'content-type': 'application/json',
+      'cache-control': 'no-store',
+      'x-data-source': ATTRIBUTION,
+    },
+  });
+}

@@ -1,16 +1,18 @@
-# Fluid Transit — Worker di probe (Fase 1, spike 1)
+# Fluid Transit — proxy realtime (Fase 4).
 #
-# Scopo unico: stabilire se l'origine della Regione Toscana risponde a una
-# richiesta proveniente dalla rete Cloudflare. Se blocca gli IP datacenter,
-# l'intero design del proxy descritto nel piano non sta in piedi e va
-# ripensato prima di scrivere qualsiasi codice di prodotto.
-#
-# Questo Worker e' usa-e-getta: in Fase 4 lo stesso pacchetto diventa il
-# proxy vero (cron + R2 + Durable Object RtHub).
+# Cron al minuto: fetch dei tre feed GTFS-RT, parse col decoder statico,
+# snapshot binario su R2. Richieste: byte gia' pronti dietro la Cache API.
+# La probe di Fase 1 e' stata sostituita da questo Worker; il vecchio
+# `fluid-transit-probe` resta deployato ma inerte (nessun cron, zero costi).
 
-name = "fluid-transit-probe"
+name = "fluid-transit-rt"
 main = "src/index.js"
 compatibility_date = "2026-01-01"
 workers_dev = true
 
-# Nessun binding: la probe non scrive niente, non ha stato, non costa R2.
+[triggers]
+crons = ["* * * * *"]
+
+[[r2_buckets]]
+binding = "RT"
+bucket_name = "fluid-transit-rt"

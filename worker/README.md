@@ -1,37 +1,46 @@
-# worker/ — Cloudflare Worker
+# worker/ — il proxy realtime (Cloudflare Worker)
 
-## Stato: probe di Fase 1
+## Stato: proxy di Fase 4 (`fluid-transit-rt`)
 
-Oggi questo pacchetto contiene **solo** il Worker di probe dello spike 1. Non ha
-binding, non ha cron, non ha stato e non scrive su R2: serve a rispondere alla
-domanda da cui dipende tutto il resto del design del proxy —
+La probe di Fase 1 ha fatto il suo lavoro (l'origine risponde anche dagli IP
+Cloudflare) ed e' stata sostituita da questo Worker. Il principio di design,
+misurato in Fase 1, e':
 
-> l'origine `regionetoscana.smartregion.toscana.it` risponde anche quando la
-> richiesta parte dalla rete Cloudflare, o filtra gli IP datacenter?
+- **l'origine non manda validatori e non supporta gzip**: ogni fetch e'
+  integrale, quindi lo fa il cron una volta al minuto — mai il client;
+- **l'origine si rigenera ogni ~2 minuti**: quando i timestamp non cambiano
+  il cron NON riscrive lo snapshot (meta' delle scritture R2 risparmiate);
+- **zero parsing sul percorso richiesta**: le richieste servono byte gia'
+  pronti, affettati dallo snapshot e cacheati 45 s sull'edge.
 
-Se la risposta fosse "filtra", il proxy descritto nel piano non sarebbe
-realizzabile e andrebbe scelto un piano B (cron sulla GitHub Action, oppure
-app che parla direttamente all'origine) **prima** di scrivere codice di
-prodotto. Per questo lo spike viene per primo.
+## Architettura
 
-In Fase 4 lo stesso pacchetto diventa il proxy vero: cron al minuto, decoder
-protobuf statico, slicing in celle 0,25°, un solo oggetto R2 `rt/latest.bin`,
-Durable Object `RtHub` per lo storico. La probe verra' rimossa o ridotta a
-`/rt/v1/health`.
+```
+cron 1/min:  origine (3 feed GTFS-RT) → decoder protobuf statico (gtfsrt.js)
+             → snapshot binario compatto (snapshot.js) → R2 rt/latest.bin
+richiesta:   Cache API (45 s) → miss → R2 → slice + gzip → risposta
+```
+
+Gli id del feed viaggiano come **hash FNV-1a a 64 bit, identici a quelli del
+bundle** (`Ftb.hash64`): l'app risolve corse e linee via `TRIP_ID_INDEX` e
+`routeIdHash` senza portarsi dietro le stringhe. Il formato dei record e'
+documentato in testa a [`src/snapshot.js`](src/snapshot.js).
 
 ## Endpoint
 
-| endpoint | domanda a cui risponde |
-|---|---|
-| `/probe` | i tre feed RT rispondono? i byte sono un FeedMessage valido? quanto e' vecchio? |
-| `/probe?feed=alerts` | come sopra, un feed solo |
-| `/probe/conditional` | `ETag` / `Last-Modified` sono utilizzabili, o ogni fetch resta integrale? |
-| `/probe/burst?n=8` | una raffica ravvicinata viene rate-limitata? ogni quanto cambia davvero il feed? |
-| `/probe/static` | lo zip GTFS da 129 MB supporta le richieste `Range`? |
-| `/raw?feed=…` | passthrough dei byte grezzi, per ispezionarli in locale |
+| endpoint | contenuto | formato |
+|---|---|---|
+| `/rt/v1/vehicles` | posizioni dei veicoli | mini-header 24 B + record da 40 B |
+| `/rt/v1/updates` | ritardi per corsa | mini-header 24 B + record da 32 B |
+| `/rt/v1/alerts` | il FeedMessage alerts grezzo | protobuf (per Fase 6/8) |
+| `/rt/v1/health` | stato del proxy in JSON | per Stato dei dati e debug |
 
-Ogni fetch verso l'origine scavalca esplicitamente la cache di Cloudflare
-(`cf.cacheTtlByStatus` negativo): la probe deve misurare l'origine, non l'edge.
+Tutte le risposte binarie sono **gzip incondizionato** (`Content-Encoding:
+gzip`, `encodeBody: manual`): OkHttp le decomprime da solo; con curl serve
+`--compressed` o un `gunzip` a valle. Ogni risposta porta `X-Feed-Age`
+calcolato sul timestamp **dell'origine**, non del poll, ed `ETag` per i 304.
+
+URL: `https://fluid-transit-rt.fluid-transit.workers.dev`
 
 ## Deploy
 
@@ -41,11 +50,13 @@ che usa i secret `CLOUDFLARE_API_TOKEN` e `CLOUDFLARE_ACCOUNT_ID` gia'
 configurati in Fase 0. Parte da sola a ogni push che tocca `worker/`, oppure a
 mano da `workflow_dispatch`.
 
-URL: `https://fluid-transit-probe.fluid-transit.workers.dev`
+Il vecchio Worker `fluid-transit-probe` resta deployato su Cloudflare ma e'
+inerte (nessun cron, nessun binding, zero costi): si puo' eliminare dalla
+dashboard quando si vuole.
 
 ## Attribuzione
 
 I dati provengono da Regione Toscana / Autolinee Toscane e sono distribuiti in
-**CC-BY 4.0**. Ogni risposta della probe porta l'header `x-data-source` con
-l'attribuzione e la dichiarazione che i dati sono modificati — obbligo che vale
-anche per il proxy della Fase 4, dove la trasformazione e' sostanziale.
+**CC-BY 4.0**. Ogni risposta porta l'header `x-data-source` con l'attribuzione
+e la dichiarazione che i dati sono modificati — qui la trasformazione e'
+sostanziale (aggregazione, ricodifica binaria, hashing degli id).

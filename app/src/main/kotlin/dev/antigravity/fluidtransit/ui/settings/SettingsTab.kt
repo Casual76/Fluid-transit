@@ -2,6 +2,10 @@ package dev.antigravity.fluidtransit.ui.settings
 
 import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,23 +48,29 @@ fun SettingsTab(app: FluidTransitApp) {
         item { FluidSectionTitle(eyebrow = "Aspetto", title = "Tema") }
         item {
             FluidListGroup {
+                // Il segmented control e' un SubcomposeLayout: non puo' stare
+                // nel trailing di una FluidListRow, dove ListItem gli chiede
+                // le misure intrinseche (crash trovato sul device). Vive come
+                // riga propria del gruppo.
                 FluidListRow(
                     title = "Tema",
                     subtitle = "Chiaro e scuro seguono il telefono, se li lasci decidere",
-                    badge = {
-                        FluidSegmentedControl(
-                            options = listOf(ThemeMode.SYSTEM, ThemeMode.LIGHT, ThemeMode.DARK),
-                            selected = if (settings.themeMode == ThemeMode.AMOLED) ThemeMode.DARK else settings.themeMode,
-                            onSelect = { mode -> scope.launch { app.settingsStore.setThemeMode(mode) } },
-                            label = {
-                                when (it) {
-                                    ThemeMode.SYSTEM -> "Sistema"
-                                    ThemeMode.LIGHT -> "Chiaro"
-                                    else -> "Scuro"
-                                }
-                            },
-                        )
+                )
+                FluidSegmentedControl(
+                    options = listOf(ThemeMode.SYSTEM, ThemeMode.LIGHT, ThemeMode.DARK),
+                    selected = if (settings.themeMode == ThemeMode.AMOLED) ThemeMode.DARK else settings.themeMode,
+                    onSelect = { mode -> scope.launch { app.settingsStore.setThemeMode(mode) } },
+                    label = {
+                        when (it) {
+                            ThemeMode.SYSTEM -> "Sistema"
+                            ThemeMode.LIGHT -> "Chiaro"
+                            else -> "Scuro"
+                        }
                     },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .padding(bottom = 12.dp),
                 )
                 if (Build.VERSION.SDK_INT >= 31) {
                     FluidListRow(

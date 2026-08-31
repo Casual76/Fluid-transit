@@ -407,9 +407,15 @@ fun MapScreen(
                 .padding(start = 14.dp, bottom = bottomInset),
         )
         // In bussola l'icona del tasto GIRA col nord: e' l'unica bussola
-        // dell'app (quella di MapLibre in alto e' spenta).
+        // dell'app (quella di MapLibre in alto e' spenta). La scrittura di
+        // stato avviene SOLO in bussola: fuori, aggiornare a ogni frame di
+        // pan era lavoro regalato al garbage collector.
         var bearing by remember { mutableStateOf(0f) }
-        controller.onBearing = { bearing = it.toFloat() }
+        controller.onBearing = if (follow == FollowMode.COMPASS) {
+            { bearing = it.toFloat() }
+        } else {
+            null
+        }
         MapCornerButton(
             icon = when (follow) {
                 FollowMode.FREE -> Icons.Rounded.LocationSearching
@@ -444,15 +450,22 @@ fun MapScreen(
         // vetro; in modalita' linea il pannello prende il posto della tab bar.
         val reader = ready?.reader
         val inRoutePanel = panel is Panel.RouteMini || panel is Panel.RouteFull
+        // In modalita' linea il pannello siede ESATTAMENTE dove sedeva la
+        // tab bar: stessi margini, e il mini anche la stessa altezza — cosi'
+        // il rimbalzo del congedo si legge come la capsula che ritorna.
         val bottomPad by androidx.compose.animation.core.animateDpAsState(
-            targetValue = if (inRoutePanel) 10.dp else FluidTabBarDefaults.ContentInset + 10.dp,
+            targetValue = if (inRoutePanel) {
+                FluidTabBarDefaults.BottomMargin
+            } else {
+                FluidTabBarDefaults.ContentInset + 10.dp
+            },
             label = "panelBottomPad",
         )
         androidx.compose.animation.AnimatedVisibility(
             visible = panel != null && reader != null,
-            enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it / 2 }) +
+            enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it / 3 }) +
                 androidx.compose.animation.fadeIn(),
-            exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it / 2 }) +
+            exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it / 3 }) +
                 androidx.compose.animation.fadeOut(),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -468,8 +481,24 @@ fun MapScreen(
                 }
                 BottomGlassPanel(
                     backdrop = backdrop,
+                    shape = if (p is Panel.RouteMini) {
+                        dev.antigravity.fluidengine.ui.fluid.FluidCapsuleShape
+                    } else {
+                        dev.antigravity.fluidengine.ui.fluid.ContinuousCornerShape(
+                            dev.antigravity.fluidengine.ui.fluid.FluidRadius.Sheet,
+                        )
+                    },
                     wholeSurfaceDrag = p is Panel.RouteMini,
                     showGrabber = p !is Panel.RouteMini,
+                    // L'esteso si RIDUCE nel mini e il mini TORNA tab bar:
+                    // rimbalzo sul posto piu' trasformazione, mai lo
+                    // scivola-via-e-riappari segnalato come "roba strana".
+                    transformOnDismiss = p !is Panel.Stop,
+                    onDragExpand = if (p is Panel.RouteMini) {
+                        { panel = Panel.RouteFull(p.routeIndex) }
+                    } else {
+                        null
+                    },
                     onDragDismiss = {
                         when (p) {
                             is Panel.RouteFull -> panel = Panel.RouteMini(p.routeIndex)
@@ -477,7 +506,7 @@ fun MapScreen(
                         }
                     },
                     modifier = Modifier
-                        .padding(horizontal = 14.dp)
+                        .padding(horizontal = FluidTabBarDefaults.HorizontalMargin)
                         .padding(bottom = bottomPad),
                 ) {
                     androidx.compose.animation.AnimatedContent(

@@ -167,9 +167,11 @@ fun RoutePill(text: String, colorRgb: Int, modifier: Modifier = Modifier) {
 }
 
 /**
- * Il pop-up ridotto che prende il posto della tab bar: pillola, capolinea,
- * numero fermate e durata — come deciso. Un tocco lo espande; il resto dei
- * gesti (trascina giu', tocco a vuoto, back) vive nell'host.
+ * Il pop-up ridotto che prende il posto della tab bar: STESSA altezza della
+ * capsula di navigazione (cosi' il congedo si legge come la tab bar che
+ * ritorna), pillola, capolinea, numero fermate e durata. Un tocco o un
+ * trascinamento verso l'alto lo espandono; il resto dei gesti vive
+ * nell'host.
  */
 @Composable
 fun RouteMiniContent(info: RouteInfo, direction: Int) {
@@ -177,7 +179,8 @@ fun RouteMiniContent(info: RouteInfo, direction: Int) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 18.dp, vertical = 9.dp),
+            .height(dev.antigravity.fluidengine.ui.fluid.FluidTabBarDefaults.Height)
+            .padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -185,15 +188,16 @@ fun RouteMiniContent(info: RouteInfo, direction: Int) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = "→ ${dir.headsign}",
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = "${dir.stops.size} fermate · ~${dir.durationMinutes} min",
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
             )
         }
     }

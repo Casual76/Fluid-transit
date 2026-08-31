@@ -126,11 +126,15 @@ private fun AppShell(app: FluidTransitApp) {
                 }
             }
 
+            // Piccolo scarto e dissolvenza, non lo scivolone intero: il mini
+            // della linea siede nello stesso posto con la stessa altezza, e
+            // questo incrocio morbido e' cio' che fa leggere il ritorno della
+            // barra come una trasformazione della stessa capsula.
             androidx.compose.animation.AnimatedVisibility(
                 visible = !(route == RouteMap && mapHidesTabBar),
-                enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it }) +
+                enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it / 3 }) +
                     androidx.compose.animation.fadeIn(),
-                exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it }) +
+                exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it / 3 }) +
                     androidx.compose.animation.fadeOut(),
                 modifier = Modifier.align(Alignment.BottomCenter),
             ) {

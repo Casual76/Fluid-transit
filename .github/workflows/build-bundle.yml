@@ -40,9 +40,14 @@ jobs:
       - name: Avvia Valhalla in background (grafo stradale Toscana)
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --retry 3 --retry-delay 20 \
-               --max-time 600 -o /tmp/centro.osm.pbf \
+          # -L: Geofabrik puo' rispondere con un redirect al mirror, e senza
+          # seguirlo il "pbf" scaricato e' la paginetta del 302.
+          curl --fail --silent --show-error --location \
+               --retry 3 --retry-delay 20 \
+               --max-time 900 -o /tmp/centro.osm.pbf \
                "https://download.geofabrik.de/europe/italy/centro-latest.osm.pbf"
+          test "$(stat -c%s /tmp/centro.osm.pbf)" -gt 100000000 || {
+            echo "::error::il pbf del Centro Italia e' sospettosamente piccolo"; exit 1; }
           sudo apt-get update -qq
           sudo apt-get install -y -qq osmium-tool >/dev/null
           # Il ritaglio: Geofabrik non ha la sola Toscana, il Centro intero

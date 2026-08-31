@@ -150,10 +150,17 @@ object BusIcons {
 
     fun dotName(colorRgb: Int) = "bus-d-${hex(colorRgb)}"
 
+    /**
+     * I colori gia' registrati, PER stile: interrogare style.getImage a ogni
+     * fotogramma sarebbe una chiamata JNI che copia la bitmap — a 8 Hz per
+     * mille bus e' un costo vero. La mappa debole muore con lo stile.
+     */
+    private val registered = java.util.WeakHashMap<Style, HashSet<Int>>()
+
     fun ensure(style: Style, colorRgb: Int, density: Float) {
-        val arrow = arrowName(colorRgb)
-        if (style.getImage(arrow) != null) return
-        style.addImage(arrow, arrowBitmap(colorRgb, density))
+        val colors = registered.getOrPut(style) { HashSet() }
+        if (!colors.add(colorRgb)) return
+        style.addImage(arrowName(colorRgb), arrowBitmap(colorRgb, density))
         style.addImage(dotName(colorRgb), dotBitmap(colorRgb, density))
     }
 

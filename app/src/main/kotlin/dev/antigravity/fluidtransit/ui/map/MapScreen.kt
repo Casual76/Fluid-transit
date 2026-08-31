@@ -331,7 +331,7 @@ fun MapScreen(
             launch {
                 while (true) {
                     controller.tickBuses()
-                    kotlinx.coroutines.delay(120)
+                    kotlinx.coroutines.delay(controller.busTickDelayMs())
                 }
             }
         }

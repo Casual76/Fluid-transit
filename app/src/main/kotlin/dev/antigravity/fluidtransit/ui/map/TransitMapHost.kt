@@ -534,7 +534,16 @@ class TransitMapController(private val context: Context) {
         map?.getStyle { pushBusFeatures(it) }
     }
 
-    /** Un fotogramma del glide. La UI lo chiama a ~8 Hz solo quando i bus si vedono. */
+    /**
+     * Il ritmo giusto per il prossimo fotogramma: da lontano un pixel sono
+     * decine di metri e 2 Hz bastano; da vicino il glide vuole 8 Hz.
+     */
+    fun busTickDelayMs(): Long {
+        val zoom = map?.cameraPosition?.zoom ?: return 500L
+        return if (zoom >= 13.0) 120L else 500L
+    }
+
+    /** Un fotogramma del glide. La UI lo chiama solo quando i bus si vedono. */
     fun tickBuses() {
         val m = map ?: return
         if (busOverlay.isEmpty) return

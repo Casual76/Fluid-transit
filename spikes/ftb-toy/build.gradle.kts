@@ -38,3 +38,13 @@ tasks.register<JavaExec>("verify") {
 tasks.test {
     useJUnitPlatform()
 }
+
+// Utilita' dello spike 2: senza sapere come si chiamano i layer dentro le
+// tile, uno stile MapLibre disegna una mappa vuota - indistinguibile da un
+// PMTiles che non si apre.
+tasks.register<JavaExec>("pmtilesInfo") {
+    group = "verification"
+    description = "Stampa header e metadata di un archivio PMTiles v3."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("dev.antigravity.fluidtransit.ftb.PmtilesHeaderKt")
+}

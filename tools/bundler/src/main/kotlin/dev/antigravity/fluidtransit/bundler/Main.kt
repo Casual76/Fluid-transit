@@ -46,4 +46,31 @@ fun main(args: Array<String>) {
         System.err.println("ERRORE: oltre il 5% delle corse scartate ($dropped): feed sospetto")
         exitProcess(1)
     }
+
+    // Il frammento per index.json: i numeri che il workflow usa per i gate
+    // (volumetria +-15%, corse per giorno della settimana +-20% contro lo
+    // stesso giorno del build precedente) e i campi che l'app legge.
+    val report = args.getOrNull(3)?.let { File(it) }
+    if (report != null) {
+        val buildId = java.lang.Long.toHexString(
+            dev.antigravity.fluidtransit.routing.BundleReader(out).use { it.buildId },
+        )
+        report.parentFile?.mkdirs()
+        report.writeText(
+            buildString {
+                appendLine("{")
+                appendLine("  \"buildId\": \"$buildId\",")
+                appendLine("  \"validFrom\": \"${s.feedStartDate}\",")
+                appendLine("  \"validTo\": \"${s.feedEndDate}\",")
+                appendLine("  \"stops\": ${s.stopsKept},")
+                appendLine("  \"routes\": ${s.routesKept},")
+                appendLine("  \"trips\": ${s.tripsKept},")
+                appendLine("  \"patterns\": ${s.patterns},")
+                appendLine("  \"dropped\": $dropped,")
+                appendLine("  \"tripsActivePerDay\": [${s.tripsActivePerDay.joinToString(", ")}]")
+                appendLine("}")
+            },
+        )
+        println("  report:   $report")
+    }
 }

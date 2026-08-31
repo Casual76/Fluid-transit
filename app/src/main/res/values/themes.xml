@@ -1,0 +1,11 @@
+<resources>
+    <!-- Il tema vero e' FluidTheme, in Compose. Questo serve solo alla
+         finestra prima del primo frame: barre trasparenti, niente action bar. -->
+    <style name="Theme.FluidTransit" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
+    </style>
+</resources>

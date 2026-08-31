@@ -33,10 +33,16 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "FluidTransit"
-include(":app")
 include(":core-routing")
 include(":bundler")
 project(":bundler").projectDir = file("tools/bundler")
+
+// L'app c'e' solo se c'e' l'engine: il job notturno del bundle fa il checkout
+// senza submodule (gli serve solo :bundler) e senza questa guardia la sola
+// configurazione di :app, che dipende da :engine-ui, farebbe fallire tutto.
+if (file("engine/engine-ui").exists()) {
+    include(":app")
+}
 
 // --- fluid-engine (inizio) ---
 val engineDir = file("engine")

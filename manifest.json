@@ -1,0 +1,32 @@
+{
+  "_commento": "Il piano di controllo di Fluid Transit, letto da EngineRemoteConfig via raw.githubusercontent. La sezione engine cambia il comportamento delle app gia' installate senza una release; la sezione app e' quella del Pampa Store e si compila alla prima release.",
+
+  "app": {
+    "id": "fluid-transit",
+    "name": "Fluid Transit",
+    "packageName": "dev.antigravity.fluidtransit",
+    "repository": {
+      "repoOwner": "Casual76",
+      "repoName": "Fluid-transit"
+    },
+    "stable": null,
+    "beta": null
+  },
+
+  "engine": {
+    "schema": 1,
+    "minimumVersion": "0.1.0",
+    "recommendedVersion": "0.1.0",
+    "notice": null,
+    "flags": {
+      "rt.proxy.enabled": true,
+      "map.ortofoto.enabled": true,
+      "rt.ghostbus.enabled": false
+    },
+    "killSwitch": {
+      "enabled": false,
+      "message": null
+    },
+    "overrides": {}
+  }
+}

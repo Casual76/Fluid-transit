@@ -62,6 +62,15 @@ class BundleBuilder(
         var transferCapped = 0
         val sectionBytes = LinkedHashMap<String, Int>()
         var buildMillis = 0L
+
+        /**
+         * Corse attive nei primi 7 giorni della finestra. E' il dato del gate
+         * "feed valido ma lunedi' ha zero corse": il workflow lo confronta con
+         * lo stesso giorno della settimana del build precedente.
+         */
+        var tripsActivePerDay = IntArray(0)
+        var feedStartDate = ""
+        var feedEndDate = ""
     }
 
     val stats = Stats()
@@ -101,6 +110,21 @@ class BundleBuilder(
         val collected = collectPatterns(stops, trips)
 
         writeBundle(out, feed, stops, routes, services, trips, collected)
+
+        // Corse attive per ciascuno dei primi 7 giorni: il dato del gate
+        // settimanale del workflow notturno.
+        val days = minOf(7, feed.dayCount)
+        val perDay = IntArray(days)
+        for (t in collected.tripIndex.indices) {
+            val service = trips.service[collected.tripIndex[t]]
+            val bitmap = services.bitmaps[service]
+            for (d in 0 until days) {
+                if ((bitmap[d / 8].toInt() shr (d % 8)) and 1 == 1) perDay[d]++
+            }
+        }
+        stats.tripsActivePerDay = perDay
+        stats.feedStartDate = feed.start.toString()
+        stats.feedEndDate = feed.end.toString()
 
         stats.buildMillis = System.currentTimeMillis() - t0
     }

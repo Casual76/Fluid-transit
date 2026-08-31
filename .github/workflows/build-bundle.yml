@@ -1,0 +1,168 @@
+# Il bundle orari, ogni notte.
+#
+# La Regione rigenera il feed verso le 04:00 italiane; il job parte alle
+# 03:40 UTC (05:40 in estate, 04:40 in inverno), a feed fresco in entrambi i
+# casi. La catena e': scarica -> costruisci -> verifica contro i CSV ->
+# gate volumetrici contro il build precedente -> pubblica sulla release
+# `dati` -> aggiorna index.json per ultimo, che e' lo switch atomico.
+#
+# Se un gate fallisce non si pubblica niente: l'app continua a scaricare il
+# bundle di ieri, che e' esattamente il comportamento voluto.
+name: Bundle orari
+
+on:
+  schedule:
+    - cron: "40 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write # per la release `dati`
+
+concurrency:
+  group: build-bundle
+  cancel-in-progress: false
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # Senza submodule: al bundler servono solo :core-routing e :bundler,
+      # e il settings.gradle esclude :app quando l'engine non c'e'.
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Scarica il feed GTFS
+        run: |
+          set -euo pipefail
+          # Il server non supporta Range (verificato in Fase 1): un download
+          # interrotto riparte da zero, quindi --retry sull'intero file.
+          curl --fail --silent --show-error \
+               --retry 4 --retry-delay 20 --retry-all-errors \
+               --max-time 900 \
+               -A "FluidTransit-Bundler/0.1 (+https://github.com/Casual76/Fluid-transit)" \
+               -o gtfs.zip \
+               "https://regionetoscana.smartregion.toscana.it/mobility/artifacts/gtfs"
+          # Gate 1, integrita': e' uno zip vero?
+          head -c 4 gtfs.zip | od -An -tx1 | grep -q "50 4b 03 04" || {
+            echo "::error::il feed scaricato non e' uno zip"; exit 1; }
+          mkdir -p work/gtfs
+          unzip -q gtfs.zip -d work/gtfs
+          ls -la work/gtfs
+
+      - name: Costruisci il bundle
+        run: |
+          ./gradlew --no-daemon :bundler:run --console=plain --args="$GITHUB_WORKSPACE/work/gtfs $GITHUB_WORKSPACE/work/toscana.ftb - $GITHUB_WORKSPACE/work/fragment.json"
+          cat work/fragment.json
+
+      - name: Golden gate, contro i CSV
+        run: |
+          ./gradlew --no-daemon :bundler:verify --console=plain --args="$GITHUB_WORKSPACE/work/gtfs $GITHUB_WORKSPACE/work/toscana.ftb" | tee work/verify.log
+          grep -q "TUTTI I CONTROLLI PASSATI" work/verify.log
+
+      - name: Test di formato
+        run: ./gradlew --no-daemon :core-routing:test --console=plain
+
+      - name: Gate volumetrici contro il build precedente
+        run: |
+          set -euo pipefail
+          # L'indice del build precedente. Se non esiste (primo build) i gate
+          # relativi si saltano: non c'e' baseline con cui confrontare.
+          if ! curl --fail --silent --location -o work/previous.json \
+               "https://github.com/${GITHUB_REPOSITORY}/releases/download/dati/index.json"; then
+            echo "nessun index.json precedente: primo build, gate saltati"
+            exit 0
+          fi
+
+          new=work/fragment.json
+          old=work/previous.json
+
+          # Se il contenuto non e' cambiato, non si pubblica: e' il
+          # "pubblica solo se cambiato" reso possibile dal build deterministico.
+          if [ "$(jq -r .buildId $new)" = "$(jq -r .buildId $old)" ]; then
+            echo "skip=true" >> "$GITHUB_ENV"
+            echo "bundle identico a ieri (buildId invariato): niente da pubblicare"
+            exit 0
+          fi
+
+          fail=0
+          # Gate 2, volumetria: conteggi entro +-15%.
+          for field in stops routes trips; do
+            a=$(jq -r ".$field" $old); b=$(jq -r ".$field" $new)
+            if [ "$a" -gt 0 ]; then
+              delta=$(( (b - a) * 100 / a )); [ $delta -lt 0 ] && delta=$((-delta))
+              echo "$field: $a -> $b (${delta}%)"
+              if [ $delta -gt 15 ]; then
+                echo "::error::$field variato del ${delta}%: oltre il 15%"; fail=1
+              fi
+            fi
+          done
+
+          # Gate 3, corse per giorno della settimana: entro +-20% rispetto
+          # allo stesso giorno del build precedente. Intercetta "il feed e'
+          # valido ma lunedi' ha zero corse". La finestra di ieri e' spostata
+          # di un giorno: il giorno d di oggi e' il giorno d+1 di ieri.
+          for d in 0 1 2 3 4 5; do
+            a=$(jq -r ".tripsActivePerDay[$((d + 1))] // empty" $old)
+            b=$(jq -r ".tripsActivePerDay[$d] // empty" $new)
+            if [ -n "$a" ] && [ -n "$b" ] && [ "$a" -gt 0 ]; then
+              delta=$(( (b - a) * 100 / a )); [ $delta -lt 0 ] && delta=$((-delta))
+              echo "giorno $d: $a -> $b (${delta}%)"
+              if [ $delta -gt 20 ]; then
+                # Whitelist festivita': si aggiunge qui la data quando serve.
+                echo "::error::corse del giorno $d variate del ${delta}%: oltre il 20%"; fail=1
+              fi
+            fi
+          done
+          exit $fail
+
+      - name: Pubblica sulla release dati
+        if: env.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          buildId=$(jq -r .buildId work/fragment.json)
+          sha=$(sha256sum work/toscana.ftb | cut -d' ' -f1)
+          bytes=$(stat -c%s work/toscana.ftb)
+          asset="toscana-${buildId}.ftb.gz"
+          gzip -9 -c work/toscana.ftb > "work/$asset"
+          gzBytes=$(stat -c%s "work/$asset")
+
+          # L'index.json che l'app scarica: url, sha256 del file DECOMPRESSO
+          # (l'app verifica dopo il gunzip), e i conteggi per i gate di domani.
+          # Il nome dell'asset porta il buildId: un'app a meta' download del
+          # bundle di ieri non riceve mai byte diversi da quelli che il suo
+          # indice le ha promesso.
+          jq --arg url "https://github.com/${GITHUB_REPOSITORY}/releases/download/dati/$asset" \
+             --arg sha "$sha" \
+             --argjson bytes "$gzBytes" \
+             --argjson rawBytes "$bytes" \
+             '. + {url: $url, sha256: $sha, bytes: $bytes, rawBytes: $rawBytes}' \
+             work/fragment.json > work/index.json
+          cat work/index.json
+
+          # La release `dati` e' fissa: si aggiungono asset e si aggiorna l'indice.
+          if ! gh release view dati >/dev/null 2>&1; then
+            gh release create dati --title "Dati orari" \
+              --notes "Bundle orari rigenerato ogni notte dal feed CC-BY della Regione Toscana. Non e' una release dell'app."
+          fi
+          # Prima il bundle, poi l'indice: l'indice e' lo switch atomico.
+          gh release upload dati "work/$asset" --clobber
+          gh release upload dati work/index.json --clobber
+          echo "pubblicato buildId=$buildId ($gzBytes byte gzip)"
+
+          # Pulizia: si tengono gli ultimi 3 bundle, per le app rimaste su un
+          # indice vecchio. Un fallimento qui non deve annullare la pubblicazione.
+          gh release view dati --json assets -q '.assets[].name' \
+            | grep '^toscana-.*\.ftb\.gz$' | sort | head -n -3 \
+            | while read -r old; do
+                echo "rimuovo asset vecchio: $old"
+                gh release delete-asset dati "$old" --yes || true
+              done

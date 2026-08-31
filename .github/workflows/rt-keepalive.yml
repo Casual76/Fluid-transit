@@ -1,0 +1,35 @@
+name: RT keepalive
+
+# Il piano B della Fase 1, attivato per necessita': il Cron Trigger di
+# Cloudflare risulta registrato (verificato via API, riscritto, cancellato e
+# ricreato) ma non e' MAI scattato. Nel frattempo il proxy si tiene fresco da
+# solo col refresh pigro a ogni lettura; questo cron copre il caso rimasto
+# scoperto — il primo utente dopo un periodo di quiete, che altrimenti
+# vedrebbe posizioni vecchie per un giro di poll.
+#
+# GitHub non garantisce la puntualita' dei cron (ritardi di minuti sono
+# normali): come rete di sicurezza va benissimo, come metronomo no. Se un
+# giorno il cron di Cloudflare si sveglia, /rt/v1/health mostrera' il campo
+# `cron` e questo workflow si potra' spegnere.
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: rt-keepalive
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Un giro di refresh
+        run: |
+          curl --fail --silent --show-error --max-time 60 \
+            "https://fluid-transit-rt.fluid-transit.workers.dev/rt/v1/refresh"
+          echo

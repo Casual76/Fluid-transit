@@ -25,13 +25,37 @@ concurrency:
 jobs:
   bundle:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       # Senza submodule: al bundler servono solo :core-routing e :bundler,
       # e il settings.gradle esclude :app quando l'engine non c'e'.
       - uses: actions/checkout@v4
         with:
           submodules: false
+
+      # Parte per primo e lavora in background: il grafo stradale della
+      # Toscana si costruisce mentre bundle e verifica girano. Serve al map
+      # matching delle tratte (le shape GTFS sono tracce GPS: zoomate
+      # tagliano gli isolati; riproiettate sul grafo OSM seguono l'asfalto).
+      - name: Avvia Valhalla in background (grafo stradale Toscana)
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 3 --retry-delay 20 \
+               --max-time 600 -o /tmp/centro.osm.pbf \
+               "https://download.geofabrik.de/europe/italy/centro-latest.osm.pbf"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq osmium-tool >/dev/null
+          # Il ritaglio: Geofabrik non ha la sola Toscana, il Centro intero
+          # triplicherebbe il tempo di costruzione del grafo.
+          osmium extract --bbox 9.55,42.20,12.60,44.60 /tmp/centro.osm.pbf \
+                 -o /tmp/toscana.osm.pbf --overwrite
+          ls -la /tmp/toscana.osm.pbf
+          mkdir -p /tmp/valhalla
+          cp /tmp/toscana.osm.pbf /tmp/valhalla/
+          docker run -d --name valhalla -p 8002:8002 \
+            -v /tmp/valhalla:/custom_files \
+            -e serve_tiles=True -e build_admins=False -e build_time_zones=False \
+            ghcr.io/gis-ops/docker-valhalla/valhalla:latest
 
       - uses: actions/setup-java@v4
         with:
@@ -61,10 +85,33 @@ jobs:
           ./gradlew --no-daemon :bundler:run --console=plain --args="$GITHUB_WORKSPACE/work/gtfs $GITHUB_WORKSPACE/work/toscana.ftb - $GITHUB_WORKSPACE/work/fragment.json"
           cat work/fragment.json
 
-      - name: Overlay della rete (tippecanoe)
+      - name: Overlay della rete (map matching + tippecanoe)
         run: |
           set -euo pipefail
-          ./gradlew --no-daemon :bundler:overlay --console=plain --args="$GITHUB_WORKSPACE/work/gtfs $GITHUB_WORKSPACE/work/overlay"
+          # Si aspetta che Valhalla (partito in background al primo step)
+          # abbia finito il grafo. Se non ce la fa, si va senza matching:
+          # meglio le tratte GPS di ieri che nessuna pubblicazione — e il
+          # numero di revisione dell'overlay resta basso, cosi' la prossima
+          # notte ci riprova.
+          VALHALLA_URL=""
+          for i in $(seq 1 90); do
+            if curl -s -m 5 -X POST localhost:8002/trace_route \
+                 -d '{"shape":[{"lat":43.7696,"lon":11.2558},{"lat":43.7712,"lon":11.2486}],"costing":"bus"}' \
+                 | grep -q '"trip"'; then
+              VALHALLA_URL="http://localhost:8002"
+              break
+            fi
+            sleep 10
+          done
+          if [ -n "$VALHALLA_URL" ]; then
+            echo "2" > work/overlay.rev
+            echo "Valhalla pronto: matching attivo"
+          else
+            echo "1" > work/overlay.rev
+            echo "::warning::Valhalla non pronto entro 15 min: overlay senza map matching"
+            docker logs valhalla 2>&1 | tail -20 || true
+          fi
+          VALHALLA_URL="$VALHALLA_URL" ./gradlew --no-daemon :bundler:overlay --console=plain --args="$GITHUB_WORKSPACE/work/gtfs $GITHUB_WORKSPACE/work/overlay"
           sudo apt-get update -qq
           sudo apt-get install -y -qq libsqlite3-dev zlib1g-dev >/dev/null
           git clone -q --depth 1 https://github.com/felt/tippecanoe.git /tmp/tippecanoe
@@ -106,12 +153,20 @@ jobs:
 
           # Se il contenuto non e' cambiato, non si pubblica: e' il
           # "pubblica solo se cambiato" reso possibile dal build deterministico.
-          # La pubblicazione precedente deve pero' essere completa: senza
-          # overlayUrl nell'indice vecchio si ripubblica comunque.
+          # Ma l'overlay ha una revisione sua (v2 = map matching): a parita'
+          # di orari si ripubblica quando la pipeline delle tile e' migliorata,
+          # MAI quando e' peggiorata (stanotte senza Valhalla non si butta il
+          # matching di ieri).
+          oldOverlay=$(jq -r '.overlayUrl // empty' $old)
+          oldRev=0
+          case "$oldOverlay" in
+            *-v*.pmtiles) oldRev=$(echo "$oldOverlay" | sed -E 's/.*-v([0-9]+)\.pmtiles$/\1/');;
+          esac
+          newRev=$(cat work/overlay.rev)
           if [ "$(jq -r .buildId $new)" = "$(jq -r .buildId $old)" ] &&
-             [ -n "$(jq -r '.overlayUrl // empty' $old)" ]; then
+             [ -n "$oldOverlay" ] && [ "$oldRev" -ge "$newRev" ]; then
             echo "skip=true" >> "$GITHUB_ENV"
-            echo "bundle identico a ieri (buildId invariato): niente da pubblicare"
+            echo "bundle identico a ieri (buildId invariato, overlay v$oldRev >= v$newRev): niente da pubblicare"
             exit 0
           fi
 
@@ -168,7 +223,10 @@ jobs:
           asset="toscana-${buildId}.ftb.gz"
           gzip -9 -c work/toscana.ftb > "work/$asset"
           gzBytes=$(stat -c%s "work/$asset")
-          overlayAsset="rete-${buildId}.pmtiles"
+          # Il nome porta anche la revisione della pipeline delle tile
+          # (v2 = map matching): un URL nuovo quando cambia il contenuto,
+          # cosi' cache e memoizzazioni dell'app non servono mai byte vecchi.
+          overlayAsset="rete-${buildId}-v$(cat work/overlay.rev).pmtiles"
           cp work/rete.pmtiles "work/$overlayAsset"
 
           # L'index.json che l'app scarica: url, sha256 del file DECOMPRESSO
@@ -196,11 +254,15 @@ jobs:
           gh release upload dati work/index.json --clobber
           echo "pubblicato buildId=$buildId ($gzBytes byte bundle, $(stat -c%s work/$overlayAsset) byte overlay)"
 
-          # Pulizia: si tengono gli ultimi 3 di ciascuno, per le app rimaste
-          # su un indice vecchio. Un fallimento qui non annulla la pubblicazione.
+          # Pulizia: si tengono 3 asset per tipo, per le app rimaste su un
+          # indice vecchio. I buildId sono hash, quindi l'ordine per nome
+          # NON e' cronologico: gli asset appena pubblicati si escludono
+          # esplicitamente, o la "pulizia" potrebbe colpire proprio loro.
+          # Un fallimento qui non annulla la pubblicazione.
           for pattern in '^toscana-.*\.ftb\.gz$' '^rete-.*\.pmtiles$'; do
             gh release view dati --json assets -q '.assets[].name' \
-              | grep "$pattern" | sort | head -n -3 \
+              | grep "$pattern" | grep -v -F "$asset" | grep -v -F "$overlayAsset" \
+              | sort | head -n -2 \
               | while read -r old; do
                   echo "rimuovo asset vecchio: $old"
                   gh release delete-asset dati "$old" --yes || true

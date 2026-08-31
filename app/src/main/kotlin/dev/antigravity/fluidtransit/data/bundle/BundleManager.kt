@@ -114,8 +114,11 @@ class BundleManager(
         runCatching {
             val index = fetchIndex()
             if (index.buildId == java.lang.Long.toHexString(current.buildId)) {
-                // Stesso bundle: al massimo e' arrivato l'overlay che prima mancava.
-                if (current.overlayUrl == null && index.overlayUrl != null) {
+                // Stesso bundle, ma l'overlay puo' essere cambiato lo stesso:
+                // la pipeline delle tile ha una sua versione (il map matching
+                // e' arrivato cosi') e pubblica sotto un nome nuovo anche a
+                // parita' di orari.
+                if (index.overlayUrl != null && index.overlayUrl != current.overlayUrl) {
                     writeMeta(index)
                     _state.value = BundleState.Ready(current.reader, current.buildId, index.overlayUrl)
                 }

@@ -209,7 +209,7 @@ Viste queste misure, la mappa cambia impostazione rispetto al piano originale.
 | | scelta |
 |---|---|
 | basemap stradale | **OpenFreeMap** — tile OSM gratuite, senza chiave, servite da terzi |
-| satellite | **ortofoto Regione Toscana** (WMS GEOscopio, `Fees none`, EPSG:3857, JPEG; la più recente è OFC 2017 a 20 cm) |
+| satellite | **ortofoto Regione Toscana** (WMS GEOscopio, `Fees none`, EPSG:3857, JPEG; layer `rt_ofc.10k13`, volo 2013 a 1:10.000 — l'unica annata a copertura totale: le 20 cm del 2015-2017 sono parziali e su Firenze mancano, come documentato nello spike map-modes) |
 | 3D | **edifici estrusi + inclinazione della camera**, senza terreno |
 | aspetto | **mappa normale e leggibile**; il fluid glass resta nella UI sopra la mappa |
 
@@ -230,7 +230,7 @@ Restano però due conseguenze da non perdere di vista:
   ortofoto vengono da un server della pubblica amministrazione senza CDN e vanno dietro la
   nostra cache, ma ogni spostamento in modalità satellite genera richieste raster contro il
   tetto di 100k/giorno della Worker. Va trattato come modalità: non attiva di default,
-  `max-age` lungo — le ortofoto 2017 non cambiano — e spegnibile da remoto.
+  `max-age` lungo — è un volo aereo del 2013, non cambia — e spegnibile da remoto.
 
 La scoperta dello spike 2 sulle riletture di header e root directory resta valida e
 applicabile all'overlay delle linee, che è pur sempre un PMTiles.

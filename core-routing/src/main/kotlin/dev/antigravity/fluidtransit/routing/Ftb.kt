@@ -57,8 +57,10 @@ object Ftb {
      * v3: ROUTES guadagna il colore di visualizzazione assegnato dal bundler
      * (la colorazione del grafo di sovrapposizione) - lo stesso colore che
      * l'overlay scrive nelle tile, cosi' mappa e schede dicono la stessa cosa.
+     * v4: arriva POLYLINES — la geometria per pattern che disegna le tappe
+     * degli itinerari, con l'aggancio fermata→vertice per il progresso.
      */
-    const val FORMAT_VERSION = 3
+    const val FORMAT_VERSION = 4
 
     const val HEADER_SIZE = 4096
     const val SECTION_ALIGN = 4096
@@ -97,7 +99,25 @@ object Ftb {
     const val S_STOP_PATTERNS = 11
     const val S_SERVICES = 12
     const val S_TRANSFERS = 13
-    const val S_POLYLINES = 14 // riservata: arriva con l'anteprima itinerari
+    /**
+     * POLYLINES (v4): la geometria di ogni pattern, per l'anteprima degli
+     * itinerari sulla mappa.
+     *
+     *   0                    i32  patternCount
+     *   4                    i32  totalPatternStops (= voci di PATTERN_STOPS)
+     *   8                    (patternCount+1) x i32: offset in byte del blob
+     *                        coordinate di ciascun pattern (relativo al blob)
+     *   dopo gli offset      totalPatternStops x u16: per ogni fermata del
+     *                        pattern (stesso indice globale di PATTERN_STOPS)
+     *                        l'indice del VERTICE piu' vicino nella polilinea
+     *   (pad a 4)            blob coordinate: per pattern, coppie di varint
+     *                        zigzag — delta di lat e lon in milionesimi di
+     *                        grado dal punto precedente (il primo da 0,0)
+     *
+     * La decodifica e' sequenziale per pattern (qualche migliaio di varint):
+     * l'accesso casuale e' garantito dagli offset in byte, non per vertice.
+     */
+    const val S_POLYLINES = 14
     const val S_SEARCH = 15 // riservata: arriva con la ricerca
     const val S_STOP_ID_INDEX = 16
 

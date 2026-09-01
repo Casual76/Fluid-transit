@@ -44,6 +44,23 @@ class ByteBuf(initial: Int = 1 shl 16) {
         }
     }
 
+    /** Varint LEB128 senza segno. */
+    fun varintU(v0: Int) = apply {
+        var v = v0
+        while (true) {
+            val b = v and 0x7f
+            v = v ushr 7
+            if (v == 0) {
+                u8(b)
+                break
+            }
+            u8(b or 0x80)
+        }
+    }
+
+    /** Varint zigzag: i delta piccoli, positivi o negativi, costano 1-2 byte. */
+    fun varintZigzag(v: Int) = varintU((v shl 1) xor (v shr 31))
+
     fun bytes(b: ByteArray) = apply {
         ensure(b.size)
         System.arraycopy(b, 0, array, size, b.size)

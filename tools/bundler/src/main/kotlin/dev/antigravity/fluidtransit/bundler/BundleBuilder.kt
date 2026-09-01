@@ -60,6 +60,8 @@ class BundleBuilder(
 
         var transferEdges = 0
         var transferCapped = 0
+        var patternsWithShape = 0
+        var patternPolyFallback = 0
         val sectionBytes = LinkedHashMap<String, Int>()
         var buildMillis = 0L
 
@@ -108,8 +110,9 @@ class BundleBuilder(
         val trips = readTrips(routes.idToIndex, services.idToIndex)
 
         val collected = collectPatterns(stops, trips)
+        val polylines = buildPolylines(stops, trips, collected)
 
-        writeBundle(out, feed, stops, routes, services, trips, collected)
+        writeBundle(out, feed, stops, routes, services, trips, collected, polylines)
 
         // Corse attive per ciascuno dei primi 7 giorni: il dato del gate
         // settimanale del workflow notturno.
@@ -337,6 +340,7 @@ class BundleBuilder(
         val route = ArrayList<Int>()
         val service = ArrayList<Int>()
         val direction = ArrayList<Int>()
+        val shapeId = ArrayList<String>()
         val size: Int get() = ids.size
     }
 
@@ -347,6 +351,7 @@ class BundleBuilder(
             val cRoute = csv.requireColumn("route_id")
             val cService = csv.requireColumn("service_id")
             val cDir = csv.column("direction_id")
+            val cShape = csv.column("shape_id")
             while (csv.nextRow()) {
                 val r = routeIndex[csv.string(cRoute)] ?: continue
                 val sv = serviceIndex[csv.string(cService)] ?: continue
@@ -355,6 +360,7 @@ class BundleBuilder(
                 t.route.add(r)
                 t.service.add(sv)
                 t.direction.add(csv.int(cDir, 0).coerceIn(0, 1))
+                t.shapeId.add(csv.string(cShape))
             }
         }
         stats.tripsTotal = t.size
@@ -552,6 +558,167 @@ class BundleBuilder(
 
     // ---------------------------------------------------------------- writing
 
+    // -------------------------------------------------------------- polilinee
+
+    class Polylines(
+        /** Per pattern: coordinate della geometria, gia' semplificate. */
+        val lat: List<DoubleArray>,
+        val lon: List<DoubleArray>,
+        /** Per pattern: per ogni fermata, l'indice del vertice piu' vicino. */
+        val stopVertex: List<IntArray>,
+    )
+
+    /**
+     * La geometria di ogni pattern per l'anteprima itinerari (sezione
+     * POLYLINES, v4). La shape rappresentativa e' quella della maggioranza
+     * delle corse del pattern (pareggio: la piu' piccola per id, per il
+     * determinismo); un pattern senza shape — o con una shape che passa a
+     * piu' di 500 m da una sua fermata — ricade sulla spezzata delle fermate.
+     */
+    private fun buildPolylines(stops: Stops, trips: Trips, c: Collected): Polylines {
+        val patternCount = c.patternStops.size
+
+        // La shape scelta per ciascun pattern.
+        val counts = HashMap<Long, Int>() // (pattern shl 32 | shapeIdx interno)
+        val shapeIds = ArrayList<String>()
+        val shapeIdToIdx = HashMap<String, Int>()
+        for (t in c.tripIndex.indices) {
+            val shape = trips.shapeId[c.tripIndex[t]]
+            if (shape.isEmpty()) continue
+            val si = shapeIdToIdx.getOrPut(shape) { shapeIds.add(shape); shapeIds.size - 1 }
+            val key = (c.tripPattern[t].toLong() shl 32) or si.toLong()
+            counts[key] = (counts[key] ?: 0) + 1
+        }
+        val chosen = arrayOfNulls<String>(patternCount)
+        val best = HashMap<Int, Pair<Int, String>>() // pattern -> (conteggio, shapeId)
+        for ((key, n) in counts) {
+            val p = (key ushr 32).toInt()
+            val id = shapeIds[(key and 0xffffffffL).toInt()]
+            val cur = best[p]
+            if (cur == null || n > cur.first || (n == cur.first && id < cur.second)) {
+                best[p] = n to id
+            }
+        }
+        for ((p, v) in best) chosen[p] = v.second
+        val wanted = best.values.mapTo(HashSet()) { it.second }
+
+        // Le shape volute, gia' ordinate, pulite e semplificate a 20 m: la
+        // tolleranza dell'anteprima, non quella fine dell'overlay.
+        val shapeLat = HashMap<String, DoubleArray>(wanted.size * 2)
+        val shapeLon = HashMap<String, DoubleArray>(wanted.size * 2)
+        val shapesFile = File(gtfsDir, "shapes.txt")
+        if (shapesFile.exists() && wanted.isNotEmpty()) {
+            CsvCursor.open(shapesFile) { csv ->
+                val cShape = csv.requireColumn("shape_id")
+                val cLat = csv.requireColumn("shape_pt_lat")
+                val cLon = csv.requireColumn("shape_pt_lon")
+                val cSeq = csv.requireColumn("shape_pt_sequence")
+                var shapeBytes = ByteArray(0)
+                var shapeId = ""
+                val seq = ArrayList<Int>()
+                val lats = ArrayList<Double>()
+                val lons = ArrayList<Double>()
+
+                fun flush() {
+                    if (shapeId !in wanted || lats.size < 2) return
+                    val order = (0 until lats.size).sortedBy { seq[it] }
+                    val la = ArrayList<Double>(order.size)
+                    val lo = ArrayList<Double>(order.size)
+                    for (i in order) {
+                        if (la.isEmpty() ||
+                            metersApart(la.last(), lo.last(), lats[i], lons[i]) >= 1.0
+                        ) {
+                            la.add(lats[i])
+                            lo.add(lons[i])
+                        }
+                    }
+                    if (la.size < 2) return
+                    var laArr = la.toDoubleArray()
+                    var loArr = lo.toDoubleArray()
+                    var tolerance = POLYLINE_TOLERANCE_M
+                    while (true) {
+                        val idx = simplify(laArr, loArr, tolerance)
+                        if (idx.size <= 65535) {
+                            shapeLat[shapeId] = DoubleArray(idx.size) { laArr[idx[it]] }
+                            shapeLon[shapeId] = DoubleArray(idx.size) { loArr[idx[it]] }
+                            return
+                        }
+                        tolerance *= 2 // u16 nel formato: si semplifica finche' ci sta
+                    }
+                }
+
+                while (csv.nextRow()) {
+                    if (!csv.fieldEquals(cShape, shapeBytes)) {
+                        flush()
+                        seq.clear(); lats.clear(); lons.clear()
+                        shapeBytes = csv.bytes(cShape)
+                        shapeId = csv.string(cShape)
+                    }
+                    val lat = csv.double(cLat)
+                    val lon = csv.double(cLon)
+                    if (lat.isNaN() || lon.isNaN()) continue
+                    seq.add(csv.int(cSeq, seq.size))
+                    lats.add(lat)
+                    lons.add(lon)
+                }
+                flush()
+            }
+        }
+
+        val outLat = ArrayList<DoubleArray>(patternCount)
+        val outLon = ArrayList<DoubleArray>(patternCount)
+        val outVertex = ArrayList<IntArray>(patternCount)
+        for (p in 0 until patternCount) {
+            val patStops = c.patternStops[p]
+            val sLat = DoubleArray(patStops.size) { stops.lat[patStops[it]] / Ftb.COORD_SCALE }
+            val sLon = DoubleArray(patStops.size) { stops.lon[patStops[it]] / Ftb.COORD_SCALE }
+
+            val id = chosen[p]
+            val la = id?.let { shapeLat[it] }
+            val lo = id?.let { shapeLon[it] }
+            var vertex: IntArray? = null
+            if (la != null && lo != null) {
+                // Aggancio monotono fermata -> vertice piu' vicino: la
+                // fermata successiva non puo' agganciarsi PRIMA della
+                // precedente, o il ritaglio della tappa andrebbe all'indietro.
+                val v = IntArray(patStops.size)
+                var from = 0
+                var ok = true
+                for (k in patStops.indices) {
+                    var bestI = -1
+                    var bestD = Double.MAX_VALUE
+                    for (i in from until la.size) {
+                        val d = metersApart(sLat[k], sLon[k], la[i], lo[i])
+                        if (d < bestD) {
+                            bestD = d
+                            bestI = i
+                        }
+                    }
+                    if (bestI < 0 || bestD > 500.0) {
+                        ok = false
+                        break
+                    }
+                    v[k] = bestI
+                    from = bestI
+                }
+                if (ok) vertex = v
+            }
+
+            if (vertex != null && la != null && lo != null) {
+                stats.patternsWithShape++
+                outLat.add(la)
+                outLon.add(lo)
+                outVertex.add(vertex)
+            } else {
+                stats.patternPolyFallback++
+                outLat.add(sLat)
+                outLon.add(sLon)
+                outVertex.add(IntArray(patStops.size) { it })
+            }
+        }
+        return Polylines(outLat, outLon, outVertex)
+    }
+
     private fun writeBundle(
         out: File,
         feed: Feed,
@@ -560,6 +727,7 @@ class BundleBuilder(
         services: Services,
         trips: Trips,
         c: Collected,
+        polylines: Polylines,
     ) {
         val strings = StringTable()
         val writer = FtbWriter()
@@ -803,9 +971,44 @@ class BundleBuilder(
         for (v in spStart) stopPatternsBuf.i32(v)
         for (v in spValues) stopPatternsBuf.i32(v)
 
+        // --- POLYLINES (v4): la geometria per pattern ----------------------
+        // Delta zigzag sui milionesimi di grado: un vertice tipico costa
+        // 3-4 byte invece di 8. Il layout e' documentato in Ftb.S_POLYLINES.
+        val totalPatternStops = c.patternStops.sumOf { it.size }
+        val polyBlobs = ArrayList<ByteBuf>(polylines.lat.size)
+        for (p in polylines.lat.indices) {
+            val la = polylines.lat[p]
+            val lo = polylines.lon[p]
+            val b = ByteBuf(la.size * 6 + 8)
+            var prevLat = 0
+            var prevLon = 0
+            for (i in la.indices) {
+                val ilat = Math.round(la[i] * Ftb.COORD_SCALE).toInt()
+                val ilon = Math.round(lo[i] * Ftb.COORD_SCALE).toInt()
+                b.varintZigzag(ilat - prevLat)
+                b.varintZigzag(ilon - prevLon)
+                prevLat = ilat
+                prevLon = ilon
+            }
+            polyBlobs.add(b)
+        }
+        val polyBuf = ByteBuf(1 shl 20)
+        polyBuf.i32(polylines.lat.size)
+        polyBuf.i32(totalPatternStops)
+        var polyOff = 0
+        for (b in polyBlobs) {
+            polyBuf.i32(polyOff)
+            polyOff += b.size
+        }
+        polyBuf.i32(polyOff)
+        for (v in polylines.stopVertex) for (x in v) polyBuf.u16(x)
+        polyBuf.padTo(4)
+        for (b in polyBlobs) polyBuf.bytes(b.array.copyOf(b.size))
+
         // --- STRINGS va per ultima: la riempiono tutte le altre ------------
         val stringsBuf = strings.build()
 
+        writer.section(Ftb.S_POLYLINES, polyBuf)
         writer.section(Ftb.S_STRINGS, stringsBuf)
         writer.section(Ftb.S_STOPS, stopsBuf)
         writer.section(Ftb.S_STOP_GRID, gridBuf)
@@ -924,6 +1127,9 @@ class BundleBuilder(
     }
 
     companion object {
+        /** DP dell'anteprima itinerari: 20 m bastano a una linea disegnata sopra la mappa. */
+        const val POLYLINE_TOLERANCE_M = 20.0
+
         const val WALK_RADIUS_M = 400.0
         const val WALK_FACTOR = 1.35
         const val WALK_SPEED_MS = 1.1

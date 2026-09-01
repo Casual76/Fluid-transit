@@ -50,3 +50,12 @@ tasks.register<JavaExec>("overlay") {
 tasks.test {
     useJUnitPlatform()
 }
+
+// Il banco di prova di RAPTOR sul bundle vero, da riga di comando.
+tasks.register<JavaExec>("raptorSmoke") {
+    group = "verification"
+    description = "Query di itinerario contro un bundle .ftb reale."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "dev.antigravity.fluidtransit.bundler.RaptorSmokeKt"
+    maxHeapSize = "1g"
+}

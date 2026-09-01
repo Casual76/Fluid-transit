@@ -72,8 +72,11 @@ class BundleReader(file: File, private val verifyCrcOnFirstUse: Boolean = true) 
 
         require(map.getInt(Ftb.OFF_MAGIC) == Ftb.MAGIC) { "non e' un file .ftb (magic errato)" }
         val version = map.getShort(Ftb.OFF_FORMAT_VERSION).toInt() and 0xffff
-        require(version == Ftb.FORMAT_VERSION) {
-            "formato .ftb versione $version, questo lettore parla la ${Ftb.FORMAT_VERSION}"
+        // La v4 aggiunge POLYLINES senza toccare il resto: un bundle v3 resta
+        // leggibile (hasPolylines dira' false), cosi' l'app non si rompe
+        // mentre aspetta il primo bundle notturno col formato nuovo.
+        require(version in 3..Ftb.FORMAT_VERSION) {
+            "formato .ftb versione $version, questo lettore parla la 3..${Ftb.FORMAT_VERSION}"
         }
         val count = map.getShort(Ftb.OFF_SECTION_COUNT).toInt() and 0xffff
         buildId = map.getLong(Ftb.OFF_BUILD_ID)
@@ -480,6 +483,80 @@ class BundleReader(file: File, private val verifyCrcOnFirstUse: Boolean = true) 
     }
 
     // ----------------------------------------------------------- TRANSFERS
+
+    // ------------------------------------------------------------ polilinee
+
+    class PatternPolyline(val lat: DoubleArray, val lon: DoubleArray) {
+        val size: Int get() = lat.size
+    }
+
+    /** Il bundle porta la geometria dei pattern? (v4 in su.) */
+    val hasPolylines: Boolean get() = has(Ftb.S_POLYLINES)
+
+    /**
+     * La polilinea del pattern [p], decodificata dai delta zigzag. Qualche
+     * migliaio di varint: da chiamare fuori dal main thread e tenere il
+     * risultato, non da rifare a ogni frame.
+     */
+    fun patternPolyline(p: Int): PatternPolyline? {
+        if (!has(Ftb.S_POLYLINES)) return null
+        val s = sec(Ftb.S_POLYLINES)
+        val patternCount = s.getInt(0)
+        val totalStops = s.getInt(4)
+        require(p in 0 until patternCount) { "pattern $p fuori da 0..${patternCount - 1}" }
+        val offBase = 8
+        var blobBase = offBase + (patternCount + 1) * 4 + totalStops * 2
+        blobBase += (4 - blobBase % 4) % 4
+        val from = blobBase + s.getInt(offBase + p * 4)
+        val to = blobBase + s.getInt(offBase + (p + 1) * 4)
+
+        val lat = ArrayList<Double>(64)
+        val lon = ArrayList<Double>(64)
+        var pos = from
+        var accLat = 0
+        var accLon = 0
+        while (pos < to) {
+            var raw = 0
+            var shift = 0
+            while (true) {
+                val b = s.get(pos++).toInt()
+                raw = raw or ((b and 0x7f) shl shift)
+                if (b >= 0) break
+                shift += 7
+            }
+            val dLat = (raw ushr 1) xor -(raw and 1)
+            raw = 0
+            shift = 0
+            while (true) {
+                val b = s.get(pos++).toInt()
+                raw = raw or ((b and 0x7f) shl shift)
+                if (b >= 0) break
+                shift += 7
+            }
+            val dLon = (raw ushr 1) xor -(raw and 1)
+            accLat += dLat
+            accLon += dLon
+            lat.add(accLat / Ftb.COORD_SCALE)
+            lon.add(accLon / Ftb.COORD_SCALE)
+        }
+        return PatternPolyline(lat.toDoubleArray(), lon.toDoubleArray())
+    }
+
+    /**
+     * L'indice del vertice della polilinea piu' vicino alla fermata
+     * [position] del pattern [p]: e' l'aggancio con cui una tappa
+     * dell'itinerario ritaglia il suo pezzo di geometria. -1 senza sezione.
+     */
+    fun patternStopVertex(p: Int, position: Int): Int {
+        if (!has(Ftb.S_POLYLINES)) return -1
+        val s = sec(Ftb.S_POLYLINES)
+        val patternCount = s.getInt(0)
+        val base = 8 + (patternCount + 1) * 4
+        val global = patternFirstStop(p) + position
+        return s.getShort(base + global * 2).toInt() and 0xffff
+    }
+
+    // ------------------------------------------------------------- transfer
 
     class Transfer(val targetStop: Int, val seconds: Int)
 

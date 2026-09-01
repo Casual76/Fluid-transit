@@ -144,9 +144,51 @@ class BundleRoundtripTest {
                 .i32(0).u16(100).u16(0), // da B verso A
         )
 
+        // POLYLINES (v4): cinque vertici a zig-zag lungo la linea, con le
+        // tre fermate agganciate ai vertici 0, 2 e 4.
+        val polyPts = listOf(
+            43.000000 to 11.000000,
+            43.000500 to 11.000200,
+            43.001000 to 11.000000,
+            43.001500 to 11.000200,
+            43.002000 to 11.000000,
+        )
+        val blob = ByteBuf()
+        var pLat = 0
+        var pLon = 0
+        for ((la, lo) in polyPts) {
+            val il = Math.round(la * Ftb.COORD_SCALE).toInt()
+            val io = Math.round(lo * Ftb.COORD_SCALE).toInt()
+            blob.varintZigzag(il - pLat)
+            blob.varintZigzag(io - pLon)
+            pLat = il
+            pLon = io
+        }
+        val poly = ByteBuf().i32(1).i32(3).i32(0).i32(blob.size)
+        intArrayOf(0, 2, 4).forEach { poly.u16(it) }
+        poly.padTo(4)
+        poly.bytes(blob.array.copyOf(blob.size))
+        w.section(Ftb.S_POLYLINES, poly)
+
         w.section(Ftb.S_STRINGS, strings.build())
         w.write(file, feedStart, feedStart.plusDays(dayCount - 1L), dayCount, maxTripEnd)
         return file
+    }
+
+    @Test
+    fun `la polilinea del pattern torna con l'aggancio delle fermate`() {
+        BundleReader(writeBundle()).use { r ->
+            assertTrue(r.hasPolylines)
+            val poly = r.patternPolyline(0)!!
+            assertEquals(5, poly.size)
+            assertEquals(43.0005, poly.lat[1], 1e-9)
+            assertEquals(11.0002, poly.lon[1], 1e-9)
+            assertEquals(43.002, poly.lat[4], 1e-9)
+            assertEquals(11.0, poly.lon[4], 1e-9)
+            assertEquals(0, r.patternStopVertex(0, 0))
+            assertEquals(2, r.patternStopVertex(0, 1))
+            assertEquals(4, r.patternStopVertex(0, 2))
+        }
     }
 
     // --- i test -------------------------------------------------------------

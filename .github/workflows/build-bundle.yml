@@ -307,7 +307,10 @@ jobs:
           # indice vecchio. I buildId sono hash, quindi l'ordine per nome
           # NON e' cronologico: gli asset appena pubblicati si escludono
           # esplicitamente, o la "pulizia" potrebbe colpire proprio loro.
-          # Un fallimento qui non annulla la pubblicazione.
+          # Un fallimento qui non annulla la pubblicazione — e siccome un
+          # grep che filtra tutto esce 1, qui pipefail e -e si spengono.
+          set +e
+          set +o pipefail
           for pattern in '^toscana-.*\.ftb\.gz$' '^rete-.*\.pmtiles$' '^luoghi-.*\.bin\.gz$'; do
             gh release view dati --json assets -q '.assets[].name' \
               | grep "$pattern" | grep -v -F "$asset" | grep -v -F "$overlayAsset" \

@@ -1,18 +1,30 @@
 {
   "_commento": "Il piano di controllo di Fluid Transit, letto da EngineRemoteConfig via raw.githubusercontent. La sezione engine cambia il comportamento delle app gia' installate senza una release; la sezione app e' quella del Pampa Store e si compila alla prima release.",
-
   "app": {
     "id": "fluid-transit",
     "name": "Fluid Transit",
     "packageName": "dev.antigravity.fluidtransit",
     "repository": {
       "repoOwner": "Casual76",
-      "repoName": "Fluid-transit"
+      "repoName": "Fluid-transit",
+      "manifestPath": "manifest.json",
+      "ref": "main"
     },
-    "stable": null,
-    "beta": null
+    "beta": {
+      "version": "0.1.0",
+      "releaseDate": "2026-09-01",
+      "changelog": "Prima release beta di Fluid Transit.",
+      "releaseTag": "beta-fluid-transit-v0.1.0",
+      "apkAsset": "fluid-transit-0.1.0.apk",
+      "sizeBytes": 50107365
+    },
+    "description": "Fluid Transit Android app",
+    "iconUrl": "",
+    "category": "General",
+    "developer": "Pampa",
+    "screenshots": [],
+    "history": []
   },
-
   "engine": {
     "schema": 1,
     "minimumVersion": "0.1.0",

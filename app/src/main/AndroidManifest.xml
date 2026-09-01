@@ -14,6 +14,11 @@
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- La navigazione (Fase 7): foreground service col tipo che segue il
+         modo viaggio — location SOLO in Preciso, dataSync negli altri. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
         android:name=".FluidTransitApp"
@@ -63,6 +68,12 @@
                 <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
             </intent-filter>
         </activity>
+
+        <!-- Il servizio della navigazione a bordo (Fase 7). -->
+        <service
+            android:name=".data.nav.NavigationService"
+            android:exported="false"
+            android:foregroundServiceType="location|dataSync" />
 
         <!-- Le sveglie delle routine e il loro riarmo dopo un riavvio. -->
         <receiver

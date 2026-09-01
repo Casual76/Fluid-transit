@@ -67,6 +67,8 @@ class FluidTransitApp : Application() {
     val savedPlaces by lazy { dev.antigravity.fluidtransit.data.places.SavedPlaces(this) }
     val favorites by lazy { dev.antigravity.fluidtransit.data.favorites.Favorites(this) }
     val routines by lazy { dev.antigravity.fluidtransit.data.routines.Routines(this) }
+    val navigation by lazy { dev.antigravity.fluidtransit.data.nav.NavigationHolder() }
+    val travelMode by lazy { dev.antigravity.fluidtransit.data.nav.TravelModeStore(this) }
 
     /**
      * RAPTOR vuole un solo thread (lo scratch e' riusato, per scelta): tutte

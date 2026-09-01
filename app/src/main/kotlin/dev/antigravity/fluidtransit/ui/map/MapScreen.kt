@@ -102,9 +102,11 @@ fun MapScreen(
 
     // La modalita' linea (e la scheda corsa, che vive nello stesso posto)
     // prende il posto della tab bar: la shell lo sa da qui.
-    LaunchedEffect(panel) {
+    var navActive by remember { mutableStateOf(false) }
+    LaunchedEffect(panel, navActive) {
         onTabBarHidden(
-            panel is Panel.RouteMini || panel is Panel.RouteFull ||
+            navActive ||
+                panel is Panel.RouteMini || panel is Panel.RouteFull ||
                 panel is Panel.TripMini || panel is Panel.TripFull,
         )
     }
@@ -249,6 +251,16 @@ fun MapScreen(
                 controller.flyToBounds(minLat, minLon, maxLat, maxLon)
             }
         }
+    }
+
+    // --- la navigazione a bordo (Fase 7) -----------------------------------
+    val navState by app.navigation.state.collectAsStateWithLifecycle()
+    LaunchedEffect(navState) { navActive = navState != null }
+    // In navigazione la mappa passa da sola a 3D-bussola, come deciso in
+    // Fase 2; e ne esce quando la navigazione finisce.
+    LaunchedEffect(navState != null) {
+        if (navState != null && locationGranted) follow = FollowMode.COMPASS
+        if (navState == null && follow == FollowMode.COMPASS) follow = FollowMode.FOLLOW
     }
 
     // --- il tempo reale ---------------------------------------------------
@@ -1099,6 +1111,22 @@ fun MapScreen(
                             is Panel.TripFull -> Column {
                                 val info = tripInfo
                                 if (info != null && info.ref.vehKey == state.ref.vehKey) {
+                                    val meta = resolved?.busMetaByKey?.get(state.ref.vehKey)
+                                    // La guardia GPS decisa in Fase 2: pulsante solo se la
+                                    // posizione e' coerente col mezzo; GPS spento = via libera.
+                                    val guard = if (meta == null || info.ref.tripIndex < 0) {
+                                        null
+                                    } else {
+                                        val loc = controller.lastLocation()
+                                        when {
+                                            loc == null -> "ok"
+                                            dev.antigravity.fluidtransit.routing.BundleReader.haversine(
+                                                loc.first, loc.second, meta.lat, meta.lon,
+                                            ) <= 300.0 -> "ok"
+
+                                            else -> "far"
+                                        }
+                                    }
                                     TripFullContent(
                                         info = info,
                                         fixAgeSec = resolved?.busMetaByKey
@@ -1109,6 +1137,19 @@ fun MapScreen(
                                             panel = Panel.Stop(
                                                 StopTap(stop.idHashHex, stop.name),
                                             )
+                                        },
+                                        backdrop = backdrop,
+                                        boardGuard = guard,
+                                        onBoardBus = {
+                                            val delay = resolved?.delayByTrip
+                                                ?.get(info.ref.tripIndex) ?: 0
+                                            val plan = buildBusNavPlan(
+                                                reader, info.ref.tripIndex, delay,
+                                            )
+                                            if (plan != null) {
+                                                app.navigation.start(context, plan)
+                                                panel = null
+                                            }
                                         },
                                     )
                                 }
@@ -1168,6 +1209,21 @@ fun MapScreen(
                                         toName = state.to.name,
                                         onDismiss = { panel = Panel.Journeys(state.to) },
                                         backdrop = backdrop,
+                                        onStart = {
+                                            val plan = buildNavPlan(reader, j.raw, state.to.name)
+                                            app.navigation.start(context, plan)
+                                            panel = null
+                                            if (android.os.Build.VERSION.SDK_INT >= 33 &&
+                                                ContextCompat.checkSelfPermission(
+                                                    context,
+                                                    Manifest.permission.POST_NOTIFICATIONS,
+                                                ) != PackageManager.PERMISSION_GRANTED
+                                            ) {
+                                                notifPermissionLauncher.launch(
+                                                    Manifest.permission.POST_NOTIFICATIONS,
+                                                )
+                                            }
+                                        },
                                         onCreateRoutine = { days, anchor, minutes ->
                                             val from = journeyOrigin
                                             if (from != null) {
@@ -1205,6 +1261,36 @@ fun MapScreen(
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // --- il mini di navigazione: al posto della tab bar mentre viaggi --
+        androidx.compose.animation.AnimatedVisibility(
+            visible = navState != null && panel == null,
+            enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it / 3 }) +
+                androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it / 3 }) +
+                androidx.compose.animation.fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding(),
+        ) {
+            navState?.let { s ->
+                BottomGlassPanel(
+                    backdrop = backdrop,
+                    shape = dev.antigravity.fluidengine.ui.fluid.FluidCapsuleShape,
+                    wholeSurfaceDrag = false,
+                    showGrabber = false,
+                    onDragDismiss = { },
+                    modifier = Modifier
+                        .padding(horizontal = FluidTabBarDefaults.HorizontalMargin)
+                        .padding(bottom = FluidTabBarDefaults.BottomMargin),
+                ) {
+                    NavMiniContent(
+                        state = s,
+                        onStop = { app.navigation.stop(context) },
+                    )
                 }
             }
         }

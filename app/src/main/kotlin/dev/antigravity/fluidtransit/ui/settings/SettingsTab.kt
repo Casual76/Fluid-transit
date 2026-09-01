@@ -94,6 +94,32 @@ fun SettingsTab(app: FluidTransitApp) {
             }
         }
 
+        item { FluidSectionTitle(eyebrow = "Viaggio", title = "A bordo") }
+        item {
+            var mode by androidx.compose.runtime.remember {
+                androidx.compose.runtime.mutableStateOf(app.travelMode.mode)
+            }
+            FluidListGroup {
+                FluidListRow(
+                    title = "Modo viaggio",
+                    subtitle = when (mode) {
+                        dev.antigravity.fluidtransit.data.nav.TravelMode.PRECISO ->
+                            "GPS continuo e aggiornamenti fitti: il massimo, la batteria se ne accorge"
+                        dev.antigravity.fluidtransit.data.nav.TravelMode.BILANCIATO ->
+                            "Preciso quando serve, gentile con la batteria"
+                        dev.antigravity.fluidtransit.data.nav.TravelMode.RISPARMIO ->
+                            "Aggiornamenti radi: quasi zero batteria"
+                    },
+                    meta = mode.label,
+                    onClick = {
+                        val all = dev.antigravity.fluidtransit.data.nav.TravelMode.entries
+                        mode = all[(all.indexOf(mode) + 1) % all.size]
+                        app.travelMode.mode = mode
+                    },
+                )
+            }
+        }
+
         item { FluidSectionTitle(eyebrow = "Informazioni", title = "L'app") }
         item {
             FluidListGroup {

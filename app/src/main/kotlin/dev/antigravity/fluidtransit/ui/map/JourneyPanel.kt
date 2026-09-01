@@ -300,6 +300,7 @@ fun JourneyDetailContent(
     backdrop: GlassBackdropState? = null,
     /** (giorni 1-7, "arrive"|"depart", minuti dalla mezzanotte). */
     onCreateRoutine: ((Set<Int>, String, Int) -> Unit)? = null,
+    onStart: (() -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
@@ -440,6 +441,20 @@ fun JourneyDetailContent(
                     }
                 }
             }
+        }
+    }
+
+    // --- "Avvia": la navigazione a bordo (Fase 7) -------------------------
+    if (backdrop != null && onStart != null && !j.walkOnly) {
+        Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
+            GlassActionButton(
+                text = "Avvia il viaggio",
+                icon = Icons.AutoMirrored.Rounded.DirectionsWalk,
+                backdrop = backdrop,
+                emphasized = true,
+                onClick = onStart,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 
@@ -633,4 +648,161 @@ fun buildJourneyGeometry(
     }
     return org.maplibre.geojson.FeatureCollection.fromFeatures(features) to
         doubleArrayOf(minLat, minLon, maxLat, maxLon)
+}
+
+/**
+ * Il piano che il servizio di navigazione segue, precalcolato dal viaggio:
+ * tappe in numeri puri, cosi' il servizio corregge i tempi coi ritardi
+ * senza rifare il calcolo.
+ */
+fun buildNavPlan(
+    reader: BundleReader,
+    j: Raptor.Journey,
+    destName: String,
+): dev.antigravity.fluidtransit.data.nav.NavPlan {
+    val legs = j.legs.map { leg ->
+        when (leg) {
+            is Raptor.Leg.Walk -> dev.antigravity.fluidtransit.data.nav.NavLeg.Walk(
+                seconds = leg.seconds,
+                toName = if (leg.toStop >= 0) reader.stopName(leg.toStop) else destName,
+                startEpoch = leg.departure.epochSecond,
+            )
+
+            is Raptor.Leg.Ride -> {
+                val profile = reader.tripProfile(leg.trip)
+                val dep0 = reader.tripDeparture0(leg.trip)
+                val dayStart = leg.departure.epochSecond - dep0 -
+                    reader.profileOffset(profile, leg.boardPosition) - leg.delaySeconds
+                dev.antigravity.fluidtransit.data.nav.NavLeg.Ride(
+                    trip = leg.trip,
+                    pattern = leg.pattern,
+                    route = leg.route,
+                    boardPosition = leg.boardPosition,
+                    alightPosition = leg.alightPosition,
+                    dayStartEpoch = dayStart,
+                    dep0 = dep0,
+                    profile = profile,
+                    lineName = reader.routeShortName(leg.route)
+                        .ifEmpty { reader.routeLongName(leg.route) },
+                    alightName = reader.stopName(leg.alightStop),
+                    stopNames = (leg.boardPosition..leg.alightPosition).map {
+                        reader.stopName(reader.patternStop(leg.pattern, it))
+                    },
+                )
+            }
+        }
+    }
+    return dev.antigravity.fluidtransit.data.nav.NavPlan("journey", destName, legs)
+}
+
+/**
+ * Il mini di navigazione: prende il posto della tab bar mentre si viaggia.
+ * "Scendi a X · 4 fermate · 12 min", e Termina sempre a portata.
+ */
+@Composable
+fun NavMiniContent(
+    state: dev.antigravity.fluidtransit.data.nav.NavState,
+    onStop: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(dev.antigravity.fluidengine.ui.fluid.FluidTabBarDefaults.Height)
+            .padding(start = 18.dp, end = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        if (state.phase == "ride") LiveDot(liveGreen())
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = state.headline,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = state.detail,
+                style = MaterialTheme.typography.labelMedium,
+                color = if (state.phase == "ride") liveGreen() else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+        androidx.compose.material3.Icon(
+            imageVector = Icons.Rounded.Close,
+            contentDescription = "Termina la navigazione",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .size(40.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    role = Role.Button,
+                    onClick = onStop,
+                )
+                .padding(8.dp),
+        )
+    }
+}
+
+/**
+ * Il piano per "sono su questo bus": una sola tappa in vettura, dalla
+ * prossima fermata al capolinea. Il giorno di servizio si risolve come
+ * nella scheda corsa (una notturna dopo mezzanotte appartiene a ieri).
+ */
+fun buildBusNavPlan(
+    reader: BundleReader,
+    tripIndex: Int,
+    delaySec: Int,
+): dev.antigravity.fluidtransit.data.nav.NavPlan? {
+    val pattern = reader.tripPattern(tripIndex)
+    val profile = reader.tripProfile(tripIndex)
+    val dep0 = reader.tripDeparture0(tripIndex)
+    val n = reader.patternStopCount(pattern)
+    val now = Instant.now()
+    val today = now.atZone(Ftb.ROME).toLocalDate()
+
+    var dayStart = Ftb.serviceDayStart(today).epochSecond
+    for (offset in 0 downTo -1) {
+        val date = today.plusDays(offset.toLong())
+        val start = Ftb.serviceDayStart(date).epochSecond + dep0
+        if (now.epochSecond in (start - 2 * 3600)..(start + 12 * 3600)) {
+            dayStart = Ftb.serviceDayStart(date).epochSecond
+            break
+        }
+    }
+
+    var boardPos = 0
+    for (pos in 0 until n) {
+        val t = dayStart + dep0 + reader.profileOffset(profile, pos) + delaySec
+        if (t > now.epochSecond) {
+            boardPos = (pos - 1).coerceAtLeast(0)
+            break
+        }
+    }
+    if (boardPos >= n - 1) return null // corsa gia' finita
+
+    val route = reader.patternRoute(pattern)
+    val destName = reader.patternDestination(pattern)
+    return dev.antigravity.fluidtransit.data.nav.NavPlan(
+        kind = "bus",
+        destName = destName,
+        legs = listOf(
+            dev.antigravity.fluidtransit.data.nav.NavLeg.Ride(
+                trip = tripIndex,
+                pattern = pattern,
+                route = route,
+                boardPosition = boardPos,
+                alightPosition = n - 1,
+                dayStartEpoch = dayStart,
+                dep0 = dep0,
+                profile = profile,
+                lineName = reader.routeShortName(route).ifEmpty { reader.routeLongName(route) },
+                alightName = destName,
+                stopNames = (boardPos until n).map {
+                    reader.stopName(reader.patternStop(pattern, it))
+                },
+            ),
+        ),
+    )
 }

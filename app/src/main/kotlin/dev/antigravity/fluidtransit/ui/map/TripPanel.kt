@@ -247,6 +247,10 @@ fun TripFullContent(
     info: TripInfo,
     fixAgeSec: Int?,
     onStopTap: (TripInfo.NextStop) -> Unit,
+    backdrop: dev.antigravity.fluidengine.ui.fluid.GlassBackdropState? = null,
+    /** null = niente sezione; "ok" = pulsante; "far" = riga "non disponibile". */
+    boardGuard: String? = null,
+    onBoardBus: (() -> Unit)? = null,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -292,6 +296,32 @@ fun TripFullContent(
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                 },
             )
+        }
+
+        // "Sono su questo bus" (Fase 7): il pulsante compare solo se il GPS
+        // conferma che sei plausibilmente a bordo — o se il GPS e' spento,
+        // che rende la modalita' anche provabile da fermi, come deciso.
+        if (backdrop != null && boardGuard != null && info.ref.tripIndex >= 0) {
+            when (boardGuard) {
+                "ok" -> Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
+                    GlassActionButton(
+                        text = "Sono su questo bus",
+                        icon = null,
+                        backdrop = backdrop,
+                        emphasized = true,
+                        onClick = { onBoardBus?.invoke() },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+
+                else -> Text(
+                    text = "\"Sono su questo bus\" non e' disponibile: la tua posizione " +
+                        "non coincide con quella del mezzo.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                )
+            }
         }
 
         if (info.ref.tripIndex < 0) {

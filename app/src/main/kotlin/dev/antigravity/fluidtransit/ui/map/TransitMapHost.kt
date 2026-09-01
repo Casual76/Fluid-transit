@@ -117,6 +117,10 @@ class TransitMapController(private val context: Context) {
         map.uiSettings.isTiltGesturesEnabled = true
         // Il logo/attribution nativi restano: obbligo di licenza. Margine per
         // non finire sotto la tab bar ci pensa la UI sopra.
+        map.addOnMapLongClickListener { point ->
+            onMapLongPress?.invoke(point.latitude, point.longitude)
+            onMapLongPress != null
+        }
         map.addOnCameraMoveStartedListener { reason ->
             if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
                 onGesture?.invoke()
@@ -197,6 +201,7 @@ class TransitMapController(private val context: Context) {
                 enableBuildings3d(style, mode)
                 addOverlay(style)
                 ensureBusLayer(style)
+                ensurePlaceLayers(style)
                 applyFilter(style)
                 enableLocationIfAllowed(style)
                 applyFollow(follow)
@@ -207,6 +212,7 @@ class TransitMapController(private val context: Context) {
                 // in sottofondo): l'aggiunta e' idempotente.
                 addOverlay(style)
                 ensureBusLayer(style)
+                ensurePlaceLayers(style)
                 applyFilter(style)
                 applyRouteMode(style)
                 enableLocationIfAllowed(style)
@@ -568,6 +574,113 @@ class TransitMapController(private val context: Context) {
         if (highlightedRoute == null && m.cameraPosition.zoom < MapCatalog.BUS_MIN_ZOOM - 0.5) return
         val style = m.style ?: return
         pushBusFeatures(style)
+    }
+
+    // --------------------------------------------------- luoghi e itinerari
+
+    var onMapLongPress: ((lat: Double, lon: Double) -> Unit)? = null
+
+    private var placeMarker: org.maplibre.geojson.Feature? = null
+    private var journeyFeatures: org.maplibre.geojson.FeatureCollection? = null
+
+    private fun ensurePlaceLayers(style: Style) {
+        if (style.getSource(MapCatalog.PLACE_SOURCE) == null) {
+            style.addSource(org.maplibre.android.style.sources.GeoJsonSource(MapCatalog.PLACE_SOURCE))
+            // Il segnaposto: un cerchio pieno col bordo bianco, sopra tutto.
+            val place = CircleLayer(MapCatalog.LAYER_PLACE, MapCatalog.PLACE_SOURCE).apply {
+                setProperties(
+                    PropertyFactory.circleColor(Expression.toColor(Expression.get("c"))),
+                    PropertyFactory.circleRadius(9f),
+                    PropertyFactory.circleStrokeColor("#FFFFFF"),
+                    PropertyFactory.circleStrokeWidth(3f),
+                )
+            }
+            style.addLayer(place)
+        }
+        if (style.getSource(MapCatalog.JOURNEY_SOURCE) == null) {
+            style.addSource(org.maplibre.android.style.sources.GeoJsonSource(MapCatalog.JOURNEY_SOURCE))
+            val casing = LineLayer(MapCatalog.LAYER_JOURNEY_CASING, MapCatalog.JOURNEY_SOURCE).apply {
+                setFilter(Expression.eq(Expression.get("t"), Expression.literal("r")))
+                setProperties(
+                    PropertyFactory.lineColor("#FFFFFF"),
+                    PropertyFactory.lineCap("round"),
+                    PropertyFactory.lineJoin("round"),
+                    PropertyFactory.lineWidth(9f),
+                    PropertyFactory.lineOpacity(0.9f),
+                )
+            }
+            val rides = LineLayer(MapCatalog.LAYER_JOURNEY_RIDE, MapCatalog.JOURNEY_SOURCE).apply {
+                setFilter(Expression.eq(Expression.get("t"), Expression.literal("r")))
+                setProperties(
+                    PropertyFactory.lineColor(Expression.toColor(Expression.get("c"))),
+                    PropertyFactory.lineCap("round"),
+                    PropertyFactory.lineJoin("round"),
+                    PropertyFactory.lineWidth(5.5f),
+                )
+            }
+            val walks = LineLayer(MapCatalog.LAYER_JOURNEY_WALK, MapCatalog.JOURNEY_SOURCE).apply {
+                setFilter(Expression.eq(Expression.get("t"), Expression.literal("w")))
+                setProperties(
+                    PropertyFactory.lineColor(if (darkTheme) "#B9B9C6" else "#5A5A66"),
+                    PropertyFactory.lineCap("round"),
+                    PropertyFactory.lineWidth(3.5f),
+                    PropertyFactory.lineDasharray(arrayOf(0.2f, 1.8f)),
+                )
+            }
+            // Sotto il segnaposto e sotto i bus, sopra il resto.
+            style.addLayerBelow(casing, MapCatalog.LAYER_PLACE)
+            style.addLayerAbove(rides, MapCatalog.LAYER_JOURNEY_CASING)
+            style.addLayerAbove(walks, MapCatalog.LAYER_JOURNEY_RIDE)
+        }
+        pushPlaceAndJourney(style)
+    }
+
+    private fun pushPlaceAndJourney(style: Style) {
+        if (!style.isFullyLoaded) return
+        style.getSourceAs<org.maplibre.android.style.sources.GeoJsonSource>(MapCatalog.PLACE_SOURCE)
+            ?.setGeoJson(
+                placeMarker?.let { org.maplibre.geojson.FeatureCollection.fromFeature(it) }
+                    ?: org.maplibre.geojson.FeatureCollection.fromFeatures(emptyArray()),
+            )
+        style.getSourceAs<org.maplibre.android.style.sources.GeoJsonSource>(MapCatalog.JOURNEY_SOURCE)
+            ?.setGeoJson(
+                journeyFeatures
+                    ?: org.maplibre.geojson.FeatureCollection.fromFeatures(emptyArray()),
+            )
+    }
+
+    fun showPlaceMarker(lat: Double, lon: Double, colorRgb: Int) {
+        val f = org.maplibre.geojson.Feature.fromGeometry(
+            org.maplibre.geojson.Point.fromLngLat(lon, lat),
+        )
+        f.addStringProperty("c", "#%06x".format(colorRgb and 0xFFFFFF))
+        placeMarker = f
+        map?.getStyle { pushPlaceAndJourney(it) }
+    }
+
+    fun clearPlaceMarker() {
+        placeMarker = null
+        map?.getStyle { pushPlaceAndJourney(it) }
+    }
+
+    fun showJourney(features: org.maplibre.geojson.FeatureCollection) {
+        journeyFeatures = features
+        map?.getStyle { pushPlaceAndJourney(it) }
+    }
+
+    fun clearJourney() {
+        journeyFeatures = null
+        map?.getStyle { pushPlaceAndJourney(it) }
+    }
+
+    /** L'ultima posizione nota del GPS, se il componente e' attivo. */
+    @SuppressLint("MissingPermission")
+    fun lastLocation(): Pair<Double, Double>? {
+        val m = map ?: return null
+        if (!locationEnabled) return null
+        val c = m.locationComponent
+        if (!c.isLocationComponentActivated) return null
+        return c.lastKnownLocation?.let { it.latitude to it.longitude }
     }
 
     private fun pushBusFeatures(style: Style) {

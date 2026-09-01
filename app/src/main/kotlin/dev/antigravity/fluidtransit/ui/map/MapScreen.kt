@@ -66,9 +66,13 @@ private sealed interface Panel {
     class RouteFull(val routeIndex: Int) : Panel
     class TripMini(val ref: TripRef) : Panel
     class TripFull(val ref: TripRef) : Panel
+    class Place(val ref: PlaceRef) : Panel
+    class Journeys(val to: PlaceRef) : Panel
+    class JourneyDetail(val to: PlaceRef, val index: Int) : Panel
 }
 
-@Composable
+@androidx.compose.runtime.Composable
+@kotlin.OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 fun MapScreen(
     app: FluidTransitApp,
     backdrop: GlassBackdropState,
@@ -143,7 +147,26 @@ fun MapScreen(
     fun exitRouteMode() {
         controller.exitRouteMode()
         controller.setSelectedBus(null)
+        controller.clearPlaceMarker()
+        controller.clearJourney()
         panel = null
+    }
+
+    // Il colore d'accento per il segnaposto: lo stesso ametista del tema.
+    val accentArgb = MaterialTheme.colorScheme.primary.let {
+        android.graphics.Color.argb(255, (it.red * 255).toInt(), (it.green * 255).toInt(), (it.blue * 255).toInt())
+    }
+
+    // Il pannello del luogo: dalla ricerca, da un posto salvato o dal
+    // tieni-premuto sulla mappa. Marker + volo + pannello, come deciso.
+    fun showPlace(ref: PlaceRef, fly: Boolean = true) {
+        controller.exitRouteMode()
+        controller.setSelectedBus(null)
+        controller.clearJourney()
+        follow = FollowMode.FREE
+        controller.showPlaceMarker(ref.lat, ref.lon, accentArgb)
+        if (fly) controller.flyTo(ref.lat, ref.lon, maxOf(15.2, cameraZoom))
+        panel = Panel.Place(ref)
     }
 
     controller.onStopTap = { tap ->
@@ -155,6 +178,11 @@ fun MapScreen(
     controller.onEmptyTap = {
         // Il tocco a vuoto e' una delle tre uscite decise.
         exitRouteMode()
+    }
+    controller.onMapLongPress = { lat, lon ->
+        // Tieni premuto = un posto senza nome OSM, pronto da salvare.
+        searchOpen = false
+        showPlace(PlaceRef("Punto sulla mappa", "", lat, lon), fly = false)
     }
     controller.onGesture = { if (follow != FollowMode.FREE) follow = FollowMode.FREE }
 
@@ -309,6 +337,90 @@ fun MapScreen(
         }
     }
 
+    // --- itinerari: origine, orario, calcolo -------------------------------
+    val placesState by app.placesManager.state.collectAsStateWithLifecycle()
+    var savedVersion by remember { mutableStateOf(0) }
+    val savedSuggestions = remember(savedVersion) {
+        app.savedPlaces.load().map {
+            Suggestion("saved", it.id.toString(), it.label, "Il tuo posto", 0, it.lat, it.lon)
+        }
+    }
+
+    var journeyOrigin by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var journeyFromGps by remember { mutableStateOf(true) }
+    var journeyTimeMode by rememberSaveable { mutableStateOf("now") } // now | depart | arrive
+    var journeyTimeEpoch by rememberSaveable { mutableStateOf(0L) }
+    var showTimeDialog by remember { mutableStateOf(false) }
+
+    // "Portami qui": dalla posizione GPS se c'e', dal centro mappa se no —
+    // e la differenza si dichiara nel pannello, non si nasconde.
+    fun goToPlace(ref: PlaceRef) {
+        val loc = controller.lastLocation()
+        journeyFromGps = loc != null
+        journeyOrigin = loc ?: controller.cameraCenter()
+        journeyTimeMode = "now"
+        panel = Panel.Journeys(ref)
+    }
+
+    val journeysTarget = when (val p = panel) {
+        is Panel.Journeys -> p.to
+        is Panel.JourneyDetail -> p.to
+        else -> null
+    }
+    val journeys by produceState<List<UiJourney>?>(
+        initialValue = null,
+        journeysTarget, journeyTimeMode, journeyTimeEpoch, ready?.buildId,
+    ) {
+        val reader = ready?.reader
+        val to = journeysTarget
+        val from = journeyOrigin
+        if (reader == null || to == null || from == null) {
+            value = null
+            return@produceState
+        }
+        value = null
+        // Il realtime entra nel calcolo: ritardi e cancellazioni di ADESSO.
+        val rtNow = resolved
+        val liveData = if (rtNow != null) {
+            dev.antigravity.fluidtransit.routing.Raptor.Realtime(rtNow.delayByTrip, rtNow.canceledTrips)
+        } else {
+            dev.antigravity.fluidtransit.routing.Raptor.Realtime.NONE
+        }
+        val raw = withContext(app.routingDispatcher) {
+            val raptor = app.raptorFor(reader)
+            val fromPlace = dev.antigravity.fluidtransit.routing.Raptor.Place(from.first, from.second)
+            val toPlace = dev.antigravity.fluidtransit.routing.Raptor.Place(to.lat, to.lon)
+            when (journeyTimeMode) {
+                "arrive" -> raptor.planArriveBy(
+                    fromPlace, toPlace, Instant.ofEpochSecond(journeyTimeEpoch), liveData,
+                )
+
+                "depart" -> raptor.plan(
+                    fromPlace, toPlace, Instant.ofEpochSecond(journeyTimeEpoch), liveData,
+                )
+
+                else -> raptor.plan(fromPlace, toPlace, Instant.now(), liveData)
+            }
+        }
+        value = withContext(Dispatchers.Default) { raw.map { UiJourney.of(reader, it) } }
+    }
+
+    // Il viaggio scelto si accende sulla mappa e la camera lo inquadra.
+    LaunchedEffect(panel, journeys) {
+        val p = panel
+        val r2 = ready?.reader
+        if (p is Panel.JourneyDetail && r2 != null) {
+            val j = journeys?.getOrNull(p.index) ?: return@LaunchedEffect
+            val (features, bbox) = withContext(Dispatchers.Default) {
+                buildJourneyGeometry(r2, j.raw)
+            }
+            controller.showJourney(features)
+            if (bbox[0] <= bbox[2]) controller.flyToBounds(bbox[0], bbox[1], bbox[2], bbox[3])
+        } else {
+            controller.clearJourney()
+        }
+    }
+
     // --- i cicli del realtime: vivono col ciclo di vita della schermata ----
     // Bus: solo quando lo zoom li rende visibili (o una scheda corsa e'
     // aperta). Il ritmo lo decide lo stato del client: 30 s dal proxy,
@@ -394,10 +506,25 @@ fun MapScreen(
         searchOpen = false
         query = ""
         follow = FollowMode.FREE
-        recentStore.add(
-            RecentSearches.Entry(s.kind, s.key, s.title, s.subtitle, s.colorRgb, s.lat, s.lon),
-        )
-        recentsVersion++
+        // I posti salvati non finiscono nei recenti: sono gia' sempre in cima.
+        if (s.kind != "saved") {
+            recentStore.add(
+                RecentSearches.Entry(s.kind, s.key, s.title, s.subtitle, s.colorRgb, s.lat, s.lon),
+            )
+            recentsVersion++
+        }
+        if (s.kind == "place" || s.kind == "saved") {
+            showPlace(
+                PlaceRef(
+                    name = s.title,
+                    context = s.subtitle.takeIf { it != "Luogo" && it != "Il tuo posto" } ?: "",
+                    lat = s.lat,
+                    lon = s.lon,
+                    savedId = if (s.kind == "saved") s.key.toLongOrNull() else null,
+                ),
+            )
+            return
+        }
         if (s.kind == "stop") {
             controller.exitRouteMode()
             controller.flyTo(s.lat, s.lon, 16.2)
@@ -440,6 +567,58 @@ fun MapScreen(
         }.toInt()
     }
 
+    // Il selettore d'orario: "Parti alle / Arriva entro" col TimePicker.
+    // Un orario gia' passato si legge come "domani a quest'ora".
+    if (showTimeDialog) {
+        val zone = dev.antigravity.fluidtransit.routing.Ftb.ROME
+        val base = if (journeyTimeEpoch > 0) Instant.ofEpochSecond(journeyTimeEpoch) else Instant.now()
+        val zdt = java.time.ZonedDateTime.ofInstant(base, zone)
+        val timeState = androidx.compose.material3.rememberTimePickerState(
+            initialHour = zdt.hour,
+            initialMinute = zdt.minute,
+            is24Hour = true,
+        )
+        var timeMode by remember { mutableStateOf(if (journeyTimeMode == "arrive") 1 else 0) }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showTimeDialog = false },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    val chosen = java.time.ZonedDateTime.now(zone)
+                        .withHour(timeState.hour)
+                        .withMinute(timeState.minute)
+                        .withSecond(0)
+                    val instant = if (chosen.toInstant().isBefore(Instant.now().minusSeconds(60))) {
+                        chosen.plusDays(1).toInstant()
+                    } else {
+                        chosen.toInstant()
+                    }
+                    journeyTimeEpoch = instant.epochSecond
+                    journeyTimeMode = if (timeMode == 1) "arrive" else "depart"
+                    showTimeDialog = false
+                }) { androidx.compose.material3.Text("Fatto") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    journeyTimeMode = "now"
+                    showTimeDialog = false
+                }) { androidx.compose.material3.Text("Adesso") }
+            },
+            text = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    dev.antigravity.fluidengine.ui.fluid.FluidSegmentedControl(
+                        options = listOf(0, 1),
+                        selected = timeMode,
+                        onSelect = { timeMode = it },
+                        label = { if (it == 0) "Parti alle" else "Arriva entro" },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    androidx.compose.material3.TimePicker(state = timeState)
+                }
+            },
+        )
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         // La mappa e' la sorgente del vetro: tutto il chrome la rifrange.
         // La camera sopravvive a rotazione e ritorno dall'ultima schermata.
@@ -474,11 +653,19 @@ fun MapScreen(
                     query = ""
                 }
             }
-            val queryResults = remember(query, searchIndex) {
+            // Fermate e linee (indice in memoria) + lo stadio RAPIDO dei
+            // luoghi (POI, vie, localita'), fuori dal main.
+            val placesReady = placesState as? dev.antigravity.fluidtransit.data.places.PlacesManager.State.Ready
+            val queryResults by produceState(
+                initialValue = emptyList<Suggestion>(),
+                query, searchIndex, placesReady,
+            ) {
                 if (query.length < 2) {
-                    emptyList()
-                } else {
-                    searchIndex?.search(query).orEmpty().map { hit ->
+                    value = emptyList()
+                    return@produceState
+                }
+                value = withContext(Dispatchers.Default) {
+                    val transit = searchIndex?.search(query).orEmpty().map { hit ->
                         when (hit) {
                             is SearchIndex.Hit.Stop -> Suggestion(
                                 kind = "stop",
@@ -505,14 +692,54 @@ fun MapScreen(
                             )
                         }
                     }
+                    val places = placesReady?.search?.fast(query, 6).orEmpty().map { h ->
+                        Suggestion(
+                            kind = "place",
+                            key = "%.5f,%.5f".format(h.lat, h.lon),
+                            title = h.name,
+                            subtitle = h.context.ifEmpty { "Luogo" },
+                            colorRgb = 0,
+                            lat = h.lat,
+                            lon = h.lon,
+                        )
+                    }
+                    transit + places
+                }
+            }
+
+            // Lo stadio LENTO: i civici. Parte dopo, con calma, e i suoi
+            // risultati si AGGIUNGONO a quelli gia' mostrati — deciso cosi'.
+            val civiciResults by produceState(
+                initialValue = emptyList<Suggestion>(),
+                query, placesReady,
+            ) {
+                value = emptyList()
+                if (placesReady == null || query.length < 5 || !query.any { it.isDigit() }) {
+                    return@produceState
+                }
+                kotlinx.coroutines.delay(350)
+                value = withContext(Dispatchers.Default) {
+                    placesReady.search.civici(query).map { h ->
+                        Suggestion(
+                            kind = "place",
+                            key = "%.5f,%.5f".format(h.lat, h.lon),
+                            title = h.name,
+                            subtitle = h.context.ifEmpty { "Indirizzo" },
+                            colorRgb = 0,
+                            lat = h.lat,
+                            lon = h.lon,
+                        )
+                    }
                 }
             }
             SearchGlass(
                 backdrop = backdrop,
                 open = searchOpen,
                 query = query,
-                results = queryResults,
-                recents = recents.filter { it.kind == "stop" }.map { it.toSuggestion() },
+                results = queryResults + civiciResults,
+                saved = savedSuggestions,
+                recents = recents.filter { it.kind == "stop" || it.kind == "place" }
+                    .map { it.toSuggestion() },
                 nearby = nearby,
                 recentLines = recents.filter { it.kind == "route" }.map { it.toSuggestion() },
                 onOpen = { searchOpen = true },
@@ -656,6 +883,8 @@ fun MapScreen(
                     when (p) {
                         is Panel.RouteFull -> panel = Panel.RouteMini(p.routeIndex)
                         is Panel.TripFull -> panel = Panel.TripMini(p.ref)
+                        is Panel.JourneyDetail -> panel = Panel.Journeys(p.to)
+                        is Panel.Journeys -> panel = Panel.Place(p.to)
                         else -> exitRouteMode()
                     }
                 }
@@ -674,7 +903,7 @@ fun MapScreen(
                     // L'esteso si RIDUCE nel mini e il mini TORNA tab bar:
                     // rimbalzo sul posto piu' trasformazione, mai lo
                     // scivola-via-e-riappari segnalato come "roba strana".
-                    transformOnDismiss = p !is Panel.Stop,
+                    transformOnDismiss = p !is Panel.Stop && p !is Panel.Place,
                     onDragExpand = when (p) {
                         is Panel.RouteMini -> ({ panel = Panel.RouteFull(p.routeIndex) })
                         is Panel.TripMini -> ({ panel = Panel.TripFull(p.ref) })
@@ -684,6 +913,8 @@ fun MapScreen(
                         when (p) {
                             is Panel.RouteFull -> panel = Panel.RouteMini(p.routeIndex)
                             is Panel.TripFull -> panel = Panel.TripMini(p.ref)
+                            is Panel.JourneyDetail -> panel = Panel.Journeys(p.to)
+                            is Panel.Journeys -> panel = Panel.Place(p.to)
                             else -> exitRouteMode()
                         }
                     },
@@ -704,6 +935,9 @@ fun MapScreen(
                                 is Panel.RouteFull -> "full-${state.routeIndex}"
                                 is Panel.TripMini -> "tmini-${state.ref.vehKey}"
                                 is Panel.TripFull -> "tfull-${state.ref.vehKey}"
+                                is Panel.Place -> "place-${state.ref.lat}-${state.ref.lon}"
+                                is Panel.Journeys -> "journeys-${state.to.lat}"
+                                is Panel.JourneyDetail -> "jdetail-${state.index}"
                             }
                         },
                         label = "panelContent",
@@ -799,6 +1033,63 @@ fun MapScreen(
                                     )
                                 }
                             }
+
+                            is Panel.Place -> Column {
+                                PlacePanelContent(
+                                    ref = state.ref,
+                                    backdrop = backdrop,
+                                    onDismiss = { exitRouteMode() },
+                                    onGo = { goToPlace(state.ref) },
+                                    onSave = { label ->
+                                        app.savedPlaces.add(label, state.ref.lat, state.ref.lon)
+                                        savedVersion++
+                                        val id = app.savedPlaces.load()
+                                            .firstOrNull { it.label.equals(label.trim(), true) }?.id
+                                        panel = Panel.Place(
+                                            PlaceRef(label.trim(), state.ref.name, state.ref.lat, state.ref.lon, id),
+                                        )
+                                    },
+                                    onRemoveSaved = state.ref.savedId?.let { id ->
+                                        {
+                                            app.savedPlaces.remove(id)
+                                            savedVersion++
+                                            exitRouteMode()
+                                        }
+                                    },
+                                )
+                            }
+
+                            is Panel.Journeys -> Column {
+                                JourneysContent(
+                                    toName = state.to.name,
+                                    journeys = journeys,
+                                    fromLabel = if (journeyFromGps) {
+                                        "Dalla tua posizione"
+                                    } else {
+                                        "Dal centro della mappa (GPS spento)"
+                                    },
+                                    timeLabel = when (journeyTimeMode) {
+                                        "depart" -> "Parti alle ${hhmm(journeyTimeEpoch)}"
+                                        "arrive" -> "Arrivi entro ${hhmm(journeyTimeEpoch)}"
+                                        else -> "Parti ora"
+                                    },
+                                    backdrop = backdrop,
+                                    onTimeTap = { showTimeDialog = true },
+                                    onPick = { i -> panel = Panel.JourneyDetail(state.to, i) },
+                                    onDismiss = { panel = Panel.Place(state.to) },
+                                )
+                            }
+
+                            is Panel.JourneyDetail -> Column {
+                                val j = journeys?.getOrNull(state.index)
+                                if (j != null) {
+                                    JourneyDetailContent(
+                                        j = j,
+                                        toName = state.to.name,
+                                        onDismiss = { panel = Panel.Journeys(state.to) },
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -809,3 +1100,12 @@ fun MapScreen(
 
 private fun RecentSearches.Entry.toSuggestion() =
     Suggestion(kind, key, title, subtitle, colorRgb, lat, lon)
+
+private fun hhmm(epochSecond: Long): String {
+    if (epochSecond <= 0) return "—"
+    val z = java.time.ZonedDateTime.ofInstant(
+        Instant.ofEpochSecond(epochSecond),
+        dev.antigravity.fluidtransit.routing.Ftb.ROME,
+    )
+    return "%02d:%02d".format(z.hour, z.minute)
+}

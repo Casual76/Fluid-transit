@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.NearMe
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -86,6 +87,7 @@ fun SearchGlass(
     open: Boolean,
     query: String,
     results: List<Suggestion>,
+    saved: List<Suggestion>,
     recents: List<Suggestion>,
     nearby: List<Suggestion>,
     recentLines: List<Suggestion>,
@@ -160,7 +162,7 @@ fun SearchGlass(
                     decorationBox = { inner ->
                         if (query.isEmpty()) {
                             Text(
-                                text = "Fermata o linea…",
+                                text = "Fermata, linea o luogo…",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
@@ -173,7 +175,7 @@ fun SearchGlass(
                 )
             } else {
                 Text(
-                    text = "Cerca fermate e linee",
+                    text = "Cerca fermate, linee e luoghi",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
@@ -225,6 +227,10 @@ fun SearchGlass(
                         items(results.size) { i -> SuggestionRow(results[i], onPick, divider = i > 0) }
                     }
                 } else {
+                    if (saved.isNotEmpty()) {
+                        item { SectionLabel("I tuoi posti", Icons.Rounded.Star) }
+                        items(saved.size) { i -> SuggestionRow(saved[i], onPick, divider = i > 0) }
+                    }
                     if (recents.isNotEmpty()) {
                         item { SectionLabel("Recenti", Icons.Rounded.History) }
                         items(recents.size) { i -> SuggestionRow(recents[i], onPick, divider = i > 0) }

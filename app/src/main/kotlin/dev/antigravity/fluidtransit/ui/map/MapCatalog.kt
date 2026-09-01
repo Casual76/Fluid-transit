@@ -177,6 +177,18 @@ object MapCatalog {
     /** Deciso: i bus compaiono insieme alle tratte extraurbane. */
     const val BUS_MIN_ZOOM = 10.2f
 
+    // --- luoghi e itinerari (Fase 5) ---------------------------------------
+
+    /** Il segnaposto del luogo scelto dalla ricerca o dal tieni-premuto. */
+    const val PLACE_SOURCE = "ft-luogo"
+    const val LAYER_PLACE = "ft-luogo-layer"
+
+    /** Il percorso del viaggio scelto: corse colorate e camminate a puntini. */
+    const val JOURNEY_SOURCE = "ft-viaggio"
+    const val LAYER_JOURNEY_CASING = "ft-viaggio-casing"
+    const val LAYER_JOURNEY_RIDE = "ft-viaggio-corse"
+    const val LAYER_JOURNEY_WALK = "ft-viaggio-piedi"
+
     /**
      * Gli stadi di zoom decisi: niente sotto, e le tratte extraurbane —
      * lunghe, da guardare da lontano — compaiono prima delle urbane.

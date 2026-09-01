@@ -60,6 +60,27 @@ class FluidTransitApp : Application() {
         )
     }
 
+    /** Il geocoding offline (luoghi.bin) e i posti dell'utente. */
+    val placesManager by lazy { dev.antigravity.fluidtransit.data.places.PlacesManager(this, applicationScope) }
+    val savedPlaces by lazy { dev.antigravity.fluidtransit.data.places.SavedPlaces(this) }
+
+    /**
+     * RAPTOR vuole un solo thread (lo scratch e' riusato, per scelta): tutte
+     * le query passano da questo dispatcher, e il motore si ricrea solo
+     * quando cambia il bundle.
+     */
+    val routingDispatcher: kotlinx.coroutines.CoroutineDispatcher =
+        kotlinx.coroutines.Dispatchers.Default.limitedParallelism(1)
+
+    private var raptorCache: Pair<Long, dev.antigravity.fluidtransit.routing.Raptor>? = null
+
+    fun raptorFor(reader: dev.antigravity.fluidtransit.routing.BundleReader): dev.antigravity.fluidtransit.routing.Raptor {
+        raptorCache?.let { (id, r) -> if (id == reader.buildId) return r }
+        val fresh = dev.antigravity.fluidtransit.routing.Raptor(reader)
+        raptorCache = reader.buildId to fresh
+        return fresh
+    }
+
     override fun onCreate() {
         super.onCreate()
         // Le due trappole di MapLibre trovate in Fase 1, nell'ordine giusto:
@@ -76,6 +97,7 @@ class FluidTransitApp : Application() {
         )
 
         bundleManager.start()
+        placesManager.start()
         // Il manifest remoto, se la copia in cache e' vecchia. Non blocca
         // niente: finche' non arriva l'app usa l'ultima risposta valida.
         applicationScope.launch { runCatching { remoteConfig.refreshIfStale() } }

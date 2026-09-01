@@ -57,8 +57,13 @@ fun main(args: Array<String>) {
     }
 
     fun contextOf(lat: Double, lon: Double): String {
+        // Due livelli: la localita' piu' vicina (quartiere, frazione) E la
+        // citta'. "Via Roma, Centro Storico" non si trova cercando "via
+        // roma firenze": l'etichetta li porta entrambi.
         var bestScore = Double.MAX_VALUE
         var best = ""
+        var bestCityScore = Double.MAX_VALUE
+        var bestCity = ""
         val cellsAround = 4 // 0,2 gradi: copre i 15 km delle city
         val la0 = Math.floor(lat / cell).toLong()
         val lo0 = Math.floor(lon / cell).toLong()
@@ -75,10 +80,72 @@ fun main(args: Array<String>) {
                         bestScore = score
                         best = l.name
                     }
+                    if (l.radiusM >= 8_000.0 && score < bestCityScore) {
+                        bestCityScore = score
+                        bestCity = l.name
+                    }
                 }
             }
         }
-        return best
+        return when {
+            best.isEmpty() -> bestCity
+            bestCity.isEmpty() || bestCity == best -> best
+            else -> "$best, $bestCity"
+        }
+    }
+
+    // Le parole con cui la gente cerca davvero: "scuola", non "Liceo
+    // Statale A.M.E. Agnoletti". Vanno nell'indice, mai a schermo.
+    fun keywordsOf(props: Map<*, *>): String {
+        val kw = StringBuilder()
+        fun add(s: String) {
+            if (kw.isNotEmpty()) kw.append(' ')
+            kw.append(s)
+        }
+        when (props["amenity"]) {
+            "school" -> add("scuola liceo istituto superiore elementare media")
+            "kindergarten" -> add("asilo scuola infanzia nido")
+            "university", "college" -> add("universita facolta istituto")
+            "hospital", "clinic" -> add("ospedale clinica pronto soccorso")
+            "doctors" -> add("medico ambulatorio dottore")
+            "pharmacy" -> add("farmacia")
+            "place_of_worship" -> add("chiesa parrocchia duomo pieve")
+            "police" -> add("polizia carabinieri questura")
+            "post_office" -> add("poste ufficio postale")
+            "bank" -> add("banca bancomat")
+            "restaurant" -> add("ristorante mangiare")
+            "cafe" -> add("bar caffe")
+            "fast_food" -> add("fast food pizzeria panini")
+            "cinema" -> add("cinema")
+            "theatre" -> add("teatro")
+            "library" -> add("biblioteca")
+            "townhall" -> add("comune municipio")
+            "bus_station" -> add("autostazione bus")
+            "fuel" -> add("benzinaio benzina distributore")
+            "marketplace" -> add("mercato")
+        }
+        when (val shop = props["shop"]) {
+            "supermarket" -> add("supermercato spesa")
+            "bakery" -> add("panificio forno pane")
+            "hairdresser" -> add("parrucchiere barbiere")
+            null -> {}
+            else -> if (shop is String) add("negozio")
+        }
+        when (props["tourism"]) {
+            "museum" -> add("museo galleria")
+            "hotel", "guest_house", "hostel" -> add("albergo hotel dormire")
+            "attraction" -> add("attrazione monumento")
+        }
+        when (props["leisure"]) {
+            "park", "garden" -> add("parco giardino")
+            "sports_centre", "stadium", "fitness_centre" -> add("palestra stadio sport")
+            "swimming_pool" -> add("piscina")
+            "pitch" -> add("campo sportivo")
+        }
+        if (props["railway"] == "station" || props["railway"] == "halt") {
+            add("stazione treno ferrovia binari")
+        }
+        return kw.toString()
     }
 
     val fast = ArrayList<PlaceEntry>(200_000)
@@ -100,7 +167,7 @@ fun main(args: Array<String>) {
         val key = Places.normalize(name) + "|" + ctx + "|" +
             Math.round(lat * 400) + "|" + Math.round(lon * 400)
         if (!poiSeen.add(key)) return@forEachFeature
-        fast.add(PlaceEntry(Places.KIND_POI, name, ctx, lat, lon))
+        fast.add(PlaceEntry(Places.KIND_POI, name, ctx, lat, lon, keywordsOf(props)))
         poiKept++
     }
 

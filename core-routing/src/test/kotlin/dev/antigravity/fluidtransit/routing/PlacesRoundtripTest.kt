@@ -22,7 +22,10 @@ class PlacesRoundtripTest {
             file,
             fast = listOf(
                 PlaceEntry(Places.KIND_LOCALITY, "Sesto Fiorentino", "", 43.832, 11.199),
-                PlaceEntry(Places.KIND_POI, "Liceo Agnoletti", "Sesto Fiorentino", 43.818, 11.199),
+                PlaceEntry(
+                    Places.KIND_POI, "Liceo Agnoletti", "Sesto Fiorentino", 43.818, 11.199,
+                    keywords = "scuola liceo istituto superiore",
+                ),
                 PlaceEntry(Places.KIND_POI, "Caffè Piansa", "Firenze", 43.771, 11.254),
                 PlaceEntry(Places.KIND_STREET, "Via Roma", "Firenze", 43.770, 11.254),
                 PlaceEntry(Places.KIND_STREET, "Via Roma", "Prato", 43.880, 11.096),
@@ -66,6 +69,15 @@ class PlacesRoundtripTest {
             assertTrue(hits.isNotEmpty(), "niente risultati")
             assertEquals("Liceo Agnoletti", hits[0].name)
             assertEquals("Sesto Fiorentino", hits[0].context)
+        }
+    }
+
+    @Test
+    fun `la parola-categoria trova cio' che il nome non dice`() {
+        PlacesReader(writeFile()).use { r ->
+            // "scuola" non sta nel nome del liceo: sta nelle parole-chiave.
+            val hits = PlacesSearch(r).fast("scuola agnoletti sesto")
+            assertEquals("Liceo Agnoletti", hits.firstOrNull()?.name, "la parola-categoria non pesca")
         }
     }
 

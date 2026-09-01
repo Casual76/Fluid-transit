@@ -26,8 +26,9 @@ import java.text.Normalizer
  *   44 i32 civOff      48 i32 civLen
  *
  *   STRINGS: il formato di StringTable (count, blobLen, offsets, blob).
- *   FAST    (20 B): u8 kind (1 localita', 2 POI, 3 via) + 3 pad,
- *                   i32 nameIdx, i32 ctxIdx, i32 lat6, i32 lon6
+ *   FAST    (24 B): u8 kind (1 localita', 2 POI, 3 via) + 3 pad,
+ *                   i32 nameIdx, i32 ctxIdx, i32 lat6, i32 lon6,
+ *                   i32 kwIdx (parole-categoria, solo ricerca)
  *   STREETS (24 B): i32 nameIdx, i32 ctxIdx, i32 firstEntry, i32 entryCount,
  *                   i32 lat6, i32 lon6 (il centro della via)
  *   CIVICI  (12 B): i32 numIdx, i32 lat6, i32 lon6
@@ -37,13 +38,13 @@ object Places {
     const val MAGIC1 = 'T'.code.toByte()
     const val MAGIC2 = 'P'.code.toByte()
     const val MAGIC3 = 'L'.code.toByte()
-    const val VERSION = 1
+    const val VERSION = 2
 
     const val KIND_LOCALITY = 1
     const val KIND_POI = 2
     const val KIND_STREET = 3
 
-    const val FAST_RECORD = 20
+    const val FAST_RECORD = 24
     const val STREET_RECORD = 24
     const val CIV_RECORD = 12
 
@@ -66,6 +67,8 @@ class PlaceEntry(
     val context: String,
     val lat: Double,
     val lon: Double,
+    /** Parole-categoria SOLO per la ricerca ("scuola liceo"): mai mostrate. */
+    val keywords: String = "",
 )
 
 /** Una via con i suoi civici, per il writer. */
@@ -97,6 +100,7 @@ object PlacesWriter {
             fastBuf.i32(strings.intern(e.context))
             fastBuf.i32(Math.round(e.lat * Ftb.COORD_SCALE).toInt())
             fastBuf.i32(Math.round(e.lon * Ftb.COORD_SCALE).toInt())
+            fastBuf.i32(strings.intern(e.keywords))
         }
 
         val streetsBuf = ByteBuf(sortedStreets.size * Places.STREET_RECORD)
@@ -201,6 +205,7 @@ class PlacesReader(file: File) : AutoCloseable {
     fun fastContext(i: Int): String = string(map.getInt(fastBase(i) + 8))
     fun fastLat(i: Int): Double = map.getInt(fastBase(i) + 12) / Ftb.COORD_SCALE
     fun fastLon(i: Int): Double = map.getInt(fastBase(i) + 16) / Ftb.COORD_SCALE
+    fun fastKeywords(i: Int): String = string(map.getInt(fastBase(i) + 20))
 
     private fun streetBase(s: Int) = streetsOff + s * Places.STREET_RECORD
     fun streetName(s: Int): String = string(map.getInt(streetBase(s)))
@@ -244,7 +249,8 @@ class PlacesSearch(private val reader: PlacesReader) {
 
     private val fastNorm: Array<String> by lazy {
         Array(reader.fastCount) { i ->
-            Places.normalize(reader.fastName(i)) + " " + Places.normalize(reader.fastContext(i))
+            Places.normalize(reader.fastName(i)) + " " +
+                Places.normalize(reader.fastContext(i)) + " " + reader.fastKeywords(i)
         }
     }
 

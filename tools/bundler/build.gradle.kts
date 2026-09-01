@@ -68,3 +68,11 @@ tasks.register<JavaExec>("places") {
     mainClass = "dev.antigravity.fluidtransit.bundler.BuildPlacesKt"
     maxHeapSize = "3g"
 }
+
+tasks.register<JavaExec>("placesSmoke") {
+    group = "verification"
+    description = "Ricerche di prova contro un luoghi.bin reale."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "dev.antigravity.fluidtransit.bundler.PlacesSmokeKt"
+    maxHeapSize = "1g"
+}

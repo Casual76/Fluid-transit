@@ -148,7 +148,8 @@ jobs:
           osmium tags-filter -o work/osm/vie.pbf work/osm/hw.pbf w/name
           osmium export -f geojsonseq -o work/osm/vie.geojsonl work/osm/vie.pbf
           osmium tags-filter -o work/osm/poi_all.pbf "$P" \
-            nwr/amenity nwr/shop nwr/tourism nwr/leisure nwr/office nwr/healthcare
+            nwr/amenity nwr/shop nwr/tourism nwr/leisure nwr/office nwr/healthcare \
+            nwr/railway=station,halt
           osmium tags-filter -o work/osm/poi.pbf work/osm/poi_all.pbf nwr/name
           osmium export -f geojsonseq -o work/osm/poi.geojsonl work/osm/poi.pbf
           osmium tags-filter -o work/osm/addr.pbf "$P" nwr/addr:housenumber

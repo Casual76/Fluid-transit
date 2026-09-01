@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Il segnaposto mentre Glance disegna: RemoteViews accetta poche classi,
+     e un FrameLayout vuoto e' il piu' onesto dei caricamenti. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent" />

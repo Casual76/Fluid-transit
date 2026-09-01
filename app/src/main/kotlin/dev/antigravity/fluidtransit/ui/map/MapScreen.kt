@@ -77,6 +77,8 @@ fun MapScreen(
     app: FluidTransitApp,
     backdrop: GlassBackdropState,
     onTabBarHidden: (Boolean) -> Unit = {},
+    intent: MapIntent? = null,
+    onIntentConsumed: () -> Unit = {},
 ) {
     val context = LocalContext.current
     // Lo scuro della mappa segue il tema DELL'APP, non quello di sistema:
@@ -157,6 +159,12 @@ fun MapScreen(
     ) { granted ->
         if (granted) voiceOpen = true else launchSystemMic()
     }
+
+    // Il permesso notifiche (Android 13+): si chiede quando nasce la prima
+    // routine, cioe' quando la notifica ha un motivo di esistere.
+    val notifPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { }
 
     // L'indice di ricerca si costruisce una volta per bundle, fuori dal main.
     val searchIndex by produceState<SearchIndex?>(initialValue = null, ready?.buildId) {
@@ -310,6 +318,35 @@ fun MapScreen(
         }
         // Niente volo: il bus e' gia' sotto il dito.
         showTrip(ref, focus = null)
+    }
+
+    // Le richieste dalle altre schede (Preferiti, Oggi): si consumano
+    // appena bundle e mappa ci sono.
+    LaunchedEffect(intent, ready?.buildId) {
+        val reader = ready?.reader
+        val i = intent
+        if (i == null || reader == null) return@LaunchedEffect
+        when (i) {
+            is MapIntent.Stop -> {
+                controller.exitRouteMode()
+                controller.setSelectedBus(null)
+                val hash = i.idHashHex.toULongOrNull(16)?.toLong()
+                val stop = hash?.let { reader.findStopByIdHash(it) } ?: -1
+                if (stop >= 0) controller.flyTo(reader.stopLat(stop), reader.stopLon(stop), 16.2)
+                panel = Panel.Stop(StopTap(i.idHashHex, i.name))
+            }
+
+            is MapIntent.Route -> {
+                val hash = i.idHashHex.toULongOrNull(16)?.toLong()
+                val idx = hash?.let { reader.findRouteByIdHash(it) } ?: -1
+                if (idx >= 0) showRoute(idx)
+            }
+
+            is MapIntent.Place -> {
+                showPlace(PlaceRef(i.name, "", i.lat, i.lon, i.savedId))
+            }
+        }
+        onIntentConsumed()
     }
 
     // I dati della scheda linea, calcolati quando serve.
@@ -966,6 +1003,10 @@ fun MapScreen(
                     ) { state ->
                         when (state) {
                             is Panel.Stop -> Column {
+                                val favVersion by app.favorites.version.collectAsStateWithLifecycle()
+                                val isFav = remember(favVersion, state.tap.idHashHex) {
+                                    app.favorites.isStopFavorite(state.tap.idHashHex)
+                                }
                                 StopPanelContent(
                                     reader = reader,
                                     stopIdHashHex = state.tap.idHashHex,
@@ -973,6 +1014,10 @@ fun MapScreen(
                                     onDismiss = { panel = null },
                                     onRouteTap = ::showRoute,
                                     backdrop = backdrop,
+                                    isFavorite = isFav,
+                                    onToggleFavorite = {
+                                        app.favorites.toggleStop(state.tap.idHashHex, state.tap.name)
+                                    },
                                     liveDelays = resolved?.delayByTrip ?: emptyMap(),
                                     canceledTrips = resolved?.canceledTrips ?: emptySet(),
                                     liveVehicleTrips = resolved?.vehicleByTrip?.keys ?: emptySet(),
@@ -1009,6 +1054,13 @@ fun MapScreen(
                             is Panel.RouteFull -> Column {
                                 val info = routeInfo
                                 if (info != null && info.routeIndex == state.routeIndex) {
+                                    val routeHashHex = remember(state.routeIndex) {
+                                        java.lang.Long.toHexString(reader.routeIdHash(state.routeIndex))
+                                    }
+                                    val favVersion by app.favorites.version.collectAsStateWithLifecycle()
+                                    val isFav = remember(favVersion, routeHashHex) {
+                                        app.favorites.isRouteFavorite(routeHashHex)
+                                    }
                                     RouteFullContent(
                                         info = info,
                                         direction = routeDirection,
@@ -1018,6 +1070,12 @@ fun MapScreen(
                                             controller.flyTo(stopRef.lat, stopRef.lon, 16.2)
                                             panel = Panel.Stop(
                                                 StopTap(stopRef.idHashHex, stopRef.name),
+                                            )
+                                        },
+                                        isFavorite = isFav,
+                                        onToggleFavorite = {
+                                            app.favorites.toggleRoute(
+                                                routeHashHex, info.shortName, info.colorRgb,
                                             )
                                         },
                                     )
@@ -1109,6 +1167,39 @@ fun MapScreen(
                                         j = j,
                                         toName = state.to.name,
                                         onDismiss = { panel = Panel.Journeys(state.to) },
+                                        backdrop = backdrop,
+                                        onCreateRoutine = { days, anchor, minutes ->
+                                            val from = journeyOrigin
+                                            if (from != null) {
+                                                val routine =
+                                                    dev.antigravity.fluidtransit.data.routines.Routines.Routine(
+                                                        id = System.currentTimeMillis(),
+                                                        label = "→ ${state.to.name}",
+                                                        fromLat = from.first,
+                                                        fromLon = from.second,
+                                                        toLat = state.to.lat,
+                                                        toLon = state.to.lon,
+                                                        toName = state.to.name,
+                                                        days = days,
+                                                        anchor = anchor,
+                                                        anchorMinutes = minutes,
+                                                        enabled = true,
+                                                    )
+                                                app.routines.add(routine)
+                                                dev.antigravity.fluidtransit.data.routines.RoutineScheduler
+                                                    .scheduleNextCompute(context, routine)
+                                                if (android.os.Build.VERSION.SDK_INT >= 33 &&
+                                                    ContextCompat.checkSelfPermission(
+                                                        context,
+                                                        Manifest.permission.POST_NOTIFICATIONS,
+                                                    ) != PackageManager.PERMISSION_GRANTED
+                                                ) {
+                                                    notifPermissionLauncher.launch(
+                                                        Manifest.permission.POST_NOTIFICATIONS,
+                                                    )
+                                                }
+                                            }
+                                        },
                                     )
                                 }
                             }

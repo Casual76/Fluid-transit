@@ -143,6 +143,25 @@ class RealtimeClient(
         }
     }
 
+    private var alertsCache: List<GtfsRtLite.RtAlert>? = null
+    private var alertsCacheAt = 0L
+
+    /**
+     * Gli avvisi di servizio, dal proxy, con 5 minuti di cache: la scheda
+     * Oggi li chiede a ogni apertura e gli avvisi non cambiano al minuto.
+     */
+    suspend fun fetchAlerts(): List<GtfsRtLite.RtAlert> = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        alertsCache?.let { if (now - alertsCacheAt < 5 * 60_000) return@withContext it }
+        runCatching {
+            val bytes = fetchRaw("$PROXY_BASE/alerts")
+            GtfsRtLite.parseAlerts(bytes).also {
+                alertsCache = it
+                alertsCacheAt = now
+            }
+        }.getOrElse { alertsCache ?: emptyList() }
+    }
+
     private fun registerProxyFailure(message: String) {
         proxyFailures++
         if (proxyFailures >= 3) {

@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -213,6 +216,8 @@ fun RouteFullContent(
     direction: Int,
     onDirectionChange: (Int) -> Unit,
     onStopTap: (RouteInfo.StopRef) -> Unit,
+    isFavorite: Boolean = false,
+    onToggleFavorite: () -> Unit = {},
 ) {
     val dir = info.directions.getOrNull(direction) ?: info.directions.firstOrNull() ?: return
 
@@ -240,6 +245,26 @@ fun RouteFullContent(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            // La stella dei preferiti, come nella scheda fermata.
+            androidx.compose.material3.Icon(
+                imageVector = if (isFavorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                contentDescription = if (isFavorite) "Togli dai preferiti" else "Salva nei preferiti",
+                tint = if (isFavorite) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier
+                    .size(38.dp)
+                    .clickable(
+                        interactionSource = androidx.compose.runtime.remember {
+                            androidx.compose.foundation.interaction.MutableInteractionSource()
+                        },
+                        indication = null,
+                        onClick = onToggleFavorite,
+                    )
+                    .padding(7.dp),
+            )
         }
 
         // --- oggi: prima/ultima corsa e frequenza ------------------------

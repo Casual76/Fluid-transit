@@ -82,6 +82,16 @@ private fun AppShell(app: FluidTransitApp) {
     // La modalita' linea della mappa prende il posto della tab bar: quando
     // il suo pannello ridotto e' giu', la barra si sfila con lui.
     var mapHidesTabBar by remember { mutableStateOf(false) }
+
+    // Le richieste alla mappa dalle altre schede: si cambia scheda e la
+    // mappa consuma l'intento appena pronta.
+    var mapIntent by remember {
+        mutableStateOf<dev.antigravity.fluidtransit.ui.map.MapIntent?>(null)
+    }
+    val openOnMap: (dev.antigravity.fluidtransit.ui.map.MapIntent) -> Unit = {
+        mapIntent = it
+        route = RouteMap
+    }
     val chromeController = rememberFluidChromeController()
     val scrollToTop = remember { FluidScrollToTopBus() }
     val modalHost = rememberFluidGlassModalHostState()
@@ -114,13 +124,15 @@ private fun AppShell(app: FluidTransitApp) {
                         .fluidGlassModalObscured(),
                 ) {
                     when (route) {
-                        RouteToday -> TodayTab()
-                        RouteFavorites -> FavoritesTab()
+                        RouteToday -> TodayTab(app, onOpenOnMap = openOnMap)
+                        RouteFavorites -> FavoritesTab(app, onOpenOnMap = openOnMap)
                         RouteSettings -> SettingsTab(app)
                         else -> MapScreen(
                             app,
                             mapBackdrop,
                             onTabBarHidden = { mapHidesTabBar = it },
+                            intent = mapIntent,
+                            onIntentConsumed = { mapIntent = null },
                         )
                     }
                 }

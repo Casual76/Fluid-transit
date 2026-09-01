@@ -11,7 +11,9 @@ import dev.antigravity.fluidtransit.data.bundle.BundleManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
+import androidx.glance.appwidget.updateAll
 
 /**
  * I feature flag dell'app, con il valore con cui la build e' stata provata.
@@ -63,6 +65,8 @@ class FluidTransitApp : Application() {
     /** Il geocoding offline (luoghi.bin) e i posti dell'utente. */
     val placesManager by lazy { dev.antigravity.fluidtransit.data.places.PlacesManager(this, applicationScope) }
     val savedPlaces by lazy { dev.antigravity.fluidtransit.data.places.SavedPlaces(this) }
+    val favorites by lazy { dev.antigravity.fluidtransit.data.favorites.Favorites(this) }
+    val routines by lazy { dev.antigravity.fluidtransit.data.routines.Routines(this) }
 
     /**
      * RAPTOR vuole un solo thread (lo scratch e' riusato, per scelta): tutte
@@ -98,6 +102,29 @@ class FluidTransitApp : Application() {
 
         bundleManager.start()
         placesManager.start()
+        // Le routine: canale di notifica pronto e sveglie riarmate (dopo un
+        // aggiornamento dell'app le sveglie vecchie non esistono piu').
+        dev.antigravity.fluidtransit.data.routines.RoutineScheduler.ensureChannel(this)
+        applicationScope.launch {
+            dev.antigravity.fluidtransit.data.routines.RoutineScheduler.rescheduleAll(this@FluidTransitApp)
+        }
+        // La trappola nota dei widget: si ridisegnano quando cambiano i DATI,
+        // non quando cambia l'ASPETTO. Il collegamento tema->updateAll e'
+        // esplicito, o cambiare accento non si vede sulla home. E un
+        // updateAll all'avvio rinfresca gli orari mostrati.
+        applicationScope.launch {
+            runCatching {
+                dev.antigravity.fluidtransit.ui.widget.StopWidget().updateAll(this@FluidTransitApp)
+                dev.antigravity.fluidtransit.ui.widget.RoutineWidget().updateAll(this@FluidTransitApp)
+            }
+            settingsStore.settings.drop(1)
+                .collect {
+                    runCatching {
+                        dev.antigravity.fluidtransit.ui.widget.StopWidget().updateAll(this@FluidTransitApp)
+                        dev.antigravity.fluidtransit.ui.widget.RoutineWidget().updateAll(this@FluidTransitApp)
+                    }
+                }
+        }
         // Il manifest remoto, se la copia in cache e' vecchia. Non blocca
         // niente: finche' non arriva l'app usa l'ultima risposta valida.
         applicationScope.launch { runCatching { remoteConfig.refreshIfStale() } }

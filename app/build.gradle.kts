@@ -59,7 +59,7 @@ dependencies {
     implementation(project(":engine-net")) // HTTP minimale per il manifest
     // engine-update arriva con la prima release sul Pampa Store: porta con se'
     // REQUEST_INSTALL_PACKAGES e non va incluso prima che serva.
-    // engine-widget arriva in Fase 6 con i widget Glance.
+    implementation(project(":engine-widget")) // i widget Glance della Fase 6
 
     // Il formato .ftb e il lettore mmap.
     implementation(project(":core-routing"))

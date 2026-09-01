@@ -24,6 +24,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -295,6 +297,9 @@ fun JourneyDetailContent(
     j: UiJourney,
     toName: String,
     onDismiss: () -> Unit,
+    backdrop: GlassBackdropState? = null,
+    /** (giorni 1-7, "arrive"|"depart", minuti dalla mezzanotte). */
+    onCreateRoutine: ((Set<Int>, String, Int) -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
@@ -437,7 +442,119 @@ fun JourneyDetailContent(
             }
         }
     }
+
+    // --- "Rendine una routine": il percorso naturale deciso ---------------
+    if (backdrop != null && onCreateRoutine != null && !j.walkOnly) {
+        RoutineForm(j = j, backdrop = backdrop, onCreateRoutine = onCreateRoutine)
+    }
     Spacer(Modifier.height(10.dp))
+}
+
+@Composable
+private fun RoutineForm(
+    j: UiJourney,
+    backdrop: GlassBackdropState,
+    onCreateRoutine: (Set<Int>, String, Int) -> Unit,
+) {
+    var open by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var created by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var days by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(setOf(1, 2, 3, 4, 5))
+    }
+    var anchor by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("arrive") }
+
+    if (created) {
+        Text(
+            text = "Routine creata: la trovi nella scheda Oggi. Nei giorni scelti " +
+                "ti diro' io quando uscire.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+        )
+        return
+    }
+
+    if (!open) {
+        Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)) {
+            GlassActionButton(
+                text = "Rendine una routine",
+                icon = Icons.Rounded.Schedule,
+                backdrop = backdrop,
+                onClick = { open = true },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        return
+    }
+
+    // I giorni: sette lettere, tocco per accendere.
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        val letters = listOf("L", "M", "M", "G", "V", "S", "D")
+        for (d in 1..7) {
+            val on = d in days
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        role = Role.Button,
+                        onClick = { days = if (on) days - d else days + d },
+                    )
+                    .background(
+                        color = if (on) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+                        },
+                        shape = CircleShape,
+                    )
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = letters[d - 1],
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (on) Color.White else MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+    }
+
+    dev.antigravity.fluidengine.ui.fluid.FluidSegmentedControl(
+        options = listOf("arrive", "depart"),
+        selected = anchor,
+        onSelect = { anchor = it },
+        label = { if (it == "arrive") "Arriva entro ${j.arrTime}" else "Parti alle ${j.depTime}" },
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 4.dp),
+    )
+
+    Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+        GlassActionButton(
+            text = "Crea la routine",
+            icon = null,
+            backdrop = backdrop,
+            emphasized = true,
+            onClick = {
+                if (days.isEmpty()) return@GlassActionButton
+                val time = if (anchor == "arrive") j.arrTime else j.depTime
+                val minutes = time.split(':').let { it[0].toInt() * 60 + it[1].toInt() }
+                // "Arriva entro" si arrotonda in su ai 5 minuti: un margine
+                // onesto, non una promessa al secondo.
+                val anchorMinutes = if (anchor == "arrive") ((minutes + 4) / 5) * 5 else minutes
+                onCreateRoutine(days, anchor, anchorMinutes)
+                created = true
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }
 
 /**

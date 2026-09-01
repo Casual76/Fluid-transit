@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Fluid Transit</string>
+    <string name="widget_stop_description">Le prossime partenze da una tua fermata</string>
+    <string name="widget_routine_description">Quando uscire per la routine di oggi</string>
 </resources>

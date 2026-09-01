@@ -124,6 +124,116 @@ object GtfsRtLite {
         )
     }
 
+    /** Un avviso di servizio, gia' ridotto a cio' che la UI mostra. */
+    class RtAlert(
+        val routeHashes: Set<Long>, // vuoto = riguarda tutta la rete
+        val header: String,
+        val description: String,
+        val startEpoch: Long, // 0 = da sempre
+        val endEpoch: Long, // 0 = senza fine dichiarata
+    )
+
+    /**
+     * Il feed alerts (GTFS-RT 2.0, ma il wire format non cambia): si leggono
+     * testate, descrizioni, periodo e linee toccate. Traduzione italiana se
+     * c'e', la prima altrimenti.
+     */
+    fun parseAlerts(bytes: ByteArray): List<RtAlert> {
+        val r = Cursor(bytes)
+        val out = ArrayList<RtAlert>(64)
+        while (r.hasMore()) {
+            val tag = r.varint()
+            if (tag.field == 2 && tag.wire == 2) { // FeedEntity
+                val end = r.messageEnd()
+                while (r.pos < end) {
+                    val t2 = r.varint()
+                    if (t2.field == 5 && t2.wire == 2) { // Alert
+                        parseAlert(r)?.let { out.add(it) }
+                    } else {
+                        r.skip(t2.wire)
+                    }
+                }
+            } else {
+                r.skip(tag.wire)
+            }
+        }
+        return out
+    }
+
+    private fun parseAlert(r: Cursor): RtAlert? {
+        val end = r.messageEnd()
+        val routes = HashSet<Long>()
+        var header = ""
+        var description = ""
+        var start = 0L
+        var stop = 0L
+        while (r.pos < end) {
+            val t = r.varint()
+            when {
+                t.field == 1 && t.wire == 2 -> { // TimeRange: start(1), end(2)
+                    val tEnd = r.messageEnd()
+                    while (r.pos < tEnd) {
+                        val t2 = r.varint()
+                        when {
+                            t2.field == 1 && t2.wire == 0 -> start = r.varintValue()
+                            t2.field == 2 && t2.wire == 0 -> stop = r.varintValue()
+                            else -> r.skip(t2.wire)
+                        }
+                    }
+                }
+
+                t.field == 5 && t.wire == 2 -> { // EntitySelector: route_id(2)
+                    val sEnd = r.messageEnd()
+                    while (r.pos < sEnd) {
+                        val t2 = r.varint()
+                        if (t2.field == 2 && t2.wire == 2) {
+                            routes.add(Ftb.hash64(r.string()))
+                        } else {
+                            r.skip(t2.wire)
+                        }
+                    }
+                }
+
+                t.field == 10 && t.wire == 2 -> header = r.translatedString()
+                t.field == 11 && t.wire == 2 -> description = r.translatedString()
+                else -> r.skip(t.wire)
+            }
+        }
+        if (header.isEmpty() && description.isEmpty()) return null
+        return RtAlert(routes, header, description, start, stop)
+    }
+
+    /** TranslatedString: translation(1) { text(1), language(2) }. Preferita: it. */
+    private fun Cursor.translatedString(): String {
+        val end = messageEnd()
+        var best = ""
+        var bestIsItalian = false
+        while (pos < end) {
+            val t = varint()
+            if (t.field == 1 && t.wire == 2) {
+                val trEnd = messageEnd()
+                var text = ""
+                var lang = ""
+                while (pos < trEnd) {
+                    val t2 = varint()
+                    when {
+                        t2.field == 1 && t2.wire == 2 -> text = string()
+                        t2.field == 2 && t2.wire == 2 -> lang = string()
+                        else -> skip(t2.wire)
+                    }
+                }
+                val isIt = lang.startsWith("it", ignoreCase = true)
+                if (best.isEmpty() || (isIt && !bestIsItalian)) {
+                    best = text
+                    bestIsItalian = isIt
+                }
+            } else {
+                skip(t.wire)
+            }
+        }
+        return best.trim()
+    }
+
     private fun parseStartTime(s: String): Int {
         val parts = s.split(':')
         if (parts.size != 3) return -1

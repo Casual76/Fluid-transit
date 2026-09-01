@@ -9,6 +9,11 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <!-- Il mic evoluto della Fase 5: si registra solo col dito sul tasto. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Le routine (Fase 6): sveglie esatte per "esci tra X minuti" — il
+         WorkManager ha un pavimento di 15 minuti — e notifiche. -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:name=".FluidTransitApp"
@@ -27,6 +32,49 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- I due widget Glance della Fase 6. -->
+        <receiver
+            android:name=".ui.widget.StopWidgetReceiver"
+            android:exported="true"
+            android:label="Partenze fermata">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/stop_widget_info" />
+        </receiver>
+        <receiver
+            android:name=".ui.widget.RoutineWidgetReceiver"
+            android:exported="true"
+            android:label="La tua routine">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/routine_widget_info" />
+        </receiver>
+        <activity
+            android:name=".ui.widget.StopWidgetConfigActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
+        <!-- Le sveglie delle routine e il loro riarmo dopo un riavvio. -->
+        <receiver
+            android:name=".data.routines.RoutineReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".data.routines.RoutineBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

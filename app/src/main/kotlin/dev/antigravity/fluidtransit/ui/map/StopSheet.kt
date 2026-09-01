@@ -15,6 +15,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DirectionsBus
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -83,6 +85,8 @@ fun StopPanelContent(
     onDismiss: () -> Unit,
     onRouteTap: (routeIndex: Int) -> Unit,
     backdrop: dev.antigravity.fluidengine.ui.fluid.GlassBackdropState,
+    isFavorite: Boolean = false,
+    onToggleFavorite: () -> Unit = {},
     liveDelays: Map<Int, Int> = emptyMap(),
     canceledTrips: Set<Int> = emptySet(),
     liveVehicleTrips: Set<Int> = emptySet(),
@@ -140,6 +144,25 @@ fun StopPanelContent(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
+        )
+        // La stella dei preferiti: piena quando la fermata e' tua.
+        Icon(
+            imageVector = if (isFavorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+            contentDescription = if (isFavorite) "Togli dai preferiti" else "Salva nei preferiti",
+            tint = if (isFavorite) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier
+                .size(40.dp)
+                .clickable(
+                    interactionSource = androidx.compose.runtime.remember { MutableInteractionSource() },
+                    indication = null,
+                    role = Role.Button,
+                    onClick = onToggleFavorite,
+                )
+                .padding(8.dp),
         )
         Icon(
             imageVector = Icons.Rounded.Close,

@@ -32,6 +32,7 @@ fun main(args: Array<String>) {
     println("  pattern:  ${fmt(s.patterns)} (${fmt(s.patternStopEntries)} voci) · profili ${fmt(s.profiles)} (${fmt(s.profileValues)} valori)")
     println("  soste:    ${fmt(s.dwellEntries)} · corsa piu' lunga ${s.maxTripSpanSeconds} s · fine piu' tarda ${s.maxTripEndSeconds} s")
     println("  transfer: ${fmt(s.transferEdges)} archi (${fmt(s.transferCapped)} fermate oltre il tetto di grado)")
+    println("  geometrie: ${fmt(s.patternsWithShape)} pattern sulla shape vera, ${fmt(s.patternPolyFallback)} sulla spezzata delle fermate")
     println("  scartate: ${s.droppedSingleStop} con una fermata sola, ${s.droppedNegativeDep0} senza orario di partenza, ${s.droppedOffsetOverflow} oltre le 18h12m")
     println("  sezioni:")
     for ((name, bytes) in s.sectionBytes) {

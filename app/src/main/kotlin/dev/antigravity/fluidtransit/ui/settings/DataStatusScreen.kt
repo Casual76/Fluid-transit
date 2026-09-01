@@ -119,6 +119,34 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
             }
         }
 
+        item { FluidSectionTitle(eyebrow = "Luoghi", title = "Il geocoding offline") }
+        item {
+            val placesState by app.placesManager.state.collectAsStateWithLifecycle()
+            FluidListGroup {
+                when (val p = placesState) {
+                    is dev.antigravity.fluidtransit.data.places.PlacesManager.State.Ready -> FluidListRow(
+                        title = "Luoghi caricati",
+                        subtitle = "%,d fra POI e localita' · %,d vie con civici · %,d numeri"
+                            .format(p.reader.fastCount, p.reader.streetCount, p.reader.civiciCount)
+                            .replace(',', '.'),
+                        meta = "ok",
+                    )
+
+                    is dev.antigravity.fluidtransit.data.places.PlacesManager.State.Downloading -> FluidListRow(
+                        title = "Luoghi in arrivo",
+                        subtitle = "L'indice dei posti della Toscana si sta scaricando",
+                    )
+
+                    else -> FluidListRow(
+                        title = "Luoghi non ancora scaricati",
+                        subtitle = "Arrivano da soli col Wi-Fi: fino ad allora la ricerca " +
+                            "trova fermate e linee",
+                        meta = "—",
+                    )
+                }
+            }
+        }
+
         item { FluidSectionTitle(eyebrow = "Rete", title = "La mappa") }
         item {
             FluidListGroup {

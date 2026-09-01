@@ -134,6 +134,30 @@ jobs:
              work/linee.pmtiles work/fermate.pmtiles
           ls -la work/*.pmtiles
 
+      - name: Luoghi (geocoding offline da OSM)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          P=/tmp/toscana.osm.pbf
+          mkdir -p work/osm
+          # Ogni estrazione e' un doppio filtro dove serve l'AND (osmium non
+          # intere seca in un colpo solo "highway E name").
+          osmium tags-filter -o work/osm/loc.pbf "$P" n/place
+          osmium export -f geojsonseq -o work/osm/localita.geojsonl work/osm/loc.pbf
+          osmium tags-filter -o work/osm/hw.pbf "$P" w/highway
+          osmium tags-filter -o work/osm/vie.pbf work/osm/hw.pbf w/name
+          osmium export -f geojsonseq -o work/osm/vie.geojsonl work/osm/vie.pbf
+          osmium tags-filter -o work/osm/poi_all.pbf "$P" \
+            nwr/amenity nwr/shop nwr/tourism nwr/leisure nwr/office nwr/healthcare
+          osmium tags-filter -o work/osm/poi.pbf work/osm/poi_all.pbf nwr/name
+          osmium export -f geojsonseq -o work/osm/poi.geojsonl work/osm/poi.pbf
+          osmium tags-filter -o work/osm/addr.pbf "$P" nwr/addr:housenumber
+          osmium export -f geojsonseq -o work/osm/civici.geojsonl work/osm/addr.pbf
+          ls -la work/osm/
+          ./gradlew --no-daemon :bundler:places --console=plain \
+            --args="$GITHUB_WORKSPACE/work/osm $GITHUB_WORKSPACE/work/luoghi.bin"
+          ls -la work/luoghi.bin
+
       - name: Golden gate, contro i CSV
         run: |
           ./gradlew --no-daemon :bundler:verify --console=plain --args="$GITHUB_WORKSPACE/work/gtfs $GITHUB_WORKSPACE/work/toscana.ftb" | tee work/verify.log
@@ -234,6 +258,15 @@ jobs:
           overlayAsset="rete-${buildId}-v$(cat work/overlay.rev).pmtiles"
           cp work/rete.pmtiles "work/$overlayAsset"
 
+          # I luoghi viaggiano col nome del loro contenuto: cambiano quando
+          # cambia OSM, non quando cambia il feed.
+          placesAsset="__nessuno__"
+          if [ -f work/luoghi.bin ]; then
+            placesSha=$(sha256sum work/luoghi.bin | cut -d' ' -f1)
+            placesAsset="luoghi-${placesSha:0:12}.bin.gz"
+            gzip -9 -c work/luoghi.bin > "work/$placesAsset"
+          fi
+
           # L'index.json che l'app scarica: url, sha256 del file DECOMPRESSO
           # (l'app verifica dopo il gunzip), e i conteggi per i gate di domani.
           # Il nome dell'asset porta il buildId: un'app a meta' download del
@@ -246,6 +279,14 @@ jobs:
              --argjson rawBytes "$bytes" \
              '. + {url: $url, sha256: $sha, bytes: $bytes, rawBytes: $rawBytes, overlayUrl: $overlay}' \
              work/fragment.json > work/index.json
+          if [ -f "work/$placesAsset" ]; then
+            jq --arg purl "https://github.com/${GITHUB_REPOSITORY}/releases/download/dati/$placesAsset" \
+               --arg psha "$placesSha" \
+               --argjson pbytes "$(stat -c%s "work/$placesAsset")" \
+               --argjson prawBytes "$(stat -c%s work/luoghi.bin)" \
+               '. + {placesUrl: $purl, placesSha256: $psha, placesBytes: $pbytes, placesRawBytes: $prawBytes}' \
+               work/index.json > work/index2.json && mv work/index2.json work/index.json
+          fi
           cat work/index.json
 
           # La release `dati` e' fissa: si aggiungono asset e si aggiorna l'indice.
@@ -256,6 +297,9 @@ jobs:
           # Prima i dati, poi l'indice: l'indice e' lo switch atomico.
           gh release upload dati "work/$asset" --clobber
           gh release upload dati "work/$overlayAsset" --clobber
+          if [ -f "work/$placesAsset" ]; then
+            gh release upload dati "work/$placesAsset" --clobber
+          fi
           gh release upload dati work/index.json --clobber
           echo "pubblicato buildId=$buildId ($gzBytes byte bundle, $(stat -c%s work/$overlayAsset) byte overlay)"
 
@@ -264,9 +308,10 @@ jobs:
           # NON e' cronologico: gli asset appena pubblicati si escludono
           # esplicitamente, o la "pulizia" potrebbe colpire proprio loro.
           # Un fallimento qui non annulla la pubblicazione.
-          for pattern in '^toscana-.*\.ftb\.gz$' '^rete-.*\.pmtiles$'; do
+          for pattern in '^toscana-.*\.ftb\.gz$' '^rete-.*\.pmtiles$' '^luoghi-.*\.bin\.gz$'; do
             gh release view dati --json assets -q '.assets[].name' \
               | grep "$pattern" | grep -v -F "$asset" | grep -v -F "$overlayAsset" \
+              | grep -v -F "$placesAsset" \
               | sort | head -n -2 \
               | while read -r old; do
                   echo "rimuovo asset vecchio: $old"

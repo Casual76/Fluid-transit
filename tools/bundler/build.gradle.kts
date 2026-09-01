@@ -59,3 +59,12 @@ tasks.register<JavaExec>("raptorSmoke") {
     mainClass = "dev.antigravity.fluidtransit.bundler.RaptorSmokeKt"
     maxHeapSize = "1g"
 }
+
+// Il geocoding offline: dagli estratti OSM al file luoghi.bin.
+tasks.register<JavaExec>("places") {
+    group = "build"
+    description = "Costruisce luoghi.bin dai geojsonseq di osmium."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "dev.antigravity.fluidtransit.bundler.BuildPlacesKt"
+    maxHeapSize = "3g"
+}

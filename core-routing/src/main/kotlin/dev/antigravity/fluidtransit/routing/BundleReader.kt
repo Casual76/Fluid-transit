@@ -703,7 +703,7 @@ class BundleReader(file: File, private val verifyCrcOnFirstUse: Boolean = true) 
         if (closed) return
         closed = true
         java.util.Arrays.fill(slices, null)
-        unmap(map)
+        unmapQuietly(map)
     }
 
     companion object {
@@ -732,7 +732,7 @@ class BundleReader(file: File, private val verifyCrcOnFirstUse: Boolean = true) 
          * sostituire o cancellare comunque. Il fallimento silenzioso e'
          * quindi la semantica giusta, non una scorciatoia.
          */
-        private fun unmap(buffer: ByteBuffer) {
+        internal fun unmapQuietly(buffer: ByteBuffer) {
             if (!buffer.isDirect) return
             try {
                 val unsafeClass = Class.forName("sun.misc.Unsafe")

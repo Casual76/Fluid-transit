@@ -263,21 +263,25 @@ class PlacesSearch(private val reader: PlacesReader) {
     fun fast(query: String, limit: Int = 8): List<Hit> {
         val tokens = Places.normalize(query).split(' ').filter { it.isNotEmpty() }
         if (tokens.isEmpty()) return emptyList()
+        // Un token puo' mancare (mai su query corte): "scuola agnoletti
+        // sesto" deve trovare il liceo anche se l'etichetta geografica dice
+        // Campi Bisenzio — i confini amministrativi non stanno in testa a
+        // nessuno. Chi manca paga in punteggio, non con l'esclusione.
+        val required = if (tokens.size >= 3) tokens.size - 1 else tokens.size
         val out = ArrayList<Hit>(limit * 4)
         for (i in 0 until reader.fastCount) {
             val hay = fastNorm[i]
-            var okAll = true
+            var matched = 0
             var score = 0
             for (t in tokens) {
                 val at = hay.indexOf(t)
-                if (at < 0) {
-                    okAll = false
-                    break
-                }
+                if (at < 0) continue
+                matched++
                 // Inizio parola vale piu' di un pezzo in mezzo.
                 if (at == 0 || hay[at - 1] == ' ') score += 10 else score += 2
             }
-            if (!okAll) continue
+            if (matched < required) continue
+            if (matched < tokens.size) score -= 12
             // Le localita' prima dei POI, i POI prima delle vie; i nomi
             // corti (match piu' "pieno") prima dei lunghi.
             score += (4 - reader.fastKind(i)) * 5
@@ -291,16 +295,44 @@ class PlacesSearch(private val reader: PlacesReader) {
         return dedup(out).take(limit)
     }
 
-    /** "via roma 12 firenze": il numero e' il token numerico, il resto e' la via. */
+    /**
+     * "via roma 12 firenze": il numero e' il token numerico, il resto e' la
+     * via. Le vie candidate si pesano TUTTE prima di leggere i numeri: una
+     * scansione interrotta presto premiava "Romagnosi" e "Romana" (che
+     * vengono prima in ordine alfabetico) e non arrivava mai a "Roma".
+     */
     fun civici(query: String, limit: Int = 6): List<Hit> {
         val tokens = Places.normalize(query).split(' ').filter { it.isNotEmpty() }
         val number = tokens.firstOrNull { it.first().isDigit() } ?: return emptyList()
         val nameTokens = tokens.filter { it != number }
         if (nameTokens.isEmpty()) return emptyList()
-        val out = ArrayList<Hit>(limit * 2)
+
+        class Candidate(val street: Int, val score: Int)
+
+        val candidates = ArrayList<Candidate>(64)
         for (s in 0 until reader.streetCount) {
-            val hay = streetNorm[s]
-            if (nameTokens.any { !hay.contains(it) }) continue
+            val hay = " " + streetNorm[s] + " "
+            var score = 0
+            var ok = true
+            for (t in nameTokens) {
+                score += when {
+                    hay.contains(" $t ") -> 12 // parola intera: "roma" e' Roma
+                    hay.contains(" $t") -> 6 // prefisso di parola: Roma-gnosi
+                    hay.contains(t) -> 1
+                    else -> {
+                        ok = false
+                        0
+                    }
+                }
+                if (!ok) break
+            }
+            if (ok) candidates.add(Candidate(s, score))
+        }
+        candidates.sortByDescending { it.score }
+
+        val out = ArrayList<Hit>(limit * 2)
+        for (c in candidates.take(12)) {
+            val s = c.street
             val first = reader.streetFirstEntry(s)
             val count = reader.streetEntryCount(s)
             for (e in first until first + count) {
@@ -313,12 +345,11 @@ class PlacesSearch(private val reader: PlacesReader) {
                             context = reader.streetContext(s),
                             lat = reader.civLat(e),
                             lon = reader.civLon(e),
-                            score = if (num == number) 100 else 50,
+                            score = c.score * 10 + if (num == number) 100 else 50,
                         ),
                     )
                 }
             }
-            if (out.size >= limit * 2) break
         }
         out.sortByDescending { it.score }
         return out.take(limit)

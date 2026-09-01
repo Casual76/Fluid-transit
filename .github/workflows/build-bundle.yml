@@ -193,10 +193,16 @@ jobs:
             *-v*.pmtiles) oldRev=$(echo "$oldOverlay" | sed -E 's/.*-v([0-9]+)\.pmtiles$/\1/');;
           esac
           newRev=$(cat work/overlay.rev)
+          # Anche i luoghi contano: OSM cambia per conto suo, e un indice
+          # nuovo va pubblicato pure a orari identici.
+          oldPlaces=$(jq -r '.placesSha256 // empty' $old)
+          newPlaces=""
+          [ -f work/luoghi.bin ] && newPlaces=$(sha256sum work/luoghi.bin | cut -d' ' -f1)
           if [ "$(jq -r .buildId $new)" = "$(jq -r .buildId $old)" ] &&
-             [ -n "$oldOverlay" ] && [ "$oldRev" -ge "$newRev" ]; then
+             [ -n "$oldOverlay" ] && [ "$oldRev" -ge "$newRev" ] &&
+             { [ -z "$newPlaces" ] || [ "$newPlaces" = "$oldPlaces" ]; }; then
             echo "skip=true" >> "$GITHUB_ENV"
-            echo "bundle identico a ieri (buildId invariato, overlay v$oldRev >= v$newRev): niente da pubblicare"
+            echo "tutto identico a ieri (buildId, overlay v$oldRev, luoghi): niente da pubblicare"
             exit 0
           fi
 

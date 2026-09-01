@@ -818,16 +818,17 @@ fun MapScreen(
                 },
                 onQueryChange = { query = it },
                 onMic = {
-                    // Il mic evoluto: registra e manda al proxy (Whisper +
-                    // LLM via Groq). Senza permesso o senza chiave, il
-                    // riconoscimento di sistema resta la strada di sempre.
-                    if (ContextCompat.checkSelfPermission(
+                    // Il mic evoluto vive SOLO con la chiave Groq che
+                    // l'utente ha messo in Impostazioni: senza, resta il
+                    // riconoscimento di sistema di sempre — deciso cosi'.
+                    when {
+                        GroqKey.get(context) == null -> launchSystemMic()
+
+                        ContextCompat.checkSelfPermission(
                             context, Manifest.permission.RECORD_AUDIO,
-                        ) == PackageManager.PERMISSION_GRANTED
-                    ) {
-                        voiceOpen = true
-                    } else {
-                        audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        ) == PackageManager.PERMISSION_GRANTED -> voiceOpen = true
+
+                        else -> audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
                 },
                 onPick = ::pick,
@@ -1297,8 +1298,13 @@ fun MapScreen(
 
         // --- il mic evoluto, sopra tutto ---------------------------------
         if (voiceOpen) {
-            VoiceOverlay(
-                backdrop = backdrop,
+            val key = remember { GroqKey.get(context) }
+            if (key == null) {
+                voiceOpen = false
+            } else {
+                VoiceOverlay(
+                    backdrop = backdrop,
+                    apiKey = key,
                 onResult = { r ->
                     voiceOpen = false
                     when (r.azione) {
@@ -1332,7 +1338,8 @@ fun MapScreen(
                     launchSystemMic()
                 },
                 onCancel = { voiceOpen = false },
-            )
+                )
+            }
         }
     }
 }

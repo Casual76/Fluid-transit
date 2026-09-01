@@ -19,7 +19,6 @@
  */
 
 import { parseFeed } from './gtfsrt.js';
-import { serveVoice } from './voice.js';
 import {
   SNAPSHOT_KEY, HEADER_LEN, buildSnapshot, readHeader, sliceSection,
 } from './snapshot.js';
@@ -90,7 +89,6 @@ export default {
       case '/rt/v1/alerts': return serveSection(request, env, ctx, 3);
       case '/rt/v1/health': return serveHealth(env, ctx);
       case '/rt/v1/refresh': return serveRefresh(env);
-      case '/voice/v1/interpret': return serveVoice(request, env);
       default:
         return new Response('Fluid Transit realtime proxy. Endpoints: /rt/v1/{vehicles,updates,alerts,health}\n', {
           status: url.pathname === '/' ? 200 : 404,

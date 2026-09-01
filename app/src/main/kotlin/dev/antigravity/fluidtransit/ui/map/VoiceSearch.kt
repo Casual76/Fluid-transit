@@ -46,35 +46,127 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
-/** Cosa ha capito il proxy vocale. */
+/** Cosa ha capito il mic evoluto. */
 class VoiceResult(val azione: String, val testo: String)
 
 /**
- * Il canale col proxy vocale. Ritorna null quando conviene ricadere sul
- * riconoscimento di sistema: chiave mancante (501), rete giu', errori.
+ * La chiave Groq DELL'UTENTE: la genera lui su console.groq.com e la
+ * incolla in Impostazioni — deciso cosi'. Vive solo sul suo telefono e
+ * viaggia solo verso Groq; senza chiave il mic resta quello di sistema,
+ * che trascrive e basta.
+ */
+object GroqKey {
+    private const val PREFS = "groq-key"
+
+    fun get(context: Context): String? = context
+        .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .getString("key", null)
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+
+    fun set(context: Context, value: String?) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .apply {
+                if (value.isNullOrBlank()) remove("key") else putString("key", value.trim())
+            }
+            .apply()
+    }
+}
+
+/**
+ * Il canale con Groq, diretto dall'app con la chiave dell'utente: prima la
+ * trascrizione Whisper, poi l'LLM piccolo che distingue "portami a X" da
+ * una ricerca o dalla dettatura. Ritorna null quando conviene ricadere sul
+ * riconoscimento di sistema (rete giu', chiave sbagliata, errori).
  */
 object VoiceApi {
 
-    private const val ENDPOINT =
-        "https://fluid-transit-rt.fluid-transit.workers.dev/voice/v1/interpret"
+    private const val GROQ = "https://api.groq.com/openai/v1"
 
-    fun interpret(audio: File): VoiceResult? = runCatching {
-        val conn = URL(ENDPOINT).openConnection() as HttpURLConnection
+    private const val SYSTEM_PROMPT = """Sei l'interprete vocale di un'app di trasporto pubblico toscana.
+Ricevi la trascrizione di cio' che l'utente ha detto. Rispondi SOLO con un oggetto JSON:
+{"azione": "naviga" | "cerca" | "detta", "testo": "..."}
+
+- "naviga": l'utente vuole ANDARE in un posto ("portami a X", "come arrivo a X",
+  "andiamo in piazza Y"). In "testo" metti SOLO la destinazione, pulita.
+- "cerca": l'utente nomina una fermata, una linea o un luogo da guardare
+  ("fermata unita'", "linea 6"). In "testo" il termine da cercare.
+- "detta": tutto il resto. In "testo" la trascrizione cosi' com'e'.
+
+Niente altro testo fuori dal JSON."""
+
+    fun interpret(audio: File, apiKey: String): VoiceResult? = runCatching {
+        val transcript = transcribe(audio, apiKey) ?: return null
+        // L'LLM e' un di piu': se inciampa, la trascrizione vale comunque.
+        val understood = runCatching { understand(transcript, apiKey) }.getOrNull()
+        VoiceResult(
+            azione = understood?.first ?: "detta",
+            testo = (understood?.second ?: transcript).trim(),
+        ).takeIf { it.testo.isNotEmpty() }
+    }.getOrNull()
+
+    private fun transcribe(audio: File, apiKey: String): String? {
+        val boundary = "----fluidtransit${System.nanoTime()}"
+        val conn = URL("$GROQ/audio/transcriptions").openConnection() as HttpURLConnection
         conn.requestMethod = "POST"
         conn.doOutput = true
         conn.connectTimeout = 8000
-        conn.readTimeout = 20000
-        conn.setRequestProperty("Content-Type", "audio/mp4")
-        conn.setRequestProperty("User-Agent", "FluidTransit/1.0")
-        conn.outputStream.use { o -> audio.inputStream().use { it.copyTo(o) } }
+        conn.readTimeout = 25000
+        conn.setRequestProperty("Authorization", "Bearer $apiKey")
+        conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+        conn.outputStream.use { out ->
+            fun field(name: String, value: String) {
+                out.write(
+                    ("--$boundary\r\nContent-Disposition: form-data; name=\"$name\"\r\n\r\n" +
+                        "$value\r\n").toByteArray(),
+                )
+            }
+            field("model", "whisper-large-v3-turbo")
+            field("language", "it")
+            field("temperature", "0")
+            out.write(
+                ("--$boundary\r\nContent-Disposition: form-data; name=\"file\"; " +
+                    "filename=\"comando.m4a\"\r\nContent-Type: audio/mp4\r\n\r\n").toByteArray(),
+            )
+            audio.inputStream().use { it.copyTo(out) }
+            out.write("\r\n--$boundary--\r\n".toByteArray())
+        }
         if (conn.responseCode != 200) return null
-        val body = JSONObject(conn.inputStream.bufferedReader().readText())
-        if (!body.optBoolean("ok")) return null
-        VoiceResult(
-            azione = body.optString("azione", "detta"),
-            testo = body.optString("testo").trim(),
-        ).takeIf { it.testo.isNotEmpty() }
-    }.getOrNull()
+        return JSONObject(conn.inputStream.bufferedReader().readText())
+            .optString("text").trim().takeIf { it.isNotEmpty() }
+    }
+
+    private fun understand(transcript: String, apiKey: String): Pair<String, String>? {
+        val conn = URL("$GROQ/chat/completions").openConnection() as HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.doOutput = true
+        conn.connectTimeout = 8000
+        conn.readTimeout = 15000
+        conn.setRequestProperty("Authorization", "Bearer $apiKey")
+        conn.setRequestProperty("Content-Type", "application/json")
+        val body = JSONObject()
+            .put("model", "llama-3.1-8b-instant")
+            .put("temperature", 0)
+            .put("max_tokens", 120)
+            .put("response_format", JSONObject().put("type", "json_object"))
+            .put(
+                "messages",
+                org.json.JSONArray()
+                    .put(JSONObject().put("role", "system").put("content", SYSTEM_PROMPT))
+                    .put(JSONObject().put("role", "user").put("content", transcript)),
+            )
+        conn.outputStream.use { it.write(body.toString().toByteArray()) }
+        if (conn.responseCode != 200) return null
+        val content = JSONObject(conn.inputStream.bufferedReader().readText())
+            .getJSONArray("choices").getJSONObject(0)
+            .getJSONObject("message").getString("content")
+        val parsed = JSONObject(content)
+        val azione = parsed.optString("azione")
+        val testo = parsed.optString("testo").trim()
+        if (azione !in listOf("naviga", "cerca", "detta") || testo.isEmpty()) return null
+        return azione to testo
+    }
 }
 
 /**
@@ -86,6 +178,7 @@ object VoiceApi {
 @Composable
 fun VoiceOverlay(
     backdrop: GlassBackdropState,
+    apiKey: String,
     onResult: (VoiceResult) -> Unit,
     onFallback: () -> Unit,
     onCancel: () -> Unit,
@@ -114,7 +207,7 @@ fun VoiceOverlay(
             onCancel()
             return@LaunchedEffect
         }
-        val result = withContext(Dispatchers.IO) { VoiceApi.interpret(file) }
+        val result = withContext(Dispatchers.IO) { VoiceApi.interpret(file, apiKey) }
         file.delete()
         if (result != null) onResult(result) else onFallback()
     }

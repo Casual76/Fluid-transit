@@ -138,6 +138,26 @@ fun MapScreen(
         }
     }
 
+    // Il mic di sistema: il ripiego di sempre, quando il proxy vocale non puo'.
+    fun launchSystemMic() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(
+                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+            )
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "it-IT")
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Che fermata, linea o posto cerchi?")
+        }
+        runCatching { micLauncher.launch(intent) }
+    }
+
+    var voiceOpen by remember { mutableStateOf(false) }
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) voiceOpen = true else launchSystemMic()
+    }
+
     // L'indice di ricerca si costruisce una volta per bundle, fuori dal main.
     val searchIndex by produceState<SearchIndex?>(initialValue = null, ready?.buildId) {
         val reader = ready?.reader ?: return@produceState
@@ -749,15 +769,17 @@ fun MapScreen(
                 },
                 onQueryChange = { query = it },
                 onMic = {
-                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                        putExtra(
-                            RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
-                        )
-                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, "it-IT")
-                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Che fermata o linea cerchi?")
+                    // Il mic evoluto: registra e manda al proxy (Whisper +
+                    // LLM via Groq). Senza permesso o senza chiave, il
+                    // riconoscimento di sistema resta la strada di sempre.
+                    if (ContextCompat.checkSelfPermission(
+                            context, Manifest.permission.RECORD_AUDIO,
+                        ) == PackageManager.PERMISSION_GRANTED
+                    ) {
+                        voiceOpen = true
+                    } else {
+                        audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
-                    runCatching { micLauncher.launch(intent) }
                 },
                 onPick = ::pick,
             )
@@ -1094,6 +1116,46 @@ fun MapScreen(
                     }
                 }
             }
+        }
+
+        // --- il mic evoluto, sopra tutto ---------------------------------
+        if (voiceOpen) {
+            VoiceOverlay(
+                backdrop = backdrop,
+                onResult = { r ->
+                    voiceOpen = false
+                    when (r.azione) {
+                        "naviga" -> {
+                            // "Portami a X": si risolve X e si parte. Se non
+                            // si trova, almeno la ricerca e' gia' compilata.
+                            scope.launch {
+                                val hit = withContext(Dispatchers.Default) {
+                                    (placesState as? dev.antigravity.fluidtransit.data.places.PlacesManager.State.Ready)
+                                        ?.search?.fast(r.testo, 1)?.firstOrNull()
+                                }
+                                if (hit != null) {
+                                    val ref = PlaceRef(hit.name, hit.context, hit.lat, hit.lon)
+                                    showPlace(ref)
+                                    goToPlace(ref)
+                                } else {
+                                    query = r.testo
+                                    searchOpen = true
+                                }
+                            }
+                        }
+
+                        else -> {
+                            query = r.testo
+                            searchOpen = true
+                        }
+                    }
+                },
+                onFallback = {
+                    voiceOpen = false
+                    launchSystemMic()
+                },
+                onCancel = { voiceOpen = false },
+            )
         }
     }
 }

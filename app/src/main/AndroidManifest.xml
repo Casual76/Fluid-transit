@@ -3,6 +3,12 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Posizione: finora arrivava dal manifest di MapLibre; dichiararla
+         qui e' onesta' verso chi legge, non un cambio di comportamento. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Il mic evoluto della Fase 5: si registra solo col dito sul tasto. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application
         android:name=".FluidTransitApp"

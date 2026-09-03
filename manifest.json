@@ -11,26 +11,35 @@
       "ref": "main"
     },
     "beta": {
-      "version": "1.0.0",
+      "version": "1.0.1",
       "releaseDate": "2026-09-03",
-      "changelog": "Fluid Transit e' l'app per muoversi con i mezzi in Toscana.\n\nI bus si vedono correre sulla strada vera, non a scatti: fra un dato e l'altro la posizione viene stimata lungo il percorso, rallentando in curva e alle fermate.\n\nGli orari dicono sempre se sono veri o previsti, e il ritardo si consuma strada facendo invece di restare uguale fino al capolinea.\n\nCerchi una fermata, una linea, un negozio o un indirizzo, e calcoli un percorso fra due punti qualsiasi, non solo da dove sei.\n\nStelle su fermate e linee, i tuoi posti sulla mappa, routine che ti dicono quando uscire, e due widget per la schermata home.\n\nUn assistente a cui puoi chiedere a voce o scrivendo: si accende in Impostazioni con una chiave tua.\n\nDati di Regione Toscana e Autolinee Toscane (CC-BY), rielaborati dall'app.",
-      "releaseTag": "stable-fluid-transit-v1.0.0",
-      "apkAsset": "fluid-transit-1.0.0.apk",
-      "sizeBytes": 50375383
+      "changelog": "L'assistente adesso fa davvero quello che gli chiedi: quando un'azione ha bisogno del tuo assenso compare un tasto per darglielo, invece di una domanda a cui non si poteva rispondere.\n\nL'app sa aggiornarsi da sola. Quando c'e' una versione nuova te lo dice sulla mappa e la installa da li'; in Impostazioni trovi il quadro completo e l'interruttore per ricevere anche le versioni di prova.",
+      "releaseTag": "stable-fluid-transit-v1.0.1",
+      "apkAsset": "fluid-transit-1.0.1.apk",
+      "sizeBytes": 50391823
     },
     "description": "Muoversi con i mezzi in Toscana: i bus dove sono davvero, orari che dicono se sono veri o previsti, e percorsi da un punto qualsiasi a un altro.",
     "iconUrl": "",
     "category": "General",
     "developer": "Pampa",
     "screenshots": [],
-    "history": [],
+    "history": [
+      {
+        "version": "1.0.0",
+        "releaseDate": "2026-09-03",
+        "changelog": "Fluid Transit e' l'app per muoversi con i mezzi in Toscana.\n\nI bus si vedono correre sulla strada vera, non a scatti: fra un dato e l'altro la posizione viene stimata lungo il percorso, rallentando in curva e alle fermate.\n\nGli orari dicono sempre se sono veri o previsti, e il ritardo si consuma strada facendo invece di restare uguale fino al capolinea.\n\nCerchi una fermata, una linea, un negozio o un indirizzo, e calcoli un percorso fra due punti qualsiasi, non solo da dove sei.\n\nStelle su fermate e linee, i tuoi posti sulla mappa, routine che ti dicono quando uscire, e due widget per la schermata home.\n\nUn assistente a cui puoi chiedere a voce o scrivendo: si accende in Impostazioni con una chiave tua.\n\nDati di Regione Toscana e Autolinee Toscane (CC-BY), rielaborati dall'app.",
+        "releaseTag": "stable-fluid-transit-v1.0.0",
+        "apkAsset": "fluid-transit-1.0.0.apk",
+        "sizeBytes": 50375383
+      }
+    ],
     "stable": {
-      "version": "1.0.0",
+      "version": "1.0.1",
       "releaseDate": "2026-09-03",
-      "changelog": "Fluid Transit e' l'app per muoversi con i mezzi in Toscana.\n\nI bus si vedono correre sulla strada vera, non a scatti: fra un dato e l'altro la posizione viene stimata lungo il percorso, rallentando in curva e alle fermate.\n\nGli orari dicono sempre se sono veri o previsti, e il ritardo si consuma strada facendo invece di restare uguale fino al capolinea.\n\nCerchi una fermata, una linea, un negozio o un indirizzo, e calcoli un percorso fra due punti qualsiasi, non solo da dove sei.\n\nStelle su fermate e linee, i tuoi posti sulla mappa, routine che ti dicono quando uscire, e due widget per la schermata home.\n\nUn assistente a cui puoi chiedere a voce o scrivendo: si accende in Impostazioni con una chiave tua.\n\nDati di Regione Toscana e Autolinee Toscane (CC-BY), rielaborati dall'app.",
-      "releaseTag": "stable-fluid-transit-v1.0.0",
-      "apkAsset": "fluid-transit-1.0.0.apk",
-      "sizeBytes": 50375383
+      "changelog": "L'assistente adesso fa davvero quello che gli chiedi: quando un'azione ha bisogno del tuo assenso compare un tasto per darglielo, invece di una domanda a cui non si poteva rispondere.\n\nL'app sa aggiornarsi da sola. Quando c'e' una versione nuova te lo dice sulla mappa e la installa da li'; in Impostazioni trovi il quadro completo e l'interruttore per ricevere anche le versioni di prova.",
+      "releaseTag": "stable-fluid-transit-v1.0.1",
+      "apkAsset": "fluid-transit-1.0.1.apk",
+      "sizeBytes": 50391823
     }
   },
   "engine": {

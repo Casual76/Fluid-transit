@@ -82,6 +82,15 @@ class Raptor(private val reader: BundleReader) {
             override val departure: Instant,
             override val arrival: Instant,
             val delaySeconds: Int,
+            /**
+             * Il feed sta seguendo questa corsa?
+             *
+             * Serve perche' `delaySeconds == 0` vuol dire due cose opposte:
+             * "monitorata e puntuale" e "nessun dato". Fino alla Fase 8 la UI
+             * le confondeva, quindi una corsa in perfetto orario si
+             * presentava come se non ne sapessimo niente.
+             */
+            val monitored: Boolean = false,
         ) : Leg()
     }
 

@@ -120,79 +120,8 @@ fun SettingsTab(app: FluidTransitApp) {
             }
         }
 
-        item { FluidSectionTitle(eyebrow = "Voce", title = "Il microfono") }
-        item {
-            val context = androidx.compose.ui.platform.LocalContext.current
-            var hasKey by androidx.compose.runtime.remember {
-                androidx.compose.runtime.mutableStateOf(
-                    dev.antigravity.fluidtransit.ui.map.GroqKey.get(context) != null,
-                )
-            }
-            var showKeyDialog by androidx.compose.runtime.remember {
-                androidx.compose.runtime.mutableStateOf(false)
-            }
-            FluidListGroup {
-                FluidListRow(
-                    title = "Chiave Groq",
-                    subtitle = if (hasKey) {
-                        "Il mic capisce i comandi: \"portami alle Cascine\" avvia il viaggio"
-                    } else {
-                        "Senza chiave il mic trascrive e basta. La crei gratis su " +
-                            "console.groq.com e la incolli qui: resta solo sul tuo telefono"
-                    },
-                    meta = if (hasKey) "attiva" else "—",
-                    onClick = { showKeyDialog = true },
-                )
-            }
-            if (showKeyDialog) {
-                var draft by androidx.compose.runtime.remember {
-                    androidx.compose.runtime.mutableStateOf("")
-                }
-                androidx.compose.material3.AlertDialog(
-                    onDismissRequest = { showKeyDialog = false },
-                    title = { androidx.compose.material3.Text("Chiave Groq") },
-                    text = {
-                        androidx.compose.foundation.layout.Column {
-                            androidx.compose.material3.Text(
-                                "Incolla la tua chiave API di console.groq.com. " +
-                                    "Non lascia mai il telefono: viaggia solo verso Groq.",
-                            )
-                            androidx.compose.foundation.layout.Spacer(
-                                Modifier.padding(top = 10.dp),
-                            )
-                            androidx.compose.material3.OutlinedTextField(
-                                value = draft,
-                                onValueChange = { draft = it },
-                                singleLine = true,
-                                placeholder = { androidx.compose.material3.Text("gsk_…") },
-                            )
-                        }
-                    },
-                    confirmButton = {
-                        androidx.compose.material3.TextButton(onClick = {
-                            if (draft.isNotBlank()) {
-                                dev.antigravity.fluidtransit.ui.map.GroqKey.set(context, draft)
-                                hasKey = true
-                            }
-                            showKeyDialog = false
-                        }) { androidx.compose.material3.Text("Salva") }
-                    },
-                    dismissButton = {
-                        if (hasKey) {
-                            androidx.compose.material3.TextButton(onClick = {
-                                dev.antigravity.fluidtransit.ui.map.GroqKey.set(context, null)
-                                hasKey = false
-                                showKeyDialog = false
-                            }) { androidx.compose.material3.Text("Rimuovi") }
-                        } else {
-                            androidx.compose.material3.TextButton(onClick = { showKeyDialog = false }) {
-                                androidx.compose.material3.Text("Annulla")
-                            }
-                        }
-                    },
-                )
-            }
-        }
+        item { FluidSectionTitle(eyebrow = "Assistente", title = "Chiedi all'app") }
+        item { AssistantSettingsGroup(app) }
 
         item { FluidSectionTitle(eyebrow = "Informazioni", title = "L'app") }
         item {

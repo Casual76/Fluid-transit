@@ -40,8 +40,11 @@ project(":bundler").projectDir = file("tools/bundler")
 // L'app c'e' solo se c'e' l'engine: il job notturno del bundle fa il checkout
 // senza submodule (gli serve solo :bundler) e senza questa guardia la sola
 // configurazione di :app, che dipende da :engine-ui, farebbe fallire tutto.
+// L'assistente ha bisogno solo di Android e core-routing, ma sta con :app:
+// il job del bundle non lo compila.
 if (file("engine/engine-ui").exists()) {
     include(":app")
+    include(":core-ai")
 }
 
 // --- fluid-engine (inizio) ---

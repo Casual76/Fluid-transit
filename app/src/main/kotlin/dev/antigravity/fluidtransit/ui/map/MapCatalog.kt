@@ -183,6 +183,14 @@ object MapCatalog {
     const val PLACE_SOURCE = "ft-luogo"
     const val LAYER_PLACE = "ft-luogo-layer"
 
+    /**
+     * I posti salvati: Casa, Lavoro, Scuola e gli altri. Visibili a QUALSIASI
+     * zoom, per scelta dell'utente — sono i punti fissi con cui ci si
+     * orienta sulla regione, non dettagli di quartiere.
+     */
+    const val SAVED_SOURCE = "ft-posti"
+    const val LAYER_SAVED = "ft-posti-layer"
+
     /** Il percorso del viaggio scelto: corse colorate e camminate a puntini. */
     const val JOURNEY_SOURCE = "ft-viaggio"
     const val LAYER_JOURNEY_CASING = "ft-viaggio-casing"

@@ -33,7 +33,10 @@ import androidx.compose.ui.unit.dp
 import dev.antigravity.fluidengine.ui.fluid.FluidHairline
 import dev.antigravity.fluidengine.ui.fluid.FluidTabBarDefaults
 import dev.antigravity.fluidtransit.routing.BundleReader
+import dev.antigravity.fluidtransit.routing.DelayModel
 import dev.antigravity.fluidtransit.routing.Ftb
+import dev.antigravity.fluidtransit.routing.StopTimes
+import dev.antigravity.fluidtransit.routing.Times
 import java.time.Instant
 import java.time.ZonedDateTime
 import java.time.temporal.ChronoUnit
@@ -71,8 +74,12 @@ class TripInfo(
         val idHashHex: String,
         val lat: Double,
         val lon: Double,
-        val time: String,
-        val minutes: Long,
+        /** L'orario di tabella. Quello che l'app promette se il live manca. */
+        val scheduledEpoch: Long,
+        /** L'orario corretto col ritardo di QUESTA fermata. */
+        val effectiveEpoch: Long,
+        /** Da dove viene la correzione: null = nessun dato live. */
+        val confidence: DelayModel.Confidence?,
         val isLast: Boolean,
     )
 
@@ -83,6 +90,7 @@ class TripInfo(
             now: Instant,
             delaySec: Int?,
             canceled: Boolean,
+            delays: DelayModel? = null,
         ): TripInfo {
             val shortName = if (ref.routeIndex >= 0) {
                 reader.routeShortName(ref.routeIndex).ifEmpty { reader.routeLongName(ref.routeIndex) }
@@ -120,21 +128,34 @@ class TripInfo(
             }
             if (!found) dayStartSec = Ftb.serviceDayStart(today).epochSecond
 
-            val effDelay = delaySec ?: 0
+            // Le fermate gemelle: il feed da' lo stesso minuto a due fermate
+            // vicine, e la scheda mostrava due righe identiche una sotto
+            // l'altra. Il divario lo stimiamo noi, dalla distanza vera.
+            val offsets = StopTimes.offsets(reader, pattern, profile)
             val stops = ArrayList<NextStop>(n)
             for (i in 0 until n) {
-                val eff = dayStartSec + dep0 + reader.profileOffset(profile, i) + effDelay
+                val scheduled = dayStartSec + dep0 + offsets[i]
+                // Il ritardo di QUESTA fermata. Prima era lo stesso intero su
+                // tutte, e la scheda prometteva gli stessi otto minuti di
+                // ritardo al capolinea di un'ora dopo.
+                val live = delays?.at(ref.tripIndex, i, n)
+                val confidence = live?.confidence
+                    ?: if (delaySec != null) DelayModel.Confidence.PROJECTED else null
+                // Il feed dice fin dove il bus e' arrivato: piu' affidabile
+                // dell'orologio quando la corsa e' in anticipo.
+                if (confidence == DelayModel.Confidence.SERVED) continue
+                val eff = scheduled + (live?.delaySeconds ?: delaySec ?: 0)
                 if (eff < now.epochSecond - 60) continue // gia' passata
                 val s = reader.patternStop(pattern, i)
-                val local = ZonedDateTime.ofInstant(Instant.ofEpochSecond(eff), Ftb.ROME)
                 stops.add(
                     NextStop(
                         name = reader.stopName(s),
                         idHashHex = java.lang.Long.toHexString(reader.stopIdHash(s)),
                         lat = reader.stopLat(s),
                         lon = reader.stopLon(s),
-                        time = "%02d:%02d".format(local.hour, local.minute),
-                        minutes = (eff - now.epochSecond) / 60,
+                        scheduledEpoch = scheduled,
+                        effectiveEpoch = eff,
+                        confidence = confidence,
                         isLast = i == n - 1,
                     ),
                 )
@@ -180,13 +201,14 @@ fun LiveDot(color: Color, modifier: Modifier = Modifier) {
     )
 }
 
-/** La frase del ritardo, nel tono diretto dell'app. */
+/**
+ * La frase del ritardo, nel tono diretto dell'app. L'arrotondamento e'
+ * quello di [Times] e non uno suo: la capsula qui e il conteggio nella lista
+ * sotto dicevano numeri diversi perche' una troncava e l'altra arrotondava.
+ */
 fun delayLabel(delaySec: Int?, canceled: Boolean): String = when {
     canceled -> "Corsa cancellata"
-    delaySec == null -> "Orario programmato"
-    delaySec > 90 -> "+${(delaySec + 30) / 60} min di ritardo"
-    delaySec < -90 -> "${(-delaySec + 30) / 60} min in anticipo"
-    else -> "In orario"
+    else -> Times.delayLabel(delaySec).replaceFirstChar { it.uppercase() }
 }
 
 /**
@@ -239,7 +261,7 @@ fun TripMiniContent(info: TripInfo) {
 
 /**
  * La scheda corsa espansa: testata, stato live, prossime fermate coi minuti
- * gia' corretti dal ritardo. In Fase 7 qui sotto arrivera' il tasto in
+ * gia' corretti dal ritardo. Sotto, il tasto in
  * vetro "sono su questo bus" con la guardia GPS.
  */
 @Composable
@@ -375,22 +397,42 @@ fun TripFullContent(
                             )
                         }
                         Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = if (stop.minutes < 60) "${stop.minutes} min" else stop.time,
-                                style = MaterialTheme.typography.titleSmall,
-                                color = if (info.delaySec != null) {
-                                    liveGreen()
-                                } else {
-                                    MaterialTheme.colorScheme.onSurface
-                                },
-                            )
-                            if (stop.minutes < 60) {
+                            val nowSec = java.time.Instant.now().epochSecond
+                            val minutes = Times.minutesUntil(nowSec, stop.effectiveEpoch)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            ) {
+                                // Il pallino solo dove il feed sta guardando
+                                // adesso: prima TUTTE le fermate diventavano
+                                // verdi, anche quelle di un'ora dopo, che
+                                // sono pura estrapolazione.
+                                if (stop.confidence == DelayModel.Confidence.OBSERVED) {
+                                    LiveDot(liveGreen())
+                                }
                                 Text(
-                                    text = stop.time,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    text = if (minutes < 60) {
+                                        Times.minutesLabel(nowSec, stop.effectiveEpoch)
+                                    } else {
+                                        Times.hhmm(stop.effectiveEpoch)
+                                    },
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = if (stop.confidence != null) {
+                                        liveGreen()
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    },
                                 )
                             }
+                            // Sotto sta SEMPRE l'orario di tabella, come
+                            // nella scheda fermata: prima qui c'era quello
+                            // gia' corretto, cioe' il contrario, e lo stesso
+                            // posto voleva dire due cose diverse.
+                            Text(
+                                text = "previsto ${Times.hhmm(stop.scheduledEpoch)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 }

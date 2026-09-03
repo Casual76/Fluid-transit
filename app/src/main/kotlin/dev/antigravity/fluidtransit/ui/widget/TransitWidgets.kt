@@ -25,7 +25,9 @@ import dev.antigravity.fluidengine.widget.resolveEngineWidgetLayout
 import dev.antigravity.fluidtransit.FluidTransitApp
 import dev.antigravity.fluidtransit.MainActivity
 import dev.antigravity.fluidtransit.data.bundle.BundleManager
+import dev.antigravity.fluidtransit.routing.DelayModel
 import dev.antigravity.fluidtransit.routing.Ftb
+import dev.antigravity.fluidtransit.routing.Times
 import dev.antigravity.fluidtransit.ui.theme.TransitBrand
 import java.time.Instant
 import java.time.LocalDate
@@ -58,7 +60,13 @@ class StopWidget : GlanceAppWidget() {
     override val sizeMode: SizeMode = SizeMode.Exact
     override val stateDefinition = PreferencesGlanceStateDefinition
 
-    class Row(val line: String, val destination: String, val minutes: Long)
+    class Row(
+        val line: String,
+        val destination: String,
+        val nowEpoch: Long,
+        val effectiveEpoch: Long,
+        val live: Boolean,
+    )
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val app = context.applicationContext as FluidTransitApp
@@ -84,7 +92,10 @@ class StopWidget : GlanceAppWidget() {
                     subtitle = when {
                         stopHash == null -> "Tocca per configurare"
                         rows == null -> "Orari in arrivo…"
-                        else -> "Prossimi passaggi"
+                        // Un widget dice sempre di quando sono i suoi numeri:
+                        // e' l'unico posto dove l'utente non puo' chiedere.
+                        rows.any { it.live } -> "Prossimi passaggi · dal bus"
+                        else -> "Prossimi passaggi · orario previsto"
                     },
                 )
                 Spacer(GlanceModifier.height(if (layout.compact) 6.dp else 8.dp))
@@ -112,7 +123,7 @@ class StopWidget : GlanceAppWidget() {
                                     palette = palette,
                                     layout = layout,
                                     tone = palette.primaryTone,
-                                    trailing = if (r.minutes < 1) "ora" else "${r.minutes} min",
+                                    trailing = Times.minutesLabel(r.nowEpoch, r.effectiveEpoch),
                                 )
                             }
                         }
@@ -131,12 +142,22 @@ class StopWidget : GlanceAppWidget() {
         val hash = stopHashHex.toULongOrNull(16)?.toLong() ?: return emptyList()
         val stop = reader.findStopByIdHash(hash)
         if (stop < 0) return emptyList()
+        // I ritardi, che il widget prima non guardava affatto: mostrava gli
+        // orari di tabella come se fossero certi, e per mezz'ora di fila.
+        runCatching { withTimeoutOrNull(4_000) { app.realtime.refreshDelays() } }
         val now = Instant.now()
         return reader.nextDepartures(stop, now, limit = 5, horizonSeconds = 2 * 3600).map { d ->
+            val live = app.delayModel.at(
+                d.tripIndex,
+                d.positionInPattern,
+                reader.patternStopCount(d.patternIndex),
+            )?.takeIf { it.confidence != DelayModel.Confidence.SERVED }
             Row(
                 line = reader.routeShortName(d.routeIndex).ifEmpty { reader.routeLongName(d.routeIndex) },
                 destination = reader.patternDestination(d.patternIndex),
-                minutes = (d.instant.epochSecond - now.epochSecond) / 60,
+                nowEpoch = now.epochSecond,
+                effectiveEpoch = d.instant.epochSecond + (live?.delaySeconds ?: 0),
+                live = live != null,
             )
         }
     }

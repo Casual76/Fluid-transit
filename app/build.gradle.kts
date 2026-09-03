@@ -28,7 +28,7 @@ android {
         minSdk = 29
         targetSdk = 36
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "1.0.0"
     }
 
     signingConfigs {
@@ -90,6 +90,9 @@ dependencies {
 
     // Il formato .ftb e il lettore mmap.
     implementation(project(":core-routing"))
+
+    // L'assistente: provider, strumenti, voce. Niente Compose la dentro.
+    implementation(project(":core-ai"))
 
     // Le icone estese (sole, mappa): artefatto stabile di soli vettori,
     // fuori dal BOM dal 2024, per questo la versione e' fissata qui.

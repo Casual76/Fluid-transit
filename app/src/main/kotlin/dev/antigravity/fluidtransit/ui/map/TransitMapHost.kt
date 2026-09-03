@@ -202,6 +202,8 @@ class TransitMapController(private val context: Context) {
                 addOverlay(style)
                 ensureBusLayer(style)
                 ensurePlaceLayers(style)
+                ensureSavedLayer(style)
+                pushSavedFeatures(style)
                 applyFilter(style)
                 enableLocationIfAllowed(style)
                 applyFollow(follow)
@@ -213,6 +215,8 @@ class TransitMapController(private val context: Context) {
                 addOverlay(style)
                 ensureBusLayer(style)
                 ensurePlaceLayers(style)
+                ensureSavedLayer(style)
+                pushSavedFeatures(style)
                 applyFilter(style)
                 applyRouteMode(style)
                 enableLocationIfAllowed(style)
@@ -590,6 +594,8 @@ class TransitMapController(private val context: Context) {
 
     private var placeMarker: org.maplibre.geojson.Feature? = null
     private var journeyFeatures: org.maplibre.geojson.FeatureCollection? = null
+    private var savedPlaces: List<SavedRender> = emptyList()
+    private var savedAccent: Int = 0x7C4DC4
 
     private fun ensurePlaceLayers(style: Style) {
         if (style.getSource(MapCatalog.PLACE_SOURCE) == null) {
@@ -669,6 +675,64 @@ class TransitMapController(private val context: Context) {
     fun clearPlaceMarker() {
         placeMarker = null
         map?.getStyle { pushPlaceAndJourney(it) }
+    }
+
+    /**
+     * I posti salvati. Si ridisegnano quando cambiano o quando cambia
+     * l'accento del tema, perche' le pastiglie sono dipinte con quello.
+     */
+    fun setSavedPlaces(list: List<SavedRender>, accentRgb: Int) {
+        savedPlaces = list
+        savedAccent = accentRgb
+        map?.getStyle { style ->
+            ensureSavedLayer(style)
+            pushSavedFeatures(style)
+        }
+    }
+
+    private fun ensureSavedLayer(style: Style) {
+        SavedIcons.ensure(style, savedAccent, context.resources.displayMetrics.density)
+        if (style.getSource(MapCatalog.SAVED_SOURCE) != null) return
+        style.addSource(org.maplibre.android.style.sources.GeoJsonSource(MapCatalog.SAVED_SOURCE))
+        val layer = SymbolLayer(MapCatalog.LAYER_SAVED, MapCatalog.SAVED_SOURCE).apply {
+            setProperties(
+                PropertyFactory.iconImage(Expression.get("ic")),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconAnchor("center"),
+                PropertyFactory.textField(Expression.get("n")),
+                PropertyFactory.textFont(arrayOf("Noto Sans Regular")),
+                PropertyFactory.textSize(11f),
+                PropertyFactory.textOffset(arrayOf(0f, 1.2f)),
+                PropertyFactory.textAnchor("top"),
+                PropertyFactory.textColor(if (darkTheme) "#E8E8F0" else "#2B2B33"),
+                PropertyFactory.textHaloColor(if (darkTheme) "#101014" else "#FFFFFF"),
+                PropertyFactory.textHaloWidth(1.4f),
+                PropertyFactory.textOptional(true),
+            )
+        }
+        // Sotto il segnaposto della ricerca, che e' quello che stai
+        // guardando adesso, ma sopra fermate e tratte.
+        if (style.getLayer(MapCatalog.LAYER_PLACE) != null) {
+            style.addLayerBelow(layer, MapCatalog.LAYER_PLACE)
+        } else {
+            style.addLayer(layer)
+        }
+    }
+
+    private fun pushSavedFeatures(style: Style) {
+        val source = style
+            .getSourceAs<org.maplibre.android.style.sources.GeoJsonSource>(MapCatalog.SAVED_SOURCE)
+            ?: return
+        val features = savedPlaces.map { p ->
+            org.maplibre.geojson.Feature.fromGeometry(
+                org.maplibre.geojson.Point.fromLngLat(p.lon, p.lat),
+            ).apply {
+                addStringProperty("ic", SavedIcons.iconName(SavedIcons.glyphFor(p.label), savedAccent))
+                addStringProperty("n", p.label)
+            }
+        }
+        source.setGeoJson(org.maplibre.geojson.FeatureCollection.fromFeatures(features))
     }
 
     fun showJourney(features: org.maplibre.geojson.FeatureCollection) {
@@ -774,7 +838,7 @@ class TransitMapController(private val context: Context) {
      * La modalita' linea: si accende la tratta scelta e la mappa si pulisce —
      * le altre linee spariscono, le fermate normali pure, e al loro posto
      * compaiono le fermate DELLA linea, visibili anche da lontano. E' la
-     * stessa meccanica che i bus live useranno in Fase 4.
+     * stessa meccanica del tap su un bus vivo.
      */
     fun enterRouteMode(routeIdHashHex: String, stopIdHashes: Array<String>) {
         highlightedRoute = routeIdHashHex

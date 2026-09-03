@@ -76,6 +76,14 @@
             android:foregroundServiceType="location|dataSync" />
 
         <!-- Le sveglie delle routine e il loro riarmo dopo un riavvio. -->
+        <!--
+          La sveglia dei widget: updatePeriodMillis non scende sotto la
+          mezz'ora, e mezz'ora su un conteggio di minuti sono numeri
+          sbagliati di mezz'ora.
+        -->
+        <receiver
+            android:name=".ui.widget.WidgetRefresher$Receiver"
+            android:exported="false" />
         <receiver
             android:name=".data.routines.RoutineReceiver"
             android:exported="false" />

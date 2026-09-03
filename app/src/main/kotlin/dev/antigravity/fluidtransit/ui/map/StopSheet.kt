@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DirectionsBus
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -23,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -35,7 +37,9 @@ import dev.antigravity.fluidengine.ui.fluid.FluidHairline
 import dev.antigravity.fluidengine.ui.fluid.FluidSpinner
 import dev.antigravity.fluidengine.ui.theme.FluidEmptyState
 import dev.antigravity.fluidtransit.routing.BundleReader
+import dev.antigravity.fluidtransit.routing.DelayModel
 import dev.antigravity.fluidtransit.routing.Ftb
+import dev.antigravity.fluidtransit.routing.Times
 import java.time.Instant
 import java.time.ZonedDateTime
 import kotlinx.coroutines.Dispatchers
@@ -74,8 +78,8 @@ fun Modifier.fadeVerticalEdges(edge: androidx.compose.ui.unit.Dp = 16.dp): Modif
  * linea con la pillola del SUO colore — lo stesso della tratta sulla mappa.
  * Il vetro, il grabber e i gesti vivono in [BottomGlassPanel]: questo e'
  * solo il dentro, cosi' il passaggio a scheda linea e' un morphing della
- * stessa superficie. In Fase 4 qui arrivano i minuti veri e il tasto (in
- * vetro, come tutti i tasti nei pannelli) del prossimo bus live.
+ * stessa superficie. I minuti in verde sono quelli veri dal bus; il tasto
+ * accanto vola sul mezzo che sta arrivando.
  */
 @Composable
 fun StopPanelContent(
@@ -87,10 +91,13 @@ fun StopPanelContent(
     backdrop: dev.antigravity.fluidengine.ui.fluid.GlassBackdropState,
     isFavorite: Boolean = false,
     onToggleFavorite: () -> Unit = {},
-    liveDelays: Map<Int, Int> = emptyMap(),
+    delays: dev.antigravity.fluidtransit.routing.DelayModel? = null,
+    delaysStamp: Long = 0L,
     canceledTrips: Set<Int> = emptySet(),
     liveVehicleTrips: Set<Int> = emptySet(),
     onFlyToBus: (tripIndex: Int) -> Unit = {},
+    /** "Parti da qui": questa fermata come ORIGINE del pianificatore. */
+    onStartHere: (() -> Unit)? = null,
 ) {
     class DepartureRow(
         val tripIndex: Int,
@@ -98,24 +105,44 @@ fun StopPanelContent(
         val line: String,
         val colorRgb: Int,
         val destination: String,
-        val time: String,
-        val inMinutes: Long,
+        val scheduledEpoch: Long,
+        val delaySeconds: Int?,
+        val confidence: dev.antigravity.fluidtransit.routing.DelayModel.Confidence?,
     )
 
-    class Data(val name: String, val rows: List<DepartureRow>)
+    class Data(val name: String, val nowEpoch: Long, val rows: List<DepartureRow>)
 
-    val data by produceState<Data?>(initialValue = null, stopIdHashHex) {
+    // Il battito. Senza, i minuti restavano quelli del momento in cui la
+    // scheda si era aperta: si vedeva "3 min" per tutto il tempo che la si
+    // teneva aperta, e le corse passate non spariscono. Era la ragione
+    // principale del "non sembrano davvero live".
+    var tick by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(0) }
+    androidx.compose.runtime.LaunchedEffect(stopIdHashHex) {
+        while (true) {
+            kotlinx.coroutines.delay(15_000)
+            tick++
+        }
+    }
+
+    val data by produceState<Data?>(initialValue = null, stopIdHashHex, tick, delaysStamp) {
         value = withContext(Dispatchers.Default) {
             val hash = stopIdHashHex.toULongOrNull(16)?.toLong()
-                ?: return@withContext Data(fallbackName, emptyList())
+                ?: return@withContext Data(fallbackName, 0L, emptyList())
             val stop = reader.findStopByIdHash(hash)
-            if (stop < 0) return@withContext Data(fallbackName, emptyList())
+            if (stop < 0) return@withContext Data(fallbackName, 0L, emptyList())
             val now = Instant.now()
             val departures = reader.nextDepartures(stop, now, limit = 10, horizonSeconds = 2 * 3600)
             Data(
                 name = reader.stopName(stop),
+                nowEpoch = now.epochSecond,
                 rows = departures.map { d ->
-                    val local = ZonedDateTime.ofInstant(d.instant, Ftb.ROME)
+                    // Il ritardo di QUESTA fermata, non quello della corsa
+                    // spalmato su tutto il percorso.
+                    val live = delays?.at(
+                        d.tripIndex,
+                        d.positionInPattern,
+                        reader.patternStopCount(d.patternIndex),
+                    )
                     DepartureRow(
                         tripIndex = d.tripIndex,
                         routeIndex = d.routeIndex,
@@ -123,8 +150,9 @@ fun StopPanelContent(
                             .ifEmpty { reader.routeLongName(d.routeIndex) },
                         colorRgb = reader.routeDisplayColor(d.routeIndex),
                         destination = reader.patternDestination(d.patternIndex),
-                        time = "%02d:%02d".format(local.hour, local.minute),
-                        inMinutes = (d.instant.epochSecond - now.epochSecond) / 60,
+                        scheduledEpoch = d.instant.epochSecond,
+                        delaySeconds = live?.delaySeconds,
+                        confidence = live?.confidence,
                     )
                 },
             )
@@ -180,6 +208,26 @@ fun StopPanelContent(
         )
     }
 
+    // "Parti da qui": la fermata aperta diventa l'origine del pianificatore.
+    // E' una delle quattro strade decise per scegliere una partenza diversa
+    // da dove sei.
+    if (onStartHere != null) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(top = 8.dp, bottom = 4.dp),
+        ) {
+            GlassActionButton(
+                text = "Parti da qui",
+                icon = Icons.Rounded.MyLocation,
+                backdrop = backdrop,
+                onClick = onStartHere,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+
     val current = data
     when {
         current == null -> {
@@ -207,6 +255,7 @@ fun StopPanelContent(
             ) {
                 items(current.rows.size) { i ->
                     val row = current.rows[i]
+                    val now = current.nowEpoch
                     if (i > 0) FluidHairline()
                     Row(
                         modifier = Modifier
@@ -238,7 +287,12 @@ fun StopPanelContent(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
-                        val delay = liveDelays[row.tripIndex]
+                        // Live vuol dire "il feed sta parlando di questa
+                        // fermata". Una fermata che il bus ha gia' passato
+                        // non e' live: prima diventava verde comunque.
+                        val liveKind = row.confidence
+                            ?.takeIf { it != DelayModel.Confidence.SERVED }
+                        val delay = row.delaySeconds.takeIf { liveKind != null }
                         val canceled = row.tripIndex in canceledTrips
                         if (row.tripIndex in liveVehicleTrips && !canceled) {
                             // Il tasto del prossimo bus live — in vetro,
@@ -265,40 +319,54 @@ fun StopPanelContent(
                                 )
 
                                 delay != null -> {
-                                    // I minuti veri: verde col pallino, il
-                                    // programmato resta sotto in piccolo.
-                                    val liveMin = (row.inMinutes + delay / 60).coerceAtLeast(0)
+                                    val eff = row.scheduledEpoch + delay
+                                    val minutes = Times.minutesUntil(now, eff)
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(5.dp),
                                     ) {
-                                        LiveDot(liveGreen())
+                                        // Il pallino pulsa solo dove il feed
+                                        // sta guardando adesso; piu' avanti
+                                        // e' una proiezione nostra, e la
+                                        // differenza si vede.
+                                        if (liveKind == DelayModel.Confidence.OBSERVED) {
+                                            LiveDot(liveGreen())
+                                        }
                                         Text(
-                                            text = if (liveMin < 60) "$liveMin min" else row.time,
+                                            text = if (minutes < 60) {
+                                                Times.minutesLabel(now, eff)
+                                            } else {
+                                                Times.hhmm(eff)
+                                            },
                                             style = MaterialTheme.typography.titleSmall,
                                             color = liveGreen(),
                                         )
                                     }
                                     Text(
-                                        text = row.time,
+                                        text = "previsto ${Times.hhmm(row.scheduledEpoch)}",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
 
                                 else -> {
+                                    val minutes = Times.minutesUntil(now, row.scheduledEpoch)
                                     Text(
-                                        text = if (row.inMinutes < 60) "${row.inMinutes} min" else row.time,
+                                        text = if (minutes < 60) {
+                                            Times.minutesLabel(now, row.scheduledEpoch)
+                                        } else {
+                                            Times.hhmm(row.scheduledEpoch)
+                                        },
                                         style = MaterialTheme.typography.titleSmall,
                                         color = MaterialTheme.colorScheme.onSurface,
                                     )
-                                    if (row.inMinutes < 60) {
-                                        Text(
-                                            text = row.time,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
+                                    // Un numero nudo non dice se e' vero o
+                                    // teorico: qui lo dice.
+                                    Text(
+                                        text = "previsto ${Times.hhmm(row.scheduledEpoch)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                 }
                             }
                         }
@@ -306,10 +374,12 @@ fun StopPanelContent(
                 }
             }
             Text(
-                text = if (current.rows.any { liveDelays.containsKey(it.tripIndex) }) {
-                    "I minuti in verde sono stime live dal bus; gli altri sono orari programmati."
+                text = if (current.rows.any { it.delaySeconds != null }) {
+                    "In verde i minuti che vengono dal bus: col pallino quando il feed sta " +
+                        "guardando questa fermata, senza quando li stiamo stimando piu' avanti."
                 } else {
-                    "Orari programmati: i minuti veri arrivano quando il bus e' in viaggio."
+                    "Orari previsti da tabella: i minuti veri arrivano quando il bus " +
+                        "e' in viaggio."
                 },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

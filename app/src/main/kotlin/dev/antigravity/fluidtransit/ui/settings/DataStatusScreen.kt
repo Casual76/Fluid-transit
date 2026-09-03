@@ -59,7 +59,9 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
                         FluidListRow(
                             title = "Velocita' di ricerca",
                             subtitle = "Quanto ci ha messo l'ultima ricerca di passaggi",
-                            meta = "$queryMicros µs",
+                            // Microsecondi in faccia a chi apre le impostazioni non
+                            // dicono niente: si dice se e' veloce, e quanto.
+                            meta = if (queryMicros < 1000) "istantanea" else "${queryMicros / 1000} ms",
                         )
                     }
 

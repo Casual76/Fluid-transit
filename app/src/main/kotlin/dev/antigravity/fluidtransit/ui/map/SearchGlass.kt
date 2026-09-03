@@ -28,6 +28,11 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Directions
+import androidx.compose.material.icons.rounded.DirectionsBus
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.NearMe
@@ -62,13 +67,20 @@ import dev.antigravity.fluidengine.ui.fluid.glassSurface
 
 /** Un suggerimento nel pannello: cosa mostra e dove porta. */
 class Suggestion(
-    val kind: String, // "stop" | "route"
+    val kind: String, // "stop" | "route" | "place" | "civic" | "saved"
     val key: String,
     val title: String,
     val subtitle: String,
     val colorRgb: Int,
     val lat: Double,
     val lon: Double,
+    /**
+     * La pertinenza, sulla scala condivisa di `Relevance`: e' cio' che
+     * permette di mettere fermate, linee, luoghi e civici in UNA lista sola
+     * ordinata per quanto c'entrano, invece di incollare un gruppo dopo
+     * l'altro come si faceva fino alla Fase 8.
+     */
+    val score: Int = 0,
 )
 
 /**
@@ -96,6 +108,10 @@ fun SearchGlass(
     onQueryChange: (String) -> Unit,
     onMic: () -> Unit,
     onPick: (Suggestion) -> Unit,
+    /** Se c'e', in cima al pannello compare "Calcola un percorso". */
+    onPlanRoute: (() -> Unit)? = null,
+    /** Se c'e', con la barra piena il tasto del mic diventa "chiedi all'IA". */
+    onAsk: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     // Chiusa: capsula (26 = meta' dei 52 di altezza). Aperta: pannello con
@@ -181,13 +197,18 @@ fun SearchGlass(
                     modifier = Modifier.weight(1f),
                 )
             }
+            // Il tasto cambia mestiere con quello che stai facendo: a barra
+            // vuota e' il microfono, appena scrivi diventa "chiedi all'IA" —
+            // perche' una frase scritta e' quasi sempre una domanda, non un
+            // nome di fermata. Deciso cosi' con l'utente.
+            val asking = onAsk != null && query.isNotBlank()
             FluidGlassIconButton(
-                onClick = onMic,
+                onClick = { if (asking) onAsk?.invoke() else onMic() },
                 backdrop = backdrop,
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.Mic,
-                    contentDescription = "Cerca con la voce",
+                    imageVector = if (asking) Icons.Rounded.AutoAwesome else Icons.Rounded.Mic,
+                    contentDescription = if (asking) "Chiedi all'assistente" else "Parla",
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(22.dp),
                 )
@@ -227,6 +248,41 @@ fun SearchGlass(
                         items(results.size) { i -> SuggestionRow(results[i], onPick, divider = i > 0) }
                     }
                 } else {
+                    // L'ingresso al pianificatore, come deciso: qui e non
+                    // con un tasto in piu' sulla mappa. Prima un percorso si
+                    // poteva calcolare solo trovando prima la destinazione, e
+                    // sempre partendo da dove sei.
+                    if (onPlanRoute != null) {
+                        item {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onPlanRoute() }
+                                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Directions,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                                Column {
+                                    Text(
+                                        text = "Calcola un percorso",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    Text(
+                                        text = "Da un punto qualsiasi a un altro",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
                     if (saved.isNotEmpty()) {
                         item { SectionLabel("I tuoi posti", Icons.Rounded.Star) }
                         items(saved.size) { i -> SuggestionRow(saved[i], onPick, divider = i > 0) }
@@ -320,6 +376,20 @@ private fun SuggestionRow(s: Suggestion, onPick: (Suggestion) -> Unit, divider: 
                 modifier = Modifier.weight(1f),
             )
         } else {
+            // I risultati sono mescolati per pertinenza, quindi l'icona non
+            // e' decorazione: e' l'unica cosa che dice se quella riga e' una
+            // fermata, un posto, un indirizzo o un tuo salvataggio.
+            Icon(
+                imageVector = when (s.kind) {
+                    "stop" -> Icons.Rounded.DirectionsBus
+                    "civic" -> Icons.Rounded.Home
+                    "saved" -> Icons.Rounded.Star
+                    else -> Icons.Rounded.Place
+                },
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = s.title,

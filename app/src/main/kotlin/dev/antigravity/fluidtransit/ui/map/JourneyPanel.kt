@@ -57,7 +57,12 @@ class UiJourney(
     val raw: Raptor.Journey,
 ) {
     companion object {
-        fun of(reader: BundleReader, j: Raptor.Journey): UiJourney {
+        fun of(
+            reader: BundleReader,
+            j: Raptor.Journey,
+            /** Le corse che il realtime sta davvero seguendo. */
+            liveTrips: Set<Int> = emptySet(),
+        ): UiJourney {
             val legs = j.legs.map { leg ->
                 when (leg) {
                     is Raptor.Leg.Walk -> UiLeg.Walk(
@@ -77,6 +82,7 @@ class UiJourney(
                         arrTime = hm(leg.arrival),
                         stops = leg.alightPosition - leg.boardPosition,
                         delaySeconds = leg.delaySeconds,
+                        live = leg.trip in liveTrips,
                     )
                 }
             }
@@ -87,7 +93,7 @@ class UiJourney(
                 transfers = j.transfers,
                 walkMin = (j.walkSeconds + 30) / 60,
                 walkOnly = j.isWalkOnly,
-                hasLive = j.legs.any { it is Raptor.Leg.Ride && it.delaySeconds != 0 },
+                hasLive = j.legs.any { it is Raptor.Leg.Ride && it.trip in liveTrips },
                 pills = j.legs.filterIsInstance<Raptor.Leg.Ride>().map { r ->
                     reader.routeShortName(r.route).ifEmpty { reader.routeLongName(r.route) } to
                         reader.routeDisplayColor(r.route)
@@ -114,6 +120,12 @@ sealed class UiLeg {
         val arrTime: String,
         val stops: Int,
         val delaySeconds: Int,
+        /**
+         * Il feed sta seguendo QUESTA corsa. Diverso da "ha un ritardo":
+         * una corsa monitorata e puntuale ha ritardo zero, e prima veniva
+         * mostrata identica a una di cui non si sa niente.
+         */
+        val live: Boolean = false,
     ) : UiLeg()
 }
 
@@ -322,7 +334,11 @@ fun JourneyDetailContent(
             }
             Text(
                 text = "${j.durationMin} min · ${
-                    if (j.transfers == 1) "1 cambio" else "${j.transfers} cambi"
+                    when (j.transfers) {
+                        0 -> "diretto"
+                        1 -> "1 cambio"
+                        else -> "${j.transfers} cambi"
+                    }
                 } · ${j.walkMin} min a piedi · → $toName",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -424,7 +440,7 @@ fun JourneyDetailContent(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
-                        if (leg.delaySeconds != 0) {
+                        if (leg.live) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(5.dp),

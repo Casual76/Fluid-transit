@@ -56,14 +56,25 @@ class PlacesManager(
 
     private fun open(sha: String) {
         val reader = PlacesReader(file)
-        _state.value = State.Ready(reader, PlacesSearch(reader), sha)
+        val search = PlacesSearch(reader)
+        // Gli indici normalizzati si costruiscono adesso, che nessuno
+        // aspetta: altrimenti il mezzo secondo lo paga la prima ricerca.
+        // Siamo gia' su Dispatchers.IO, chiamati da start().
+        runCatching { search.warmUp() }
+        _state.value = State.Ready(reader, search, sha)
     }
 
     /** Scarica la versione dell'indice se diversa da quella in tasca. */
     private fun refresh() {
         runCatching {
             val cm = context.getSystemService(ConnectivityManager::class.java)
-            if (cm.isActiveNetworkMetered && _state.value is State.Ready) return
+            // Undici megabyte non si scaricano sui dati mobili senza
+            // chiedere: i luoghi sono un di piu', e possono aspettare il
+            // Wi-Fi — che e' esattamente quello che lo Stato dei dati
+            // promette all'utente. Prima il controllo valeva solo a file
+            // gia' presente, quindi al primo avvio in mobilita' partiva
+            // comunque.
+            if (cm.isActiveNetworkMetered) return
             val index = JSONObject(httpGetText(BundleManager.INDEX_URL))
             val url = index.optString("placesUrl").takeIf { it.isNotEmpty() } ?: return
             val sha = index.optString("placesSha256")

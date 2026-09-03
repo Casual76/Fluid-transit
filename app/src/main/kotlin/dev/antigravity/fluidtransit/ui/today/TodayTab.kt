@@ -28,13 +28,13 @@ import dev.antigravity.fluidtransit.FluidTransitApp
 import dev.antigravity.fluidtransit.data.bundle.BundleManager.BundleState
 import dev.antigravity.fluidtransit.data.routines.RoutineScheduler
 import dev.antigravity.fluidtransit.data.routines.Routines
-import dev.antigravity.fluidtransit.data.rt.RtVehicles
 import dev.antigravity.fluidtransit.ui.map.MapIntent
-import dev.antigravity.fluidtransit.ui.map.resolveRt
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZonedDateTime
+import dev.antigravity.fluidtransit.routing.DelayModel
 import dev.antigravity.fluidtransit.routing.Ftb
+import dev.antigravity.fluidtransit.routing.Times
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -78,13 +78,27 @@ fun TodayTab(
         val line: String,
         val colorRgb: Int,
         val destination: String,
-        val minutes: Long,
+        val effectiveEpoch: Long,
+        val scheduledEpoch: Long,
+        val nowEpoch: Long,
+        val observed: Boolean,
         val live: Boolean,
     )
 
+    // Il battito. Prima le chiavi erano (bundle, preferiti, ritardi): con il
+    // realtime in "solo orari" i ritardi restano null per sempre e la lista
+    // si congelava a tempo indeterminato.
+    var tick by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(20_000)
+            tick++
+        }
+    }
+
     val departures by produceState<List<DepRow>?>(
         initialValue = null,
-        ready?.buildId, favVersion, rtDelays,
+        ready?.buildId, favVersion, rtDelays, tick,
     ) {
         val reader = ready?.reader
         if (reader == null || favStops.isEmpty()) {
@@ -92,9 +106,6 @@ fun TodayTab(
             return@produceState
         }
         value = withContext(Dispatchers.Default) {
-            val delayByTrip = rtDelays?.let { d ->
-                resolveRt(reader, RtVehicles(0, 0, emptyList()), d).delayByTrip
-            }.orEmpty()
             val now = Instant.now()
             favStops.take(5).flatMap { fav ->
                 val hash = fav.idHashHex.toULongOrNull(16)?.toLong()
@@ -102,8 +113,11 @@ fun TodayTab(
                 val stop = reader.findStopByIdHash(hash)
                 if (stop < 0) return@flatMap emptyList<DepRow>()
                 reader.nextDepartures(stop, now, limit = 3, horizonSeconds = 2 * 3600).map { d ->
-                    val delaySec = delayByTrip[d.tripIndex]
-                    val eff = d.instant.epochSecond + (delaySec ?: 0)
+                    val live = app.delayModel.at(
+                        d.tripIndex,
+                        d.positionInPattern,
+                        reader.patternStopCount(d.patternIndex),
+                    )?.takeIf { it.confidence != DelayModel.Confidence.SERVED }
                     DepRow(
                         stopName = reader.stopName(stop),
                         stopHash = fav.idHashHex,
@@ -111,11 +125,16 @@ fun TodayTab(
                             .ifEmpty { reader.routeLongName(d.routeIndex) },
                         colorRgb = reader.routeDisplayColor(d.routeIndex),
                         destination = reader.patternDestination(d.patternIndex),
-                        minutes = ((eff - now.epochSecond) / 60).coerceAtLeast(0),
-                        live = delaySec != null,
+                        effectiveEpoch = d.instant.epochSecond + (live?.delaySeconds ?: 0),
+                        scheduledEpoch = d.instant.epochSecond,
+                        nowEpoch = now.epochSecond,
+                        observed = live?.confidence == DelayModel.Confidence.OBSERVED,
+                        live = live != null,
                     )
                 }
-            }
+                // In ordine di orario, non raggruppate per fermata: prima la
+                // lista alternava 3 min, 40 min, 5 min, e non si capiva.
+            }.sortedBy { it.effectiveEpoch }
         }
     }
 
@@ -165,8 +184,13 @@ fun TodayTab(
                             FluidListRow(
                                 eyebrow = d.stopName,
                                 title = "${d.line} → ${d.destination}",
-                                subtitle = if (d.live) "stima live" else "orario programmato",
-                                meta = if (d.minutes < 1) "ora" else "${d.minutes} min",
+                                subtitle = if (d.live) {
+                                    val kind = if (d.observed) "dal bus" else "stimato"
+                                    "${Times.hhmm(d.effectiveEpoch)} · $kind"
+                                } else {
+                                    "previsto ${Times.hhmm(d.scheduledEpoch)}"
+                                },
+                                meta = Times.minutesLabel(d.nowEpoch, d.effectiveEpoch),
                                 leading = {
                                     Box(
                                         modifier = Modifier

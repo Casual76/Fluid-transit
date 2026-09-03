@@ -38,7 +38,8 @@ import java.time.temporal.ChronoUnit
  * Tutto quello che la scheda linea sa dire, calcolato dal bundle in un
  * passaggio su Dispatchers.Default. I blocchi sono quelli decisi: testata,
  * elenco fermate per direzione, prima/ultima corsa e frequenza di oggi.
- * I bus live della linea si aggiungeranno qui in Fase 4.
+ * Gli orari accanto alle fermate sono quelli della prossima corsa, corretti
+ * col ritardo live quando il feed la sta seguendo.
  */
 class RouteInfo(
     val routeIndex: Int,
@@ -56,12 +57,32 @@ class RouteInfo(
         val headsign: String,
         val stops: List<StopRef>,
         val durationMinutes: Int,
+        /** La corsa a cui si riferiscono gli orari accanto alle fermate. */
+        val nextTripLive: Boolean = false,
     )
 
-    class StopRef(val stopIndex: Int, val name: String, val idHashHex: String, val lat: Double, val lon: Double)
+    class StopRef(
+        val stopIndex: Int,
+        val name: String,
+        val idHashHex: String,
+        val lat: Double,
+        val lon: Double,
+        /**
+         * Quando ci passa la prossima corsa. Zero se oggi non ne resta
+         * nessuna. Fino alla Fase 8 la scheda linea non mostrava NESSUN
+         * orario: era la mappa della linea e basta, e per sapere quando
+         * passa bisognava uscire e toccare la fermata.
+         */
+        val timeEpoch: Long = 0L,
+    )
 
     companion object {
-        fun build(reader: BundleReader, routeIndex: Int, now: Instant): RouteInfo {
+        fun build(
+            reader: BundleReader,
+            routeIndex: Int,
+            now: Instant,
+            delays: dev.antigravity.fluidtransit.routing.DelayModel? = null,
+        ): RouteInfo {
             val patterns = reader.patternsOfRoute(routeIndex)
             val today = now.atZone(dev.antigravity.fluidtransit.routing.Ftb.ROME).toLocalDate()
             val dayIndex = ChronoUnit.DAYS.between(reader.feedStart, today).toInt()
@@ -73,9 +94,44 @@ class RouteInfo(
                     .maxByOrNull { reader.patternTripCount(it) }
                     ?: return@mapNotNull null
                 val n = reader.patternStopCount(best)
+
+                // La prossima corsa di questa direzione: e' quella a cui si
+                // riferiscono gli orari mostrati accanto alle fermate.
+                val dayStart = dev.antigravity.fluidtransit.routing.Ftb
+                    .serviceDayStart(today).epochSecond
+                var nextTrip = -1
+                var nextDep = Long.MAX_VALUE
+                if (dayIndex >= 0 && dayIndex < reader.dayCount) {
+                    val firstTrip = reader.patternFirstTrip(best)
+                    for (t in firstTrip until firstTrip + reader.patternTripCount(best)) {
+                        if (!reader.serviceActive(reader.tripService(t), dayIndex)) continue
+                        val dep = dayStart + reader.tripDeparture0(t)
+                        // Cinque minuti di tolleranza: una corsa appena
+                        // partita e' ancora quella che interessa a chi sta
+                        // guardando le fermate piu' avanti.
+                        if (dep >= now.epochSecond - 300 && dep < nextDep) {
+                            nextDep = dep
+                            nextTrip = t
+                        }
+                    }
+                }
+                val offsets = if (nextTrip >= 0) {
+                    dev.antigravity.fluidtransit.routing.StopTimes
+                        .offsets(reader, best, reader.tripProfile(nextTrip))
+                } else {
+                    null
+                }
+                val tripLive = nextTrip >= 0 && delays?.current(nextTrip) != null
+
                 val stops = (0 until n).map { i ->
                     val s = reader.patternStop(best, i)
                     StopRef(
+                        timeEpoch = if (offsets != null) {
+                            val live = delays?.at(nextTrip, i, n)
+                            nextDep + offsets[i] + (live?.delaySeconds ?: 0)
+                        } else {
+                            0L
+                        },
                         stopIndex = s,
                         name = reader.stopName(s),
                         idHashHex = java.lang.Long.toHexString(reader.stopIdHash(s)),
@@ -90,6 +146,7 @@ class RouteInfo(
                     headsign = reader.patternDestination(best),
                     stops = stops,
                     durationMinutes = duration,
+                    nextTripLive = tripLive,
                 )
             }
 
@@ -127,7 +184,16 @@ class RouteInfo(
                 null
             }
 
-            fun fmt(sec: Int): String = "%d:%02d".format((sec / 3600) % 24, (sec % 3600) / 60)
+            /**
+             * L'orologio di una corsa, con due cifre e senza bugie sulle
+             * notturne: negli orari GTFS l'ultima corsa del feed finisce
+             * alle 30:10, e stampata con un modulo 24 secco diventava
+             * "6:10" — cioe' stamattina invece di stanotte.
+             */
+            fun fmt(sec: Int): String {
+                val label = "%02d:%02d".format((sec / 3600) % 24, (sec % 3600) / 60)
+                return if (sec >= 24 * 3600) "$label di notte" else label
+            }
 
             return RouteInfo(
                 routeIndex = routeIndex,
@@ -273,7 +339,12 @@ fun RouteFullContent(
                 text = buildString {
                     append("Oggi: prima ${info.firstDepToday}, ultima ${info.lastDepToday}")
                     if (info.headwayMinutes != null) {
-                        append(" · circa ogni ${info.headwayMinutes} min in questa fascia")
+                        append(" · circa ogni ${info.headwayMinutes} min a quest'ora")
+                    }
+                    val dir = info.directions.getOrNull(direction)
+                    if (dir?.stops?.any { it.timeEpoch > 0 } == true) {
+                        append("\nGli orari qui sotto sono della prossima corsa")
+                        append(if (dir.nextTripLive) ", corretti col ritardo live." else ", previsti.")
                     }
                 },
                 style = MaterialTheme.typography.bodySmall,
@@ -342,7 +413,20 @@ fun RouteFullContent(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    if (i == 0 || i == dir.stops.size - 1) {
+                    if (stop.timeEpoch > 0) {
+                        // L'orario della prossima corsa. Verde solo se il
+                        // feed la sta davvero seguendo: altrimenti e' un
+                        // orario previsto e non deve fingere di essere altro.
+                        Text(
+                            text = dev.antigravity.fluidtransit.routing.Times.hhmm(stop.timeEpoch),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (dir.nextTripLive) {
+                                liveGreen()
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    } else if (i == 0 || i == dir.stops.size - 1) {
                         Text(
                             text = if (i == 0) "Partenza" else "Capolinea",
                             style = MaterialTheme.typography.labelSmall,

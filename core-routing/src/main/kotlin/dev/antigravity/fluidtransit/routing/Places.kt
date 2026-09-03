@@ -247,52 +247,110 @@ class PlacesSearch(private val reader: PlacesReader) {
         val score: Int,
     )
 
-    private val fastNorm: Array<String> by lazy {
-        Array(reader.fastCount) { i ->
-            Places.normalize(reader.fastName(i)) + " " +
-                Places.normalize(reader.fastContext(i)) + " " + reader.fastKeywords(i)
+    /**
+     * L'indice normalizzato: per ogni voce il nome e il contorno concatenati,
+     * e dove finisce il nome. Sono 170.816 voci, quindi una stringa sola per
+     * voce e non due.
+     */
+    private class Norm(val hay: Array<String>, val nameEnd: IntArray)
+
+    private val norm: Norm by lazy {
+        val n = reader.fastCount
+        val hay = Array(n) { "" }
+        val end = IntArray(n)
+        for (i in 0 until n) {
+            val name = Places.normalize(reader.fastName(i))
+            val extra = (Places.normalize(reader.fastContext(i)) + " " + reader.fastKeywords(i)).trim()
+            end[i] = name.length
+            hay[i] = Relevance.haystack(name, extra)
         }
+        Norm(hay, end)
     }
 
-    private val streetNorm: Array<String> by lazy {
-        Array(reader.streetCount) { s ->
-            Places.normalize(reader.streetName(s)) + " " + Places.normalize(reader.streetContext(s))
+    private val streetNorm: Norm by lazy {
+        val n = reader.streetCount
+        val hay = Array(n) { "" }
+        val end = IntArray(n)
+        for (s in 0 until n) {
+            val name = Places.normalize(reader.streetName(s))
+            end[s] = name.length
+            hay[s] = Relevance.haystack(name, Places.normalize(reader.streetContext(s)))
         }
+        Norm(hay, end)
     }
 
-    fun fast(query: String, limit: Int = 8): List<Hit> {
-        val tokens = Places.normalize(query).split(' ').filter { it.isNotEmpty() }
+    /**
+     * Costruisce gli indici normalizzati adesso, fuori dal main thread.
+     *
+     * Sono 170.816 voci da normalizzare: senza scaldare, il conto lo paga la
+     * PRIMA ricerca che l'utente fa — mezzo secondo qui, di piu' sul
+     * telefono — proprio nel momento in cui sta decidendo se l'app e' lenta.
+     */
+    fun warmUp() {
+        norm
+        streetNorm
+    }
+
+    /**
+     * La ricerca rapida. [refLat]/[refLon] sono il punto da cui pesare la
+     * vicinanza — la posizione dell'utente, o il centro della mappa se l'ha
+     * spostata lontano: senza, "via roma" restituisce duecento vie identiche
+     * in ordine di file e la tua non c'e' mai.
+     */
+    fun fast(
+        query: String,
+        limit: Int = 8,
+        refLat: Double = Double.NaN,
+        refLon: Double = Double.NaN,
+    ): List<Hit> {
+        val tokens = Relevance.tokens(query)
         if (tokens.isEmpty()) return emptyList()
-        // Un token puo' mancare (mai su query corte): "scuola agnoletti
-        // sesto" deve trovare il liceo anche se l'etichetta geografica dice
-        // Campi Bisenzio — i confini amministrativi non stanno in testa a
-        // nessuno. Chi manca paga in punteggio, non con l'esclusione.
-        val required = if (tokens.size >= 3) tokens.size - 1 else tokens.size
-        val out = ArrayList<Hit>(limit * 4)
-        for (i in 0 until reader.fastCount) {
-            val hay = fastNorm[i]
-            var matched = 0
-            var score = 0
-            for (t in tokens) {
-                val at = hay.indexOf(t)
-                if (at < 0) continue
-                matched++
-                // Inizio parola vale piu' di un pezzo in mezzo.
-                if (at == 0 || hay[at - 1] == ' ') score += 10 else score += 2
+        val hasRef = !refLat.isNaN() && !refLon.isNaN()
+        val index = norm
+
+        // Prima passata: si guarda tutto l'indice, si raccoglie quanto ogni
+        // voce combacia e quanto ogni parola e' rara.
+        val session = Relevance.Session(tokens)
+        for (i in 0 until reader.fastCount) session.observe(i, index.hay[i], index.nameEnd[i])
+
+        // Seconda passata: il punteggio vero. Una parola comune come "via"
+        // lascia in gara decine di migliaia di voci, quindi qui si contano
+        // solo numeri — i nomi si vanno a leggere alla fine, per i pochi che
+        // finiranno sullo schermo.
+        val keep = Relevance.TopK(limit * 4)
+        for (k in 0 until session.candidateCount) {
+            val i = session.candidateId(k)
+            val dist = if (hasRef) {
+                BundleReader.haversine(refLat, refLon, reader.fastLat(i), reader.fastLon(i))
+            } else {
+                -1.0
             }
-            if (matched < required) continue
-            if (matched < tokens.size) score -= 12
-            // Le localita' prima dei POI, i POI prima delle vie; i nomi
-            // corti (match piu' "pieno") prima dei lunghi.
-            score += (4 - reader.fastKind(i)) * 5
-            score -= hay.length / 8
+            keep.offer(k, session.score(k, kindBonus(reader.fastKind(i)), dist))
+        }
+
+        val out = ArrayList<Hit>(keep.size)
+        keep.forEachByScore { k, score ->
+            val i = session.candidateId(k)
             out.add(
-                Hit(reader.fastKind(i), reader.fastName(i), reader.fastContext(i),
-                    reader.fastLat(i), reader.fastLon(i), score),
+                Hit(
+                    reader.fastKind(i), reader.fastName(i), reader.fastContext(i),
+                    reader.fastLat(i), reader.fastLon(i), score,
+                ),
             )
         }
-        out.sortByDescending { it.score }
         return dedup(out).take(limit)
+    }
+
+
+    /**
+     * Il tipo vale poco, e solo a parita' di pertinenza. Prima le vie
+     * prendevano cinque punti contro i quindici delle localita': cercare la
+     * propria via voleva dire perdere contro qualsiasi paese omonimo.
+     */
+    private fun kindBonus(kind: Int): Int = when (kind) {
+        Places.KIND_LOCALITY -> 6
+        Places.KIND_POI -> 4
+        else -> 4
     }
 
     /**
@@ -301,32 +359,43 @@ class PlacesSearch(private val reader: PlacesReader) {
      * scansione interrotta presto premiava "Romagnosi" e "Romana" (che
      * vengono prima in ordine alfabetico) e non arrivava mai a "Roma".
      */
-    fun civici(query: String, limit: Int = 6): List<Hit> {
-        val tokens = Places.normalize(query).split(' ').filter { it.isNotEmpty() }
+    fun civici(
+        query: String,
+        limit: Int = 6,
+        refLat: Double = Double.NaN,
+        refLon: Double = Double.NaN,
+    ): List<Hit> {
+        val tokens = Relevance.tokens(query)
         val number = tokens.firstOrNull { it.first().isDigit() } ?: return emptyList()
         val nameTokens = tokens.filter { it != number }
         if (nameTokens.isEmpty()) return emptyList()
+        val hasRef = !refLat.isNaN() && !refLon.isNaN()
+        val index = streetNorm
 
+        // Le vie candidate si pesano TUTTE prima di leggere i numeri: una
+        // scansione interrotta presto premiava "Romagnosi" e "Romana" — che
+        // vengono prima in ordine alfabetico — e non arrivava mai a "Roma".
         class Candidate(val street: Int, val score: Int)
 
-        val candidates = ArrayList<Candidate>(64)
-        for (s in 0 until reader.streetCount) {
-            val hay = " " + streetNorm[s] + " "
-            var score = 0
-            var ok = true
-            for (t in nameTokens) {
-                score += when {
-                    hay.contains(" $t ") -> 12 // parola intera: "roma" e' Roma
-                    hay.contains(" $t") -> 6 // prefisso di parola: Roma-gnosi
-                    hay.contains(t) -> 1
-                    else -> {
-                        ok = false
-                        0
-                    }
-                }
-                if (!ok) break
+        // Le stesse due passate della ricerca rapida: qui la pesatura per
+        // rarita' conta il doppio, perche' "via" e' in quasi tutti i nomi e
+        // la parola che sceglie davvero e' l'altra.
+        val session = Relevance.Session(nameTokens)
+        for (s in 0 until reader.streetCount) session.observe(s, index.hay[s], index.nameEnd[s])
+        val candidates = ArrayList<Candidate>(session.candidateCount.coerceAtMost(1024))
+        for (k in 0 until session.candidateCount) {
+            val s = session.candidateId(k)
+            val dist = if (hasRef) {
+                BundleReader.haversine(refLat, refLon, reader.streetLat(s), reader.streetLon(s))
+            } else {
+                -1.0
             }
-            if (ok) candidates.add(Candidate(s, score))
+            // La vicinanza pesa DOPPIO sugli indirizzi: un civico e' una
+            // cosa locale per natura. Senza, "via gramsci 12" restituiva
+            // per primo un civico esatto a sessanta chilometri invece del
+            // 120 sotto casa — formalmente piu' pertinente, praticamente
+            // inutile.
+            candidates.add(Candidate(s, session.score(k, 4, dist) + Relevance.proximityBonus(dist)))
         }
         candidates.sortByDescending { it.score }
 
@@ -345,7 +414,9 @@ class PlacesSearch(private val reader: PlacesReader) {
                             context = reader.streetContext(s),
                             lat = reader.civLat(e),
                             lon = reader.civLon(e),
-                            score = c.score * 10 + if (num == number) 100 else 50,
+                            // Il civico esatto vale piu' del quasi-esatto, e
+                            // un indirizzo completo batte il luogo omonimo.
+                            score = c.score + if (num == number) 22 else 8,
                         ),
                     )
                 }

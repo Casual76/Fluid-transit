@@ -15,6 +15,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Directions
+import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -111,6 +112,8 @@ fun PlacePanelContent(
     onGo: () -> Unit,
     onSave: (label: String) -> Unit,
     onRemoveSaved: (() -> Unit)? = null,
+    /** "Parti da qui": mette questo punto come ORIGINE del pianificatore. */
+    onStartHere: (() -> Unit)? = null,
 ) {
     var saving by remember { mutableStateOf(false) }
     var customLabel by remember { mutableStateOf("") }
@@ -181,6 +184,25 @@ fun PlacePanelContent(
                     icon = Icons.Rounded.Star,
                     backdrop = backdrop,
                     onClick = { saving = true },
+                )
+            }
+        }
+        // Su una riga sua: e' l'azione meno frequente delle due, ma e'
+        // l'unico modo per far partire un viaggio da qui invece che da dove
+        // sei — cosa che fino alla Fase 8 non si poteva fare affatto.
+        if (onStartHere != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 14.dp),
+            ) {
+                GlassActionButton(
+                    text = "Parti da qui",
+                    icon = Icons.Rounded.MyLocation,
+                    backdrop = backdrop,
+                    onClick = onStartHere,
+                    modifier = Modifier.weight(1f),
                 )
             }
         }

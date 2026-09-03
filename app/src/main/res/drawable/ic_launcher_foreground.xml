@@ -1,33 +1,56 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- PROVVISORIA: un frontale di bus stilizzato, bianco, dentro la zona sicura
-     dell'adaptive icon. Da sostituire con l'icona definitiva. -->
+<!-- Il frontale di un bus, bianco, dentro la zona sicura dell'adaptive icon:
+     tutto sta nel cerchio di raggio 33 attorno al centro, cosi' nessuna
+     maschera (tonda, squircle, goccia) taglia qualcosa che conta.
+
+     Il parabrezza NON e' dipinto: e' un buco, e ci si vede attraverso
+     l'ametista del fondo. E' il modo piu' onesto di mettere il vetro
+     nell'icona di un'app che sul vetro ha costruito l'interfaccia — e in
+     monocromia resta una silhouette leggibile invece di una macchia.
+
+     Sotto, due trattini: la strada che passa. Far correre i bus sulla strada
+     vera e' la cosa che questa app fa e le altre no. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <group>
-        <!-- corpo -->
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M36,34 h36 a6,6 0 0 1 6,6 v26 a6,6 0 0 1 -6,6 h-36 a6,6 0 0 1 -6,-6 v-26 a6,6 0 0 1 6,-6 z" />
-        <!-- parabrezza -->
-        <path
-            android:fillColor="#7C4DC4"
-            android:pathData="M36,40 h36 v14 h-36 z" />
-        <!-- fari -->
-        <path
-            android:fillColor="#7C4DC4"
-            android:pathData="M38,60 a3,3 0 1 0 6,0 a3,3 0 1 0 -6,0 z" />
-        <path
-            android:fillColor="#7C4DC4"
-            android:pathData="M64,60 a3,3 0 1 0 6,0 a3,3 0 1 0 -6,0 z" />
-        <!-- ruote -->
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M38,70 a4,4 0 1 0 8,0 a4,4 0 1 0 -8,0 z" />
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M62,70 a4,4 0 1 0 8,0 a4,4 0 1 0 -8,0 z" />
-    </group>
+
+    <!-- Le ruote, prima del corpo: si infilano sotto e sbucano appena. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.9"
+        android:pathData="M39,68 h5 a3,3 0 0 1 3,3 v4 a3,3 0 0 1 -3,3 h-5 a3,3 0 0 1 -3,-3 v-4 a3,3 0 0 1 3,-3 z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.9"
+        android:pathData="M64,68 h5 a3,3 0 0 1 3,3 v4 a3,3 0 0 1 -3,3 h-5 a3,3 0 0 1 -3,-3 v-4 a3,3 0 0 1 3,-3 z" />
+
+    <!-- Il corpo, con i buchi in evenOdd: parabrezza, fari e presa d'aria
+         lasciano vedere il fondo invece di essere dipinti sopra. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M44,26 h20 a12,12 0 0 1 12,12 v30 a6,6 0 0 1 -6,6 h-32 a6,6 0 0 1 -6,-6 v-30 a12,12 0 0 1 12,-12 z
+                          M42,33 h24 a5,5 0 0 1 5,5 v8 a5,5 0 0 1 -5,5 h-24 a5,5 0 0 1 -5,-5 v-8 a5,5 0 0 1 5,-5 z
+                          M39.3,58 a3.2,3.2 0 1 0 6.4,0 a3.2,3.2 0 1 0 -6.4,0 z
+                          M62.3,58 a3.2,3.2 0 1 0 6.4,0 a3.2,3.2 0 1 0 -6.4,0 z
+                          M49.75,63 h8.5 a1.75,1.75 0 0 1 0,3.5 h-8.5 a1.75,1.75 0 0 1 0,-3.5 z" />
+
+    <!-- Il riflesso sul parabrezza: una lama di luce in diagonale, come sul
+         vetro dei pannelli. Tenue, perche' in monocromia diventa piena. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.26"
+        android:pathData="M40,50 l11,-17 h5.5 l-11,17 z" />
+
+    <!-- La strada, a trattini. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.45"
+        android:pathData="M44.5,80 h7 a1.5,1.5 0 0 1 0,3 h-7 a1.5,1.5 0 0 1 0,-3 z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.45"
+        android:pathData="M56.5,80 h7 a1.5,1.5 0 0 1 0,3 h-7 a1.5,1.5 0 0 1 0,-3 z" />
 </vector>

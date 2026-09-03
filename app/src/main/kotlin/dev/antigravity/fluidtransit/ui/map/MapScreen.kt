@@ -67,6 +67,13 @@ import kotlinx.coroutines.withContext
  */
 private const val STALE_HIDE_SECONDS = 180L
 
+/**
+ * Quanto lontano deve stare la mappa da te perche' a decidere la vicinanza
+ * dei risultati sia quello che guardi invece di dove sei. Sotto questa
+ * soglia stai ancora girando per casa tua; sopra, stai esplorando altrove.
+ */
+private const val MAP_WINS_METERS = 20_000.0
+
 private sealed interface Panel {
     class Stop(val tap: StopTap) : Panel
     class RouteMini(val routeIndex: Int) : Panel
@@ -162,11 +169,35 @@ fun MapScreen(
         runCatching { micLauncher.launch(intent) }
     }
 
-    var voiceOpen by remember { mutableStateOf(false) }
+    // L'assistente esiste solo se c'e' una chiave verificata e l'interruttore
+    // e' acceso: senza, il microfono resta quello di sistema, che trascrive e
+    // basta — cioe' com'era prima della Fase 8.
+    val assistantEnabled by app.assistant.enabled.collectAsStateWithLifecycle(initialValue = false)
+    var assistantOpen by remember { mutableStateOf(false) }
+    var assistantMode by remember {
+        mutableStateOf(dev.antigravity.fluidtransit.ai.orchestrator.AskMode.VOICE)
+    }
+    var assistantQuestion by remember { mutableStateOf("") }
+
+    fun openAssistant(
+        mode: dev.antigravity.fluidtransit.ai.orchestrator.AskMode,
+        question: String = "",
+    ) {
+        assistantMode = mode
+        assistantQuestion = question
+        assistantOpen = true
+        searchOpen = false
+        query = ""
+    }
+
     val audioPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        if (granted) voiceOpen = true else launchSystemMic()
+        if (granted && assistantEnabled) {
+            openAssistant(dev.antigravity.fluidtransit.ai.orchestrator.AskMode.VOICE)
+        } else {
+            launchSystemMic()
+        }
     }
 
     // Il permesso notifiche (Android 13+): si chiede quando nasce la prima
@@ -187,6 +218,14 @@ fun MapScreen(
         ready?.reader?.let { PathCache(it, app.applicationScope) }
     }
     LaunchedEffect(pathCache) { controller.setPathCache(pathCache) }
+
+    // Quello che l'assistente non puo' sapere da solo: l'indice di ricerca,
+    // dove sei e dove stai guardando. Glielo lascia qui la mappa.
+    LaunchedEffect(searchIndex) { app.assistantBridge.searchIndex = searchIndex }
+    LaunchedEffect(Unit) {
+        app.assistantBridge.location = { controller.lastLocation() }
+        app.assistantBridge.camera = { controller.cameraCenter() }
+    }
 
     fun exitRouteMode() {
         controller.exitRouteMode()
@@ -233,7 +272,7 @@ fun MapScreen(
     // Il tap sulla pillola di una linea: la mappa si pulisce (resta la
     // tratta accesa e le SUE fermate), la camera inquadra tutto, e il
     // pannello si trasforma nello stato mini della scheda linea.
-    // In Fase 4 la stessa meccanica rispondera' al tap su un bus live.
+    // La stessa meccanica risponde al tap su un bus vivo.
     fun showRoute(routeIndex: Int) {
         val reader = ready?.reader ?: return
         follow = FollowMode.FREE
@@ -381,14 +420,21 @@ fun MapScreen(
         is Panel.RouteFull -> p.routeIndex
         else -> null
     }
-    val routeInfo by produceState<RouteInfo?>(initialValue = null, currentRouteIndex, ready?.buildId) {
+    val routeInfo by produceState<RouteInfo?>(
+        initialValue = null,
+        currentRouteIndex, ready?.buildId,
+        // Anche i ritardi: gli orari accanto alle fermate devono restare veri.
+        rtDelays?.generatedAt,
+    ) {
         val reader = ready?.reader
         val idx = currentRouteIndex
         if (reader == null || idx == null) {
             value = null
             return@produceState
         }
-        value = withContext(Dispatchers.Default) { RouteInfo.build(reader, idx, Instant.now()) }
+        value = withContext(Dispatchers.Default) {
+            RouteInfo.build(reader, idx, Instant.now(), app.delayModel)
+        }
     }
 
     // I dati della scheda corsa: si ricalcolano anche quando arriva un
@@ -398,9 +444,18 @@ fun MapScreen(
         is Panel.TripFull -> p.ref
         else -> null
     }
+    // Il battito della scheda corsa: senza, le "prossime fermate" restavano
+    // quelle del momento in cui si era aperta.
+    var tripTick by remember { mutableStateOf(0) }
+    LaunchedEffect(currentTripRef) {
+        while (currentTripRef != null) {
+            kotlinx.coroutines.delay(15_000)
+            tripTick++
+        }
+    }
     val tripInfo by produceState<TripInfo?>(
         initialValue = null,
-        currentTripRef, rtDelays, ready?.buildId,
+        currentTripRef, rtDelays, ready?.buildId, tripTick,
     ) {
         val reader = ready?.reader
         val ref = currentTripRef
@@ -416,6 +471,7 @@ fun MapScreen(
                 now = Instant.now(),
                 delaySec = d?.takeIf { !it.noData }?.delaySec,
                 canceled = d?.canceled == true,
+                delays = app.delayModel,
             )
         }
     }
@@ -429,20 +485,173 @@ fun MapScreen(
         }
     }
 
+    // I posti salvati sulla mappa, con l'icona che dice cosa sono. Fino alla
+    // Fase 8 si salvavano e sparivano: restavano nella lista dei Preferiti,
+    // ma sulla mappa non c'era proprio niente.
+    LaunchedEffect(savedVersion, accentArgb) {
+        controller.setSavedPlaces(
+            app.savedPlaces.load().map { SavedRender(it.id, it.label, it.lat, it.lon) },
+            accentArgb and 0xFFFFFF,
+        )
+    }
+
     var journeyOrigin by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var journeyFromGps by remember { mutableStateOf(true) }
     var journeyTimeMode by rememberSaveable { mutableStateOf("now") } // now | depart | arrive
     var journeyTimeEpoch by rememberSaveable { mutableStateOf(0L) }
     var showTimeDialog by remember { mutableStateOf(false) }
 
-    // "Portami qui": dalla posizione GPS se c'e', dal centro mappa se no —
-    // e la differenza si dichiara nel pannello, non si nasconde.
+    // Il pianificatore Da/A. `originRef` nullo vuol dire "da dove sei":
+    // resta il caso normale, ma smette di essere l'unico possibile.
+    var plannerOpen by remember { mutableStateOf(false) }
+    var originRef by remember { mutableStateOf<PlaceRef?>(null) }
+    var destRef by remember { mutableStateOf<PlaceRef?>(null) }
+
+    /** Quale delle due righe sta compilando la ricerca: "from", "to", o niente. */
+    var plannerField by remember { mutableStateOf<String?>(null) }
+
+    /** Calcola, quando c'e' abbastanza per calcolare. */
+    fun runPlanner() {
+        val to = destRef ?: return
+        val from = originRef
+        if (from != null) {
+            journeyFromGps = false
+            journeyOrigin = from.lat to from.lon
+        } else {
+            // Dalla posizione GPS se c'e', dal centro mappa se no — e la
+            // differenza si dichiara nel pannello, non si nasconde.
+            val loc = controller.lastLocation()
+            journeyFromGps = loc != null
+            journeyOrigin = loc ?: controller.cameraCenter()
+        }
+        panel = Panel.Journeys(to)
+    }
+
+    /** "Portami qui" da un luogo: destinazione quella, partenza da dove sei. */
     fun goToPlace(ref: PlaceRef) {
-        val loc = controller.lastLocation()
-        journeyFromGps = loc != null
-        journeyOrigin = loc ?: controller.cameraCenter()
+        originRef = null
+        destRef = ref
         journeyTimeMode = "now"
-        panel = Panel.Journeys(ref)
+        plannerOpen = true
+        runPlanner()
+    }
+
+    fun openPlanner() {
+        searchOpen = false
+        query = ""
+        plannerField = null
+        plannerOpen = true
+    }
+
+    // Le azioni dell'assistente le esegue la mappa, perche' e' l'unica che
+    // puo': il modulo dell'assistente non sa niente di pannelli e di camera.
+    LaunchedEffect(Unit) {
+        app.assistantBridge.actions.collect { action ->
+            val reader = ready?.reader
+            when (action) {
+                is dev.antigravity.fluidtransit.ai.tools.AssistantAction.ShowPlace -> {
+                    assistantOpen = false
+                    showPlace(
+                        PlaceRef(
+                            action.point.name, action.point.context,
+                            action.point.lat, action.point.lon,
+                        ),
+                    )
+                }
+
+                is dev.antigravity.fluidtransit.ai.tools.AssistantAction.ShowStop -> {
+                    assistantOpen = false
+                    panel = Panel.Stop(StopTap(action.idHashHex, action.name))
+                    val hash = action.idHashHex.toULongOrNull(16)?.toLong()
+                    val s = if (reader != null && hash != null) reader.findStopByIdHash(hash) else -1
+                    if (reader != null && s >= 0) {
+                        controller.flyTo(reader.stopLat(s), reader.stopLon(s), 16.0)
+                    }
+                }
+
+                is dev.antigravity.fluidtransit.ai.tools.AssistantAction.ShowRoute -> {
+                    assistantOpen = false
+                    showRoute(action.routeIndex)
+                }
+
+                is dev.antigravity.fluidtransit.ai.tools.AssistantAction.ShowJourneys -> {
+                    originRef = action.from?.let {
+                        PlaceRef(it.name, it.context, it.lat, it.lon)
+                    }
+                    destRef = PlaceRef(
+                        action.to.name, action.to.context, action.to.lat, action.to.lon,
+                    )
+                    journeyTimeMode = when {
+                        action.arriveByEpoch != null -> "arrive"
+                        action.departAtEpoch != null -> "depart"
+                        else -> "now"
+                    }
+                    journeyTimeEpoch = action.arriveByEpoch ?: action.departAtEpoch ?: 0L
+                    plannerOpen = true
+                    runPlanner()
+                }
+
+                is dev.antigravity.fluidtransit.ai.tools.AssistantAction.StartNavigation -> {
+                    val origin = controller.lastLocation() ?: controller.cameraCenter()
+                    if (reader != null && origin != null) {
+                        val js = app.assistantBridge.plan(
+                            origin.first, origin.second,
+                            action.to.lat, action.to.lon, null, null,
+                        )
+                        val j = js.firstOrNull()
+                        if (j != null) {
+                            assistantOpen = false
+                            app.navigation.start(context, buildNavPlan(reader, j, action.to.name))
+                        }
+                    }
+                }
+
+                is dev.antigravity.fluidtransit.ai.tools.AssistantAction.SavePlace -> {
+                    app.savedPlaces.add(action.label, action.point.lat, action.point.lon)
+                    savedVersion++
+                }
+
+                is dev.antigravity.fluidtransit.ai.tools.AssistantAction.StarStop ->
+                    app.favorites.toggleStop(action.idHashHex, action.name)
+
+                is dev.antigravity.fluidtransit.ai.tools.AssistantAction.StarRoute -> {
+                    if (reader != null) {
+                        app.favorites.toggleRoute(
+                            java.lang.Long.toHexString(reader.routeIdHash(action.routeIndex)),
+                            action.shortName,
+                            reader.routeDisplayColor(action.routeIndex),
+                        )
+                    }
+                }
+
+                is dev.antigravity.fluidtransit.ai.tools.AssistantAction.CreateRoutine -> {
+                    val origin = action.from
+                        ?: controller.lastLocation()?.let {
+                            dev.antigravity.fluidtransit.ai.tools.NamedPoint(
+                                "La tua posizione", "", it.first, it.second,
+                            )
+                        }
+                    if (origin != null) {
+                        val routine = dev.antigravity.fluidtransit.data.routines.Routines.Routine(
+                            id = System.currentTimeMillis(),
+                            label = action.label,
+                            fromLat = origin.lat,
+                            fromLon = origin.lon,
+                            toLat = action.to.lat,
+                            toLon = action.to.lon,
+                            toName = action.to.name,
+                            days = action.days,
+                            anchor = action.anchor,
+                            anchorMinutes = action.anchorMinutes,
+                            enabled = true,
+                        )
+                        app.routines.add(routine)
+                        dev.antigravity.fluidtransit.data.routines.RoutineScheduler
+                            .scheduleNextCompute(context, routine)
+                    }
+                }
+            }
+        }
     }
 
     val journeysTarget = when (val p = panel) {
@@ -485,7 +694,12 @@ fun MapScreen(
                 else -> raptor.plan(fromPlace, toPlace, Instant.now(), liveData)
             }
         }
-        value = withContext(Dispatchers.Default) { raw.map { UiJourney.of(reader, it) } }
+        value = withContext(Dispatchers.Default) {
+            // Le corse davvero seguite dal feed: serve per distinguere
+            // "monitorata e puntuale" da "non se ne sa niente".
+            val liveTrips = rtNow?.delayByTrip?.keys.orEmpty()
+            raw.map { UiJourney.of(reader, it, liveTrips) }
+        }
     }
 
     // Il viaggio scelto si accende sulla mappa e la camera lo inquadra.
@@ -554,6 +768,8 @@ fun MapScreen(
     // ventisei minuti il 03/09 — NON si disegnano bus dove non sono. Si
     // aspetta il giro fresco, che arriva in un paio di secondi.
     LaunchedEffect(resolved, rtStatus) {
+        // Anche l'assistente vuole sapere chi e' in strada adesso.
+        app.assistantBridge.resolved = resolved
         val age = rtStatus.feedAgeSeconds
         val fresh = age == null || age <= STALE_HIDE_SECONDS
         controller.setBuses(if (fresh) resolved?.buses ?: emptyList() else emptyList())
@@ -741,10 +957,35 @@ fun MapScreen(
                 BackHandler {
                     searchOpen = false
                     query = ""
+                    plannerField = null
+                }
+            } else if (plannerOpen) {
+                BackHandler {
+                    plannerOpen = false
+                    plannerField = null
+                    destRef = null
+                    originRef = null
+                    panel = null
+                    controller.clearJourney()
+                    controller.clearPlaceMarker()
                 }
             }
             // Fermate e linee (indice in memoria) + lo stadio RAPIDO dei
             // luoghi (POI, vie, localita'), fuori dal main.
+            // Da dove si pesa la vicinanza, come deciso: normalmente da dove
+            // sei; ma se hai portato la mappa lontano da li', comanda quello
+            // che stai guardando — cercare "via roma" mentre si esplora
+            // Siena deve dare le vie senesi.
+            fun searchReference(): Pair<Double, Double>? {
+                val here = controller.lastLocation()
+                val looking = controller.cameraCenter()
+                if (here == null) return looking
+                if (looking == null) return here
+                val away = dev.antigravity.fluidtransit.routing.BundleReader
+                    .haversine(here.first, here.second, looking.first, looking.second)
+                return if (away > MAP_WINS_METERS) looking else here
+            }
+
             val placesReady = placesState as? dev.antigravity.fluidtransit.data.places.PlacesManager.State.Ready
             val queryResults by produceState(
                 initialValue = emptyList<Suggestion>(),
@@ -754,8 +995,14 @@ fun MapScreen(
                     value = emptyList()
                     return@produceState
                 }
+                // Scrivere e' un gesto continuo: si aspetta la fine della
+                // parola invece di riscandire l'indice a ogni lettera.
+                kotlinx.coroutines.delay(160)
+                val ref = searchReference()
                 value = withContext(Dispatchers.Default) {
-                    val transit = searchIndex?.search(query).orEmpty().map { hit ->
+                    val rLat = ref?.first ?: Double.NaN
+                    val rLon = ref?.second ?: Double.NaN
+                    val transit = searchIndex?.search(query, 25, rLat, rLon).orEmpty().map { hit ->
                         when (hit) {
                             is SearchIndex.Hit.Stop -> Suggestion(
                                 kind = "stop",
@@ -767,6 +1014,7 @@ fun MapScreen(
                                 colorRgb = 0,
                                 lat = hit.lat,
                                 lon = hit.lon,
+                                score = hit.score,
                             )
 
                             is SearchIndex.Hit.Route -> Suggestion(
@@ -779,10 +1027,11 @@ fun MapScreen(
                                 colorRgb = hit.colorRgb,
                                 lat = hit.lat,
                                 lon = hit.lon,
+                                score = hit.score,
                             )
                         }
                     }
-                    val places = placesReady?.search?.fast(query, 6).orEmpty().map { h ->
+                    val places = placesReady?.search?.fast(query, 14, rLat, rLon).orEmpty().map { h ->
                         Suggestion(
                             kind = "place",
                             key = "%.5f,%.5f".format(h.lat, h.lon),
@@ -791,9 +1040,13 @@ fun MapScreen(
                             colorRgb = 0,
                             lat = h.lat,
                             lon = h.lon,
+                            score = h.score,
                         )
                     }
-                    transit + places
+                    // Una lista sola, ordinata per quanto c'entra: se scrivi
+                    // "esselunga" viene su il supermercato, se scrivi "6"
+                    // viene su la linea. L'icona di ogni riga dice cos'e'.
+                    (transit + places).sortedByDescending { it.score }
                 }
             }
 
@@ -808,25 +1061,76 @@ fun MapScreen(
                     return@produceState
                 }
                 kotlinx.coroutines.delay(350)
+                val ref = searchReference()
                 value = withContext(Dispatchers.Default) {
-                    placesReady.search.civici(query).map { h ->
+                    placesReady.search.civici(
+                        query,
+                        6,
+                        ref?.first ?: Double.NaN,
+                        ref?.second ?: Double.NaN,
+                    ).map { h ->
                         Suggestion(
-                            kind = "place",
+                            kind = "civic",
                             key = "%.5f,%.5f".format(h.lat, h.lon),
                             title = h.name,
                             subtitle = h.context.ifEmpty { "Indirizzo" },
                             colorRgb = 0,
                             lat = h.lat,
                             lon = h.lon,
+                            score = h.score,
                         )
                     }
                 }
             }
+            if (plannerOpen && !searchOpen) {
+                PlannerGlass(
+                    backdrop = backdrop,
+                    from = originRef,
+                    to = destRef,
+                    timeLabel = when (journeyTimeMode) {
+                        "depart" -> "Parti alle ${hhmm(journeyTimeEpoch)}"
+                        "arrive" -> "Arriva entro le ${hhmm(journeyTimeEpoch)}"
+                        else -> "Parti ora"
+                    },
+                    onPickFrom = {
+                        plannerField = "from"
+                        query = ""
+                        searchOpen = true
+                    },
+                    onPickTo = {
+                        plannerField = "to"
+                        query = ""
+                        searchOpen = true
+                    },
+                    onSwap = {
+                        // Scambiare con "la tua posizione" ha senso solo se
+                        // quella posizione diventa un punto vero.
+                        val here = originRef ?: controller.lastLocation()?.let {
+                            PlaceRef("La tua posizione", "", it.first, it.second)
+                        }
+                        originRef = destRef
+                        destRef = here
+                        runPlanner()
+                    },
+                    onTime = { showTimeDialog = true },
+                    onClose = {
+                        plannerOpen = false
+                        plannerField = null
+                        destRef = null
+                        originRef = null
+                        panel = null
+                        controller.clearJourney()
+                        controller.clearPlaceMarker()
+                    },
+                )
+            } else {
             SearchGlass(
                 backdrop = backdrop,
                 open = searchOpen,
                 query = query,
-                results = queryResults + civiciResults,
+                // I civici arrivano dopo, ma entrano nella stessa lista e si
+                // ordinano insieme agli altri: stessa scala di pertinenza.
+                results = (queryResults + civiciResults).sortedByDescending { it.score },
                 saved = savedSuggestions,
                 recents = recents.filter { it.kind == "stop" || it.kind == "place" }
                     .map { it.toSuggestion() },
@@ -836,24 +1140,58 @@ fun MapScreen(
                 onClose = {
                     searchOpen = false
                     query = ""
+                    // Chiudere la ricerca mentre si compilava una riga del
+                    // pianificatore torna al pianificatore, non lo abbandona.
+                    plannerField = null
                 },
                 onQueryChange = { query = it },
                 onMic = {
-                    // Il mic evoluto vive SOLO con la chiave Groq che
-                    // l'utente ha messo in Impostazioni: senza, resta il
-                    // riconoscimento di sistema di sempre — deciso cosi'.
+                    // Col microfono si entra in modalita' vocale
+                    // dell'assistente, se c'e' una chiave; altrimenti resta
+                    // il riconoscimento di sistema di sempre, che trascrive
+                    // nella barra e basta.
+                    val granted = ContextCompat.checkSelfPermission(
+                        context, Manifest.permission.RECORD_AUDIO,
+                    ) == PackageManager.PERMISSION_GRANTED
                     when {
-                        GroqKey.get(context) == null -> launchSystemMic()
-
-                        ContextCompat.checkSelfPermission(
-                            context, Manifest.permission.RECORD_AUDIO,
-                        ) == PackageManager.PERMISSION_GRANTED -> voiceOpen = true
-
-                        else -> audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        !assistantEnabled -> launchSystemMic()
+                        !granted -> audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        else ->
+                            openAssistant(dev.antigravity.fluidtransit.ai.orchestrator.AskMode.VOICE)
                     }
                 },
-                onPick = ::pick,
+                // Scrivendo, il tasto del mic diventa "chiedi all'IA": e' la
+                // scelta dell'utente, e regge perche' una frase scritta e'
+                // quasi sempre una domanda, non il nome di una fermata.
+                onAsk = if (assistantEnabled) {
+                    {
+                        openAssistant(
+                            dev.antigravity.fluidtransit.ai.orchestrator.AskMode.TEXT,
+                            query,
+                        )
+                    }
+                } else {
+                    null
+                },
+                onPick = { s ->
+                    val field = plannerField
+                    if (field == null) {
+                        pick(s)
+                    } else {
+                        // La ricerca sta compilando una riga del
+                        // pianificatore, non portando da qualche parte.
+                        val ref = PlaceRef(s.title, s.subtitle, s.lat, s.lon)
+                        if (field == "from") originRef = ref else destRef = ref
+                        plannerField = null
+                        searchOpen = false
+                        query = ""
+                        plannerOpen = true
+                        runPlanner()
+                    }
+                },
+                onPlanRoute = { openPlanner() },
             )
+            }
             androidx.compose.animation.AnimatedVisibility(visible = !searchOpen) {
                 Column {
                     Spacer(Modifier.height(10.dp))
@@ -1045,6 +1383,18 @@ fun MapScreen(
                                     reader = reader,
                                     stopIdHashHex = state.tap.idHashHex,
                                     fallbackName = state.tap.name,
+                                    onStartHere = {
+                                        val hash = state.tap.idHashHex.toULongOrNull(16)?.toLong()
+                                        val s = hash?.let { reader.findStopByIdHash(it) } ?: -1
+                                        if (s >= 0) {
+                                            originRef = PlaceRef(
+                                                reader.stopName(s), "Fermata",
+                                                reader.stopLat(s), reader.stopLon(s),
+                                            )
+                                            openPlanner()
+                                            if (destRef != null) runPlanner()
+                                        }
+                                    },
                                     onDismiss = { panel = null },
                                     onRouteTap = ::showRoute,
                                     backdrop = backdrop,
@@ -1052,7 +1402,8 @@ fun MapScreen(
                                     onToggleFavorite = {
                                         app.favorites.toggleStop(state.tap.idHashHex, state.tap.name)
                                     },
-                                    liveDelays = resolved?.delayByTrip ?: emptyMap(),
+                                    delays = app.delayModel,
+                                    delaysStamp = rtDelays?.generatedAt ?: 0L,
                                     canceledTrips = resolved?.canceledTrips ?: emptySet(),
                                     liveVehicleTrips = resolved?.vehicleByTrip?.keys ?: emptySet(),
                                     onFlyToBus = { tripIdx ->
@@ -1183,6 +1534,16 @@ fun MapScreen(
                                     backdrop = backdrop,
                                     onDismiss = { exitRouteMode() },
                                     onGo = { goToPlace(state.ref) },
+                                    onStartHere = {
+                                        // Questo punto diventa la partenza:
+                                        // dal tieni-premuto, da un posto
+                                        // salvato o da un risultato di
+                                        // ricerca, indifferentemente.
+                                        originRef = state.ref
+                                        controller.clearPlaceMarker()
+                                        openPlanner()
+                                        if (destRef != null) runPlanner()
+                                    },
                                     onSave = { label ->
                                         app.savedPlaces.add(label, state.ref.lat, state.ref.lon)
                                         savedVersion++
@@ -1317,51 +1678,43 @@ fun MapScreen(
             }
         }
 
-        // --- il mic evoluto, sopra tutto ---------------------------------
-        if (voiceOpen) {
-            val key = remember { GroqKey.get(context) }
-            if (key == null) {
-                voiceOpen = false
-            } else {
-                VoiceOverlay(
+        // --- l'assistente: un pannello appoggiato in basso, non un dialogo.
+        // La mappa resta viva sopra e sotto, e mentre lui cerca una linea si
+        // vedono i bus muoversi — che e' il momento in cui uno vuole
+        // guardarli.
+        if (assistantOpen) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(horizontal = FluidTabBarDefaults.HorizontalMargin)
+                    .padding(bottom = FluidTabBarDefaults.BottomMargin),
+            ) {
+                dev.antigravity.fluidtransit.ui.assistant.AssistantOverlay(
+                    app = app,
                     backdrop = backdrop,
-                    apiKey = key,
-                onResult = { r ->
-                    voiceOpen = false
-                    when (r.azione) {
-                        "naviga" -> {
-                            // "Portami a X": si risolve X e si parte. Se non
-                            // si trova, almeno la ricerca e' gia' compilata.
-                            scope.launch {
-                                val hit = withContext(Dispatchers.Default) {
-                                    (placesState as? dev.antigravity.fluidtransit.data.places.PlacesManager.State.Ready)
-                                        ?.search?.fast(r.testo, 1)?.firstOrNull()
-                                }
-                                if (hit != null) {
-                                    val ref = PlaceRef(hit.name, hit.context, hit.lat, hit.lon)
-                                    showPlace(ref)
-                                    goToPlace(ref)
-                                } else {
-                                    query = r.testo
-                                    searchOpen = true
-                                }
-                            }
-                        }
-
-                        else -> {
-                            query = r.testo
+                    startMode = assistantMode,
+                    initialQuestion = assistantQuestion,
+                    onPlace = { name ->
+                        // Il chip apre il posto con la stessa ricerca della
+                        // barra: un solo criterio, una sola risposta.
+                        val hit = app.assistantBridge.findStops(name, 1).firstOrNull()
+                        if (hit != null) {
+                            assistantOpen = false
+                            panel = Panel.Stop(StopTap(hit.idHashHex, hit.name))
+                            controller.flyTo(hit.lat, hit.lon, 16.0)
+                        } else {
+                            query = name
+                            assistantOpen = false
                             searchOpen = true
                         }
-                    }
-                },
-                onFallback = {
-                    voiceOpen = false
-                    launchSystemMic()
-                },
-                onCancel = { voiceOpen = false },
+                    },
+                    onClose = { assistantOpen = false },
                 )
             }
+            BackHandler { assistantOpen = false }
         }
+
     }
 }
 

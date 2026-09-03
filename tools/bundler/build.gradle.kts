@@ -47,6 +47,15 @@ tasks.register<JavaExec>("overlay") {
     maxHeapSize = "2g"
 }
 
+// Il map matching delle shape, fatto una volta e riusato da bundle e overlay.
+tasks.register<JavaExec>("matchshapes") {
+    group = "build"
+    description = "Riproietta shapes.txt sulla strada OSM via Valhalla."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "dev.antigravity.fluidtransit.bundler.MatchShapesKt"
+    maxHeapSize = "2g"
+}
+
 tasks.test {
     useJUnitPlatform()
 }

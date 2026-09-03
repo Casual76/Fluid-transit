@@ -60,6 +60,13 @@ import kotlinx.coroutines.withContext
  * Tutto come da spec decisa con l'utente il 31/08.
  */
 /** Cosa mostra il pannello dal basso. Uno stato solo: il morphing e' un cambio di contenuto. */
+/**
+ * Oltre questa eta' del feed i bus non si disegnano: meglio una mappa senza
+ * mezzi per due secondi che mezzi dove non sono. Il tetto vero dell'origine
+ * e' ~120 s, quindi tre minuti separano "normale" da "il proxy dormiva".
+ */
+private const val STALE_HIDE_SECONDS = 180L
+
 private sealed interface Panel {
     class Stop(val tap: StopTap) : Panel
     class RouteMini(val routeIndex: Int) : Panel
@@ -173,6 +180,13 @@ fun MapScreen(
         val reader = ready?.reader ?: return@produceState
         value = withContext(Dispatchers.Default) { SearchIndex.build(reader) }
     }
+
+    // La geometria delle tratte, decodificata pigramente: e' quella che fa
+    // correre i bus sulla strada invece di attraversare gli isolati.
+    val pathCache = remember(ready?.buildId) {
+        ready?.reader?.let { PathCache(it, app.applicationScope) }
+    }
+    LaunchedEffect(pathCache) { controller.setPathCache(pathCache) }
 
     fun exitRouteMode() {
         controller.exitRouteMode()
@@ -533,9 +547,16 @@ fun MapScreen(
         }
     }
 
-    // Ogni snapshot risolto scende nella mappa: da li' parte il glide.
-    LaunchedEffect(resolved) {
-        controller.setBuses(resolved?.buses ?: emptyList())
+    // Ogni snapshot risolto scende nella mappa: da li' parte il moto.
+    //
+    // Con una riserva, decisa con l'utente: se il proxy ha in pancia
+    // posizioni troppo vecchie — apertura dopo qualche ora, misurate
+    // ventisei minuti il 03/09 — NON si disegnano bus dove non sono. Si
+    // aspetta il giro fresco, che arriva in un paio di secondi.
+    LaunchedEffect(resolved, rtStatus) {
+        val age = rtStatus.feedAgeSeconds
+        val fresh = age == null || age <= STALE_HIDE_SECONDS
+        controller.setBuses(if (fresh) resolved?.buses ?: emptyList() else emptyList())
     }
 
     // Le ricerche recenti e i suggerimenti del pannello.

@@ -129,7 +129,13 @@ fun main(args: Array<String>) {
     class ShapeWork(val routeIdx: Int, val la: DoubleArray, val lo: DoubleArray)
 
     val works = ArrayList<ShapeWork>(8192)
-    CsvCursor.open(File(gtfsDir, "shapes.txt")) { csv ->
+    // Il sidecar del passo di matching, se c'e': la geometria e' gia' sulla
+    // strada, quindi qui non si riproietta piu' niente. Prima il matching
+    // viveva dentro questo file e il bundle restava con le tracce GPS; ora
+    // si fa una volta e la usano tutti e due.
+    val matchedShapes = File(gtfsDir, "shapes-matched.txt")
+    val preMatched = matchedShapes.isFile && matchedShapes.length() > 0
+    CsvCursor.open(if (preMatched) matchedShapes else File(gtfsDir, "shapes.txt")) { csv ->
         val cShape = csv.requireColumn("shape_id")
         val cLat = csv.requireColumn("shape_pt_lat")
         val cLon = csv.requireColumn("shape_pt_lon")
@@ -185,9 +191,14 @@ fun main(args: Array<String>) {
     // Fase 2: matching (se VALHALLA_URL e' nell'ambiente) e semplificazione.
     // Una tratta aderente alla strada merita una tolleranza piu' fine: i 12 m
     // che mascheravano il rumore GPS smusserebbero le curve vere.
-    val matcher = System.getenv("VALHALLA_URL")
-        ?.takeIf { it.isNotBlank() }
-        ?.let { MapMatcher(it) }
+    val matcher = if (preMatched) {
+        println("  geometria: gia' aderente alla strada (${matchedShapes.name}), nessun matching qui")
+        null
+    } else {
+        System.getenv("VALHALLA_URL")
+            ?.takeIf { it.isNotBlank() }
+            ?.let { MapMatcher(it) }
+    }
     val matchedOk = java.util.concurrent.atomic.AtomicInteger()
     val matchedFallback = java.util.concurrent.atomic.AtomicInteger()
 
@@ -204,7 +215,8 @@ fun main(args: Array<String>) {
             }
             val la = matched?.lat ?: work.la
             val lo = matched?.lon ?: work.lo
-            val tolerance = if (matched != null) TOLERANCE_MATCHED_M else TOLERANCE_M
+            val tolerance =
+                if (matched != null || preMatched) TOLERANCE_MATCHED_M else TOLERANCE_M
             val simplified = simplify(la, lo, tolerance)
             // Geometrie identiche (andata e ritorno sullo stesso asse, o
             // shape duplicate) si emettono una volta sola per linea.

@@ -45,19 +45,40 @@ const HEARTBEAT_KEY = 'rt/cron-heartbeat';
  */
 const LAZY_REFRESH_AFTER_SECONDS = 55;
 
-let lazyRefreshInFlight = false;
+/**
+ * Oltre questa eta' non si serve piu' il vecchio rinfrescando per il
+ * PROSSIMO: si rinfresca PRIMA di rispondere.
+ *
+ * Il motivo, misurato il 03/09: il cron di Cloudflare non e' un metronomo
+ * (ultimo battito 26 minuti prima) e il keepalive su GitHub, programmato
+ * ogni 5 minuti, parte in realta' ogni 2-5 ore. Restava in piedi solo il
+ * refresh pigro, che pero' dava al richiedente le posizioni vecchie e
+ * rinfrescava per chi veniva dopo: con un utente solo, quel "dopo" non
+ * arrivava mai prima di un giro di poll. Aspettare due secondi e' meglio
+ * che mostrare mezz'ora di ritardo.
+ */
+const BLOCKING_REFRESH_AFTER_SECONDS = 90;
+
+/** Il refresh in corso, condiviso: le richieste in parallelo non ne fanno tre. */
+let refreshInFlight = null;
+
+/** Quando questo isolate ha interrogato l'origine l'ultima volta. */
+let lastRefreshAt = 0;
+
+function sharedRefresh(env) {
+  if (!refreshInFlight) {
+    refreshInFlight = refresh(env).finally(() => {
+      refreshInFlight = null;
+      lastRefreshAt = Math.floor(Date.now() / 1000);
+    });
+  }
+  return refreshInFlight;
+}
 
 function maybeLazyRefresh(env, ctx, generatedAt) {
   const age = Math.floor(Date.now() / 1000) - (generatedAt || 0);
-  if (age < LAZY_REFRESH_AFTER_SECONDS || lazyRefreshInFlight) return;
-  lazyRefreshInFlight = true;
-  ctx.waitUntil(
-    refresh(env)
-      .catch(() => {})
-      .finally(() => {
-        lazyRefreshInFlight = false;
-      }),
-  );
+  if (age < LAZY_REFRESH_AFTER_SECONDS || refreshInFlight) return;
+  ctx.waitUntil(sharedRefresh(env).catch(() => {}));
 }
 
 export default {
@@ -221,14 +242,41 @@ async function serveSection(request, env, ctx, kind) {
         headers: { 'content-type': 'application/json', 'retry-after': '60' },
       });
     }
-    const snapshot = new Uint8Array(await obj.arrayBuffer());
-    const header = readHeader(snapshot);
-    if (header) maybeLazyRefresh(env, ctx, header.generatedAt);
+    let snapshot = new Uint8Array(await obj.arrayBuffer());
+    let header = readHeader(snapshot);
     if (!header) {
       return new Response(JSON.stringify({ error: 'snapshot corrotto' }), {
         status: 503,
         headers: { 'content-type': 'application/json', 'retry-after': '60' },
       });
+    }
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const snapshotAge = nowSec - (header.generatedAt || 0);
+    if (
+      snapshotAge >= BLOCKING_REFRESH_AFTER_SECONDS &&
+      nowSec - lastRefreshAt >= BLOCKING_REFRESH_AFTER_SECONDS
+    ) {
+      // Si aspetta il giro. Il guardiano `lastRefreshAt` serve al caso
+      // 'invariato': se l'origine non si e' mossa, `generatedAt` non
+      // avanza, e senza questo si bloccherebbe ogni richiesta su una
+      // rilettura che non cambia niente.
+      try {
+        await sharedRefresh(env);
+        const again = await env.RT.get(SNAPSHOT_KEY);
+        if (again) {
+          const fresher = new Uint8Array(await again.arrayBuffer());
+          const reread = readHeader(fresher);
+          if (reread) {
+            snapshot = fresher;
+            header = reread;
+          }
+        }
+      } catch {
+        // Origine giu': si serve quello che si ha, meglio di un errore.
+      }
+    } else {
+      maybeLazyRefresh(env, ctx, header.generatedAt);
     }
 
     let body;
@@ -248,7 +296,11 @@ async function serveSection(request, env, ctx, kind) {
       'content-type': contentType,
       'content-encoding': 'gzip',
       'cache-control': `public, max-age=${MAX_AGE_SECONDS}`,
-      etag: `W/"${header.generatedAt.toString(16)}-${(feedTs || 0).toString(16)}"`,
+      // L'ETag e' della SEZIONE, non dello snapshot: con `generatedAt`
+      // dentro, la risposta dei veicoli cambiava validatore anche quando si
+      // muovevano solo i trip-updates, e l'app rifaceva tutto il giro
+      // (parse, resolve, nuovo StateFlow) per byte identici.
+      etag: `W/"${(feedTs || 0).toString(16)}-${body.length.toString(16)}"`,
       'x-data-source': ATTRIBUTION,
       'x-snapshot-generated': String(header.generatedAt),
     });

@@ -80,10 +80,9 @@ class RealtimeClient(
                 val fetched = fetchBinary("$PROXY_BASE/vehicles", vehiclesEtag)
                 val age: Long?
                 if (fetched != null) {
-                    val (bytes, etag) = fetched
-                    val parsed = RtCodec.parseVehicles(bytes)
-                    vehiclesEtag = etag
-                    age = feedAge(parsed.feedTimestamp)
+                    val parsed = RtCodec.parseVehicles(fetched.bytes)
+                    vehiclesEtag = fetched.etag
+                    age = fetched.serverFeedAge ?: feedAge(parsed.feedTimestamp)
                     // Anche un dato vecchio e' il migliore che abbiamo: si
                     // mostra comunque, e' l'eta' a dire quanto fidarsi.
                     _vehicles.value = parsed
@@ -132,9 +131,8 @@ class RealtimeClient(
         if (_status.value.source != Source.PROXY) return@withContext
         try {
             val fetched = fetchBinary("$PROXY_BASE/updates", delaysEtag) ?: return@withContext
-            val (bytes, etag) = fetched
-            _delays.value = RtCodec.parseDelays(bytes)
-            delaysEtag = etag
+            _delays.value = RtCodec.parseDelays(fetched.bytes)
+            delaysEtag = fetched.etag
             _status.value = _status.value.let {
                 Status(it.source, it.feedAgeSeconds, it.lastSuccessAt, it.lastError, it.vehicleCount, _delays.value?.byTripHash?.size ?: 0)
             }
@@ -187,14 +185,30 @@ class RealtimeClient(
     private fun feedAge(feedTs: Long?): Long? =
         if (feedTs == null || feedTs == 0L) null else Instant.now().epochSecond - feedTs
 
+    private class Fetched(
+        val bytes: ByteArray,
+        val etag: String?,
+        /**
+         * L'eta' del dato secondo il PROXY, che la calcola sul timestamp
+         * dell'origine col proprio orologio. Meglio della nostra: se il
+         * telefono ha l'ora sbagliata, il feed sembrerebbe stantio (o
+         * fresco) senza motivo.
+         */
+        val serverFeedAge: Long?,
+    )
+
     /** GET col condizionale: null = 304, i dati che abbiamo valgono ancora. */
-    private fun fetchBinary(url: String, etag: String?): Pair<ByteArray, String?>? {
+    private fun fetchBinary(url: String, etag: String?): Fetched? {
         val req = Request.Builder().url(url).header("User-Agent", UA)
         if (etag != null) req.header("If-None-Match", etag)
         http.newCall(req.build()).execute().use { res ->
             if (res.code == 304) return null
             if (!res.isSuccessful) throw IOException("HTTP ${res.code}")
-            return res.body!!.bytes() to res.header("ETag")
+            return Fetched(
+                bytes = res.body!!.bytes(),
+                etag = res.header("ETag"),
+                serverFeedAge = res.header("X-Feed-Age")?.toLongOrNull(),
+            )
         }
     }
 

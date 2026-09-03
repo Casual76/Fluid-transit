@@ -547,6 +547,14 @@ class TransitMapController(private val context: Context) {
         }
     }
 
+    /**
+     * La geometria dei pattern: da qui in poi i bus corrono sulla strada
+     * vera invece di tagliare gli isolati in linea retta.
+     */
+    fun setPathCache(cache: PathCache?) {
+        busOverlay.paths = cache
+    }
+
     /** Il nuovo snapshot risolto: ogni bus riparte da dov'e' verso la nuova meta. */
     fun setBuses(list: List<BusRender>) {
         busOverlay.setTargets(list, android.os.SystemClock.elapsedRealtime())

@@ -602,11 +602,22 @@ class BundleBuilder(
         for ((p, v) in best) chosen[p] = v.second
         val wanted = best.values.mapTo(HashSet()) { it.second }
 
-        // Le shape volute, gia' ordinate, pulite e semplificate a 20 m: la
-        // tolleranza dell'anteprima, non quella fine dell'overlay.
+        // Le shape volute, ordinate, pulite e semplificate.
+        //
+        // Se il passo di map matching ha lasciato il suo sidecar si legge
+        // quello: da quando i bus vivi CORRONO su questa geometria, una
+        // traccia GPS non basta piu' — taglia gli isolati e attraversa i
+        // palazzi. Con la strada vera si puo' anche stringere la tolleranza,
+        // perche' non c'e' piu' rumore da mascherare; sulla traccia grezza
+        // resta larga, che stringerla vorrebbe dire incidere il rumore.
         val shapeLat = HashMap<String, DoubleArray>(wanted.size * 2)
         val shapeLon = HashMap<String, DoubleArray>(wanted.size * 2)
-        val shapesFile = File(gtfsDir, "shapes.txt")
+        val matchedFile = File(gtfsDir, "shapes-matched.txt")
+        val useMatched = matchedFile.isFile && matchedFile.length() > 0
+        val startTolerance =
+            if (useMatched) POLYLINE_TOLERANCE_MATCHED_M else POLYLINE_TOLERANCE_M
+        if (useMatched) println("  polilinee: geometria aderente alla strada (${matchedFile.name})")
+        val shapesFile = if (useMatched) matchedFile else File(gtfsDir, "shapes.txt")
         if (shapesFile.exists() && wanted.isNotEmpty()) {
             CsvCursor.open(shapesFile) { csv ->
                 val cShape = csv.requireColumn("shape_id")
@@ -635,7 +646,7 @@ class BundleBuilder(
                     if (la.size < 2) return
                     var laArr = la.toDoubleArray()
                     var loArr = lo.toDoubleArray()
-                    var tolerance = POLYLINE_TOLERANCE_M
+                    var tolerance = startTolerance
                     while (true) {
                         val idx = simplify(laArr, loArr, tolerance)
                         if (idx.size <= 65535) {
@@ -1127,8 +1138,20 @@ class BundleBuilder(
     }
 
     companion object {
-        /** DP dell'anteprima itinerari: 20 m bastano a una linea disegnata sopra la mappa. */
+        /**
+         * DP sulla traccia GPS grezza: 20 m mascherano il rumore del
+         * registratore, e a un'anteprima disegnata sopra la mappa bastano.
+         */
         const val POLYLINE_TOLERANCE_M = 20.0
+
+        /**
+         * DP sulla geometria aderente alla strada. Piu' fine, perche' qui
+         * sopra ci corrono i bus vivi e le curve sono curve vere e non
+         * rumore; ma non fine come i 3 m dell'overlay, che triplicherebbero
+         * la sezione senza che nessuno veda la differenza su un marker da
+         * ventisei punti.
+         */
+        const val POLYLINE_TOLERANCE_MATCHED_M = 8.0
 
         const val WALK_RADIUS_M = 400.0
         const val WALK_FACTOR = 1.35

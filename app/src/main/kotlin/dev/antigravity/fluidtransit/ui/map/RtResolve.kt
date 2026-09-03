@@ -36,6 +36,22 @@ class BusMeta(
 /** Il grigio dei bus di cui il bundle non sa niente. */
 private const val UNKNOWN_COLOR = 0x8A8A93
 
+/**
+ * La chiave con cui un mezzo resta LO STESSO mezzo fra due snapshot.
+ *
+ * Il feed non mette `vehicle.id` su tutti i veicoli, e fino alla Fase 8
+ * quelli senza finivano tutti sulla chiave 0: un solo marker, che a ogni
+ * poll rimbalzava da un capo all'altro della Toscana. Senza id l'identita'
+ * migliore che abbiamo e' la corsa che il mezzo sta facendo.
+ */
+private fun vehicleKey(v: dev.antigravity.fluidtransit.data.rt.RtVehicle): Int {
+    if (v.vehKey != 0) return v.vehKey
+    var h = v.tripHash
+    if (h == 0L) h = v.routeHash * 31 + v.startTimeSec
+    val mixed = (h xor (h ushr 32)).toInt()
+    return if (mixed == 0) 1 else mixed
+}
+
 fun resolveRt(reader: BundleReader, vehicles: RtVehicles, delays: RtDelays?): ResolvedRt {
     var withTripId = 0
     var resolved = 0
@@ -70,11 +86,13 @@ fun resolveRt(reader: BundleReader, vehicles: RtVehicles, delays: RtDelays?): Re
         if (v.tripHash == 0L && v.routeHash == 0L) continue
         if (v.fixAgeSec > 600) continue
         val tripIndex = resolveTrip(v.tripHash, v.routeHash, v.direction, v.startTimeSec)
+        val patternIndex = if (tripIndex >= 0) reader.tripPattern(tripIndex) else -1
         val routeIndex = when {
-            tripIndex >= 0 -> reader.patternRoute(reader.tripPattern(tripIndex))
+            patternIndex >= 0 -> reader.patternRoute(patternIndex)
             v.routeHash != 0L -> reader.findRouteByIdHash(v.routeHash)
             else -> -1
         }
+        val key = vehicleKey(v)
         val color = if (routeIndex >= 0) reader.routeDisplayColor(routeIndex) else UNKNOWN_COLOR
         val cat = if (
             routeIndex >= 0 &&
@@ -89,7 +107,7 @@ fun resolveRt(reader: BundleReader, vehicles: RtVehicles, delays: RtDelays?): Re
         )
         buses.add(
             BusRender(
-                vehKey = v.vehKey,
+                vehKey = key,
                 lat = v.lat,
                 lon = v.lon,
                 bearingDeg = v.bearingDeg,
@@ -97,10 +115,13 @@ fun resolveRt(reader: BundleReader, vehicles: RtVehicles, delays: RtDelays?): Re
                 cat = cat,
                 routeHashHex = rhHex,
                 tripHashHex = java.lang.Long.toHexString(v.tripHash),
+                patternIndex = patternIndex,
+                speedMs = v.speedMs,
+                fixAgeSec = v.fixAgeSec,
             ),
         )
-        metaByKey[v.vehKey] = BusMeta(
-            vehKey = v.vehKey,
+        metaByKey[key] = BusMeta(
+            vehKey = key,
             tripHash = v.tripHash,
             routeHash = v.routeHash,
             tripIndex = tripIndex,
@@ -109,7 +130,7 @@ fun resolveRt(reader: BundleReader, vehicles: RtVehicles, delays: RtDelays?): Re
             lon = v.lon,
             fixAgeSec = v.fixAgeSec,
         )
-        if (tripIndex >= 0) vehicleByTrip[tripIndex] = v.vehKey
+        if (tripIndex >= 0) vehicleByTrip[tripIndex] = key
     }
 
     val delayByTrip = HashMap<Int, Int>()

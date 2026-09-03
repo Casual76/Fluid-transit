@@ -85,19 +85,22 @@ jobs:
           unzip -q gtfs.zip -d work/gtfs
           ls -la work/gtfs
 
-      - name: Costruisci il bundle
-        run: |
-          ./gradlew --no-daemon :bundler:run --console=plain --args="$GITHUB_WORKSPACE/work/gtfs $GITHUB_WORKSPACE/work/toscana.ftb - $GITHUB_WORKSPACE/work/fragment.json"
-          cat work/fragment.json
-
-      - name: Overlay della rete (map matching + tippecanoe)
+      # Il map matching, una volta sola e prima di tutto il resto.
+      #
+      # Fino alla Fase 8 viveva dentro il passo dell'overlay: le tratte
+      # DISEGNATE seguivano l'asfalto, ma la geometria dentro il bundle
+      # restava la traccia GPS grezza. Da quando i bus vivi ci corrono sopra
+      # non basta piu' — un mezzo che avanza su una traccia GPS taglia gli
+      # isolati. Ora il risultato e' un sidecar che leggono entrambi.
+      #
+      # Il bundle aspetta il grafo, ma non costa niente: dura tre secondi e
+      # il cammino critico e' Valhalla comunque.
+      - name: Riproietta le shape sulla strada (Valhalla)
         run: |
           set -euo pipefail
-          # Si aspetta che Valhalla (partito in background al primo step)
-          # abbia finito il grafo. Se non ce la fa, si va senza matching:
-          # meglio le tratte GPS di ieri che nessuna pubblicazione — e il
-          # numero di revisione dell'overlay resta basso, cosi' la prossima
-          # notte ci riprova.
+          # Se il grafo non e' pronto in tempo si va senza: meglio le tratte
+          # GPS di ieri che nessuna pubblicazione — e la revisione
+          # dell'overlay resta bassa, cosi' domani si riprova.
           VALHALLA_URL=""
           for i in $(seq 1 90); do
             if curl -s -m 5 -X POST localhost:8002/trace_route \
@@ -111,12 +114,26 @@ jobs:
           if [ -n "$VALHALLA_URL" ]; then
             echo "2" > work/overlay.rev
             echo "Valhalla pronto: matching attivo"
+            VALHALLA_URL="$VALHALLA_URL" ./gradlew --no-daemon :bundler:matchshapes \
+              --console=plain \
+              --args="$GITHUB_WORKSPACE/work/gtfs $GITHUB_WORKSPACE/work/gtfs/shapes-matched.txt"
+            ls -la work/gtfs/shapes-matched.txt || \
+              echo "::warning::sidecar non prodotto: si prosegue con le shape GPS"
           else
             echo "1" > work/overlay.rev
-            echo "::warning::Valhalla non pronto entro 15 min: overlay senza map matching"
+            echo "::warning::Valhalla non pronto entro 15 min: shape GPS, senza matching"
             docker logs valhalla 2>&1 | tail -20 || true
           fi
-          VALHALLA_URL="$VALHALLA_URL" ./gradlew --no-daemon :bundler:overlay --console=plain --args="$GITHUB_WORKSPACE/work/gtfs $GITHUB_WORKSPACE/work/overlay"
+
+      - name: Costruisci il bundle
+        run: |
+          ./gradlew --no-daemon :bundler:run --console=plain --args="$GITHUB_WORKSPACE/work/gtfs $GITHUB_WORKSPACE/work/toscana.ftb - $GITHUB_WORKSPACE/work/fragment.json"
+          cat work/fragment.json
+
+      - name: Overlay della rete (tippecanoe)
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon :bundler:overlay --console=plain --args="$GITHUB_WORKSPACE/work/gtfs $GITHUB_WORKSPACE/work/overlay"
           sudo apt-get update -qq
           sudo apt-get install -y -qq libsqlite3-dev zlib1g-dev >/dev/null
           git clone -q --depth 1 https://github.com/felt/tippecanoe.git /tmp/tippecanoe

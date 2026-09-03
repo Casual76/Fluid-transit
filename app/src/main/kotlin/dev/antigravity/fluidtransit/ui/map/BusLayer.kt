@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import dev.antigravity.fluidtransit.routing.BusPathMotion
 import org.maplibre.android.maps.Style
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
@@ -23,106 +24,132 @@ class BusRender(
     val cat: String, // "u" | "e", per i chip
     val routeHashHex: String,
     val tripHashHex: String,
+    /** Il pattern della corsa: e' l'aggancio alla geometria. -1 se ignoto. */
+    val patternIndex: Int = -1,
+    /** Velocita' dichiarata dal feed, m/s. -1 se il mezzo non la manda. */
+    val speedMs: Double = -1.0,
+    /** Eta' del rilevamento GPS alla generazione dello snapshot. -1 ignota. */
+    val fixAgeSec: Int = -1,
 )
 
 /**
- * Lo stato di interpolazione: fra un poll e l'altro (~30 s) ogni bus scivola
- * in linea retta dalla vecchia posizione alla nuova — deciso cosi', col
- * movimento stimato avanzato rimandato al map matching. Il tick gira a
- * ~8 Hz dal chiamante; qui si calcola solo dove sta ogni bus adesso.
+ * Dove sta ogni bus, adesso.
+ *
+ * Il feed di at pubblica una posizione nuova ogni ~120 secondi (misurato in
+ * Fase 1 e riconfermato il 03/09). Fino alla Fase 8 fra un dato e l'altro il
+ * marker scivolava in linea retta e poi si CONGELAVA: venticinque secondi di
+ * moto e novantacinque di immobilita', cioe' esattamente il "si
+ * teletrasportano" che l'utente ha visto.
+ *
+ * Adesso, quando la geometria della tratta c'e', il bus corre sulla strada
+ * vera: avanza da solo alla velocita' che il feed dichiara — che finora
+ * arrivava fino qui e veniva buttata — rallenta dove la strada gira, sosta
+ * alle fermate, e quando il dato vero arriva riassorbe l'errore in un paio
+ * di secondi invece di saltare. Il conto sta in [BusPathMotion].
+ *
+ * Senza geometria (mezzi con una linea ma nessuna corsa riconosciuta) resta
+ * il ripiego: interpolazione fra i due ultimi dati veri, senza estrapolare.
  */
 class BusOverlay {
 
-    private class Anim(
-        var fromLat: Double,
-        var fromLon: Double,
-        var toLat: Double,
-        var toLon: Double,
-        var startMs: Long,
-        var durationMs: Long,
+    private class Track(
         var render: BusRender,
+        /** Il moto sulla strada. Null finche' la geometria non c'e'. */
+        var motion: BusPathMotion? = null,
+        var pattern: Int = -1,
+        // --- ripiego senza geometria: interpolazione fra due dati veri
+        var fromLat: Double = 0.0,
+        var fromLon: Double = 0.0,
+        var toLat: Double = 0.0,
+        var toLon: Double = 0.0,
+        var startMs: Long = 0L,
+        var durationMs: Long = 0L,
         /**
          * La rotta DERIVATA dal movimento fra due snapshot: il feed di at
-         * non manda mai il bearing (misurato: 0 su 1105), quindi la freccia
-         * decisa si orienta cosi' — e chi e' fermo resta un pallino.
+         * non manda quasi mai il bearing (misurato: 37 su ~1250), quindi la
+         * freccia si orienta cosi' — e chi e' fermo resta un pallino. Col
+         * moto sulla strada la rotta viene invece dalla tangente, che e'
+         * giusta anche da fermo.
          */
         var derivedBearing: Int = -1,
-        /** Quando il TARGET si e' mosso l'ultima volta: detta il ritmo del glide. */
         var lastMoveMs: Long = 0L,
+        /** Ultimo snapshot in cui il feed ha nominato questo mezzo. */
+        var lastSeenMs: Long = 0L,
     ) {
-        fun at(nowMs: Long): Pair<Double, Double> {
+        fun glideAt(nowMs: Long): Pair<Double, Double> {
             if (durationMs <= 0) return toLat to toLon
             val t = ((nowMs - startMs).toDouble() / durationMs).coerceIn(0.0, 1.0)
             return (fromLat + (toLat - fromLat) * t) to (fromLon + (toLon - fromLon) * t)
         }
     }
 
-    private val anims = LinkedHashMap<Int, Anim>()
+    private val tracks = LinkedHashMap<Int, Track>()
+    private var lastFrameMs = 0L
+
     var selectedKey: Int? = null
 
-    /** Un nuovo snapshot: ogni bus riparte da dov'e' ADESSO verso la nuova meta. */
+    /** La geometria dei pattern. Si aggancia quando il bundle e' pronto. */
+    var paths: PathCache? = null
+
+    /** Un nuovo snapshot dal feed. */
     fun setTargets(list: List<BusRender>, nowMs: Long) {
-        val seen = HashSet<Int>(list.size * 2)
         for (b in list) {
-            seen.add(b.vehKey)
-            val prev = anims[b.vehKey]
+            val prev = tracks[b.vehKey]
             if (prev == null) {
-                anims[b.vehKey] = Anim(b.lat, b.lon, b.lat, b.lon, nowMs, 0, b)
-            } else {
-                val targetMoved = dev.antigravity.fluidtransit.routing.BundleReader
-                    .haversine(prev.toLat, prev.toLon, b.lat, b.lon)
-                if (targetMoved < 8) {
-                    // Stessa posizione di prima (l'origine si rigenera ogni
-                    // ~2 min, meta' degli snapshot sono fotocopie): il glide
-                    // in corso continua indisturbato, si aggiornano solo i
-                    // vestiti del marker.
-                    prev.render = b
-                    continue
-                }
-                val (curLat, curLon) = prev.at(nowMs)
-                val jump = dev.antigravity.fluidtransit.routing.BundleReader
-                    .haversine(curLat, curLon, b.lat, b.lon)
-                if (jump > 2500) {
-                    // Un salto cosi' non e' un movimento: teletrasporto onesto.
-                    prev.fromLat = b.lat; prev.fromLon = b.lon
-                    prev.durationMs = 0
-                    prev.derivedBearing = -1
-                } else {
-                    prev.fromLat = curLat; prev.fromLon = curLon
-                    // Il ritmo lo detta il feed di QUESTO mezzo: se una
-                    // posizione nuova arriva ogni ~2 min, uno scatto da 28 s
-                    // seguito da 90 di gelo sembra morto — meglio scivolare
-                    // piano per tutto l'intervallo osservato.
-                    prev.durationMs = if (prev.lastMoveMs > 0) {
-                        (nowMs - prev.lastMoveMs).coerceIn(MIN_GLIDE_MS, MAX_GLIDE_MS)
-                    } else {
-                        MIN_GLIDE_MS
-                    }
-                    // Sopra i ~25 m il movimento e' vero e la rotta si
-                    // deriva; sotto, e' rumore GPS e la freccia resta com'e'.
-                    if (jump > 25) {
-                        prev.derivedBearing = bearingDegrees(curLat, curLon, b.lat, b.lon)
-                    }
-                }
-                prev.lastMoveMs = nowMs
-                prev.toLat = b.lat; prev.toLon = b.lon
-                prev.startMs = nowMs
-                prev.render = b
+                tracks[b.vehKey] = newTrack(b, nowMs)
+                continue
             }
+            prev.render = b
+            prev.lastSeenMs = nowMs
+            attachMotion(prev, b)
+
+            val motion = prev.motion
+            if (motion != null) {
+                motion.onFix(b.lat, b.lon, b.speedMs, b.fixAgeSec, nowMs)
+                continue
+            }
+            glideToward(prev, b, nowMs)
         }
-        val it = anims.keys.iterator()
-        while (it.hasNext()) if (it.next() !in seen) it.remove()
+        // Un mezzo che manca da un giro non viene dimenticato: sparire e
+        // ricomparire era una delle sorgenti di teletrasporto. Si smette di
+        // disegnarlo dopo un po', e si butta solo quando e' chiaro che non
+        // torna.
+        val it = tracks.entries.iterator()
+        while (it.hasNext()) {
+            if (nowMs - it.next().value.lastSeenMs > FORGET_MS) it.remove()
+        }
     }
 
-    val isEmpty: Boolean get() = anims.isEmpty()
+    val isEmpty: Boolean get() = tracks.isEmpty()
 
     fun features(nowMs: Long, style: Style, density: Float): FeatureCollection {
-        val out = ArrayList<Feature>(anims.size)
-        for (a in anims.values) {
-            val b = a.render
-            val (lat, lon) = a.at(nowMs)
+        val dt = if (lastFrameMs == 0L) 0L else nowMs - lastFrameMs
+        lastFrameMs = nowMs
+
+        val out = ArrayList<Feature>(tracks.size)
+        val sample = DoubleArray(3)
+        for (t in tracks.values) {
+            if (nowMs - t.lastSeenMs > HIDE_MS) continue
+            val b = t.render
+            val motion = t.motion
+            val lat: Double
+            val lon: Double
+            val bearing: Int
+            if (motion != null) {
+                if (dt > 0) motion.tick(dt, nowMs)
+                motion.sample(sample)
+                lat = sample[0]
+                lon = sample[1]
+                // Da fermo la tangente e' comunque la direzione di marcia:
+                // e' proprio il caso in cui prima si ricadeva sul pallino.
+                bearing = sample[2].toInt()
+            } else {
+                val (gLat, gLon) = t.glideAt(nowMs)
+                lat = gLat
+                lon = gLon
+                bearing = if (b.bearingDeg >= 0) b.bearingDeg else t.derivedBearing
+            }
             BusIcons.ensure(style, b.colorRgb, density)
-            val bearing = if (b.bearingDeg >= 0) b.bearingDeg else a.derivedBearing
             val f = Feature.fromGeometry(Point.fromLngLat(lon, lat))
             f.addStringProperty("sh", if (bearing >= 0) "a" else "d")
             f.addStringProperty("ci", BusIcons.hex(b.colorRgb))
@@ -137,12 +164,94 @@ class BusOverlay {
         return FeatureCollection.fromFeatures(out)
     }
 
-    fun clear() = anims.clear()
+    fun clear() {
+        tracks.clear()
+        lastFrameMs = 0L
+    }
+
+    // --------------------------------------------------------------- interni
+
+    private fun newTrack(b: BusRender, nowMs: Long): Track {
+        val t = Track(
+            render = b,
+            fromLat = b.lat,
+            fromLon = b.lon,
+            toLat = b.lat,
+            toLon = b.lon,
+            startMs = nowMs,
+            durationMs = 0,
+            lastSeenMs = nowMs,
+        )
+        attachMotion(t, b)
+        // Comparire nel posto giusto non e' un teletrasporto: e' l'unica
+        // cosa onesta da fare al primo dato.
+        t.motion?.onFix(b.lat, b.lon, b.speedMs, b.fixAgeSec, nowMs)
+        return t
+    }
+
+    /**
+     * Aggancia il moto sulla strada appena la geometria del pattern e'
+     * disponibile: la decodifica e' asincrona, quindi i primi fotogrammi di
+     * un mezzo possono ancora essere di ripiego.
+     */
+    private fun attachMotion(t: Track, b: BusRender) {
+        if (t.motion != null && t.pattern == b.patternIndex) return
+        val cache = paths ?: return
+        if (b.patternIndex < 0) {
+            t.motion = null
+            t.pattern = -1
+            return
+        }
+        val path = cache.get(b.patternIndex) ?: return
+        val startS = path.project(b.lat, b.lon)
+        t.pattern = b.patternIndex
+        t.motion = BusPathMotion(
+            path = path,
+            startS = startS,
+            startSpeed = if (b.speedMs >= 0) b.speedMs else -1.0,
+        )
+    }
+
+    private fun glideToward(prev: Track, b: BusRender, nowMs: Long) {
+        val moved = dev.antigravity.fluidtransit.routing.BundleReader
+            .haversine(prev.toLat, prev.toLon, b.lat, b.lon)
+        if (moved < 8) {
+            // Stessa posizione di prima: meta' degli snapshot sono
+            // fotocopie. Il glide in corso continua indisturbato.
+            return
+        }
+        val (curLat, curLon) = prev.glideAt(nowMs)
+        prev.fromLat = curLat
+        prev.fromLon = curLon
+        // Il ritmo lo detta il feed di QUESTO mezzo; al primo movimento si
+        // assume il periodo vero dell'origine invece di venticinque secondi.
+        prev.durationMs = if (prev.lastMoveMs > 0) {
+            (nowMs - prev.lastMoveMs).coerceIn(MIN_GLIDE_MS, MAX_GLIDE_MS)
+        } else {
+            FEED_PERIOD_MS
+        }
+        val jump = dev.antigravity.fluidtransit.routing.BundleReader
+            .haversine(curLat, curLon, b.lat, b.lon)
+        if (jump > 25) {
+            prev.derivedBearing = bearingDegrees(curLat, curLon, b.lat, b.lon)
+        }
+        prev.lastMoveMs = nowMs
+        prev.toLat = b.lat
+        prev.toLon = b.lon
+        prev.startMs = nowMs
+    }
 
     private companion object {
-        /** I limiti del glide adattivo: mai piu' scattoso di 25 s, mai piu' lento di 130. */
-        const val MIN_GLIDE_MS = 25_000L
-        const val MAX_GLIDE_MS = 130_000L
+        /** Il periodo vero con cui l'origine si rigenera: ~2 minuti. */
+        const val FEED_PERIOD_MS = 120_000L
+        const val MIN_GLIDE_MS = 20_000L
+        const val MAX_GLIDE_MS = 150_000L
+
+        /** Assente da tanto: si smette di disegnarlo. */
+        const val HIDE_MS = 180_000L
+
+        /** Assente da tantissimo: si butta. */
+        const val FORGET_MS = 300_000L
 
         /** Rotta iniziale (gradi da nord, orari) dal punto vecchio al nuovo. */
         fun bearingDegrees(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Int {

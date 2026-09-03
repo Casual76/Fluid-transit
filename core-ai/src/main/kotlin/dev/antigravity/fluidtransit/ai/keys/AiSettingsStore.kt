@@ -69,7 +69,13 @@ data class AiSettings(
   val openRouterAllowDataCollection: Boolean = false,
   val thinking: ThinkingLevel = ThinkingLevel.MEDIUM,
   val speakReplies: Boolean = false,
-  val actionsEnabled: Boolean = false,
+  /**
+   * Acceso: l'utente ha scelto "mostra subito, agisci con conferma", e le azioni
+   * sono meta' di quella scelta. Spente, ogni strumento che tocca l'app risponde
+   * "disattivate nelle impostazioni" e l'assistente sa solo raccontare.
+   * Le azioni che scrivono chiedono comunque conferma con un tasto.
+   */
+  val actionsEnabled: Boolean = true,
   /** Quante richieste sono partite oggi verso un modello `:free` di OpenRouter (50 al giorno). */
   val openRouterFreeCount: Int = 0,
   val openRouterFreeEpochDay: Long = 0L,
@@ -157,7 +163,7 @@ class AiSettingsStore(private val store: DataStore<Preferences>) {
     thinking = this[Thinking]?.let { name -> ThinkingLevel.entries.firstOrNull { it.name == name } }
       ?: ThinkingLevel.MEDIUM,
     speakReplies = this[SpeakReplies] ?: false,
-    actionsEnabled = this[ActionsEnabled] ?: false,
+    actionsEnabled = this[ActionsEnabled] ?: true,
     openRouterFreeCount = this[OpenRouterFreeCount] ?: 0,
     openRouterFreeEpochDay = this[OpenRouterFreeDay] ?: 0L,
     modelsRefreshedAt = ProviderId.entries.mapNotNull { p ->

@@ -121,7 +121,7 @@ fun AssistantOverlay(
             Halo(level = mic.level, speaking = mic.speaking, busy = state.isBusy)
             Spacer(Modifier.width(10.dp))
             Text(
-                text = statusText(state),
+                text = if (pending != null) "Confermi?" else statusText(state),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
@@ -184,11 +184,15 @@ fun AssistantOverlay(
         }
 
         // --- la conferma di un'azione che scrive ----------------------------
-        val awaiting = state as? AssistantState.AwaitingConfirmation
-        if (awaiting != null && pending != null) {
-            val request = pending!!
+        //
+        // Si guarda l'azione IN ATTESA, non lo stato: lo stato lo scrivono in
+        // sei punti diversi l'orchestratore e la sessione, e basta che uno
+        // arrivi dopo perche' il tasto non compaia mai — che e' esattamente
+        // quello che succedeva.
+        val request = pending
+        if (request != null) {
             Text(
-                text = actionLabel(awaiting.action),
+                text = actionLabel(request.action),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),

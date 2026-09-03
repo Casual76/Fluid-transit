@@ -124,12 +124,9 @@ fun SettingsTab(app: FluidTransitApp) {
         item { AssistantSettingsGroup(app) }
 
         item { FluidSectionTitle(eyebrow = "Informazioni", title = "L'app") }
+        item { UpdateSettingsGroup(app) }
         item {
             FluidListGroup {
-                FluidListRow(
-                    title = "Versione",
-                    subtitle = BuildConfig.VERSION_NAME,
-                )
                 FluidListRow(
                     title = "Stato dei dati",
                     subtitle = "Quanto sono freschi gli orari, e come sta andando",

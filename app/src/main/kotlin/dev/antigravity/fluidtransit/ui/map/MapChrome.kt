@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.DirectionsBus
 import androidx.compose.material.icons.rounded.Landscape
 import androidx.compose.material.icons.rounded.LocationCity
@@ -223,6 +224,80 @@ fun LiveDownCapsule(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 6.dp),
             )
+        }
+    }
+}
+
+/**
+ * C'e' una versione nuova.
+ *
+ * Stessa forma dell'avviso del live, e per lo stesso motivo: e' un'informazione
+ * che riguarda l'app e non la mappa, quindi si appoggia sopra senza rubare
+ * spazio. Toccandola si apre; dentro, il tasto che installa e quello che la
+ * manda via — via per questa sessione soltanto, perche' un'app che si aggiorna
+ * da sola non deve poter perdere un aggiornamento per una distrazione.
+ */
+@Composable
+fun UpdateCapsule(
+    backdrop: GlassBackdropState,
+    version: String,
+    onInstall: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.foundation.layout.Column(
+        modifier = modifier
+            .glassSurface(
+                state = backdrop,
+                tint = GlassDefaults.floatingTint(),
+                shape = dev.antigravity.fluidengine.ui.fluid.ContinuousCornerShape(
+                    dev.antigravity.fluidengine.ui.fluid.FluidRadius.Card,
+                ),
+                edge = GlassEdge.None,
+            )
+            .clickable(
+                interactionSource = remember2(),
+                indication = null,
+                role = Role.Button,
+                onClick = { expanded = !expanded },
+            )
+            .animateContentSize()
+            .padding(horizontal = 14.dp, vertical = 9.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Rounded.Download,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "Aggiornamento disponibile: $version",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        if (expanded) {
+            Row(
+                modifier = Modifier.padding(top = 8.dp),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+            ) {
+                GlassActionButton(
+                    text = "Installa",
+                    icon = null,
+                    backdrop = backdrop,
+                    onClick = onInstall,
+                    emphasized = true,
+                )
+                GlassActionButton(
+                    text = "Non ora",
+                    icon = null,
+                    backdrop = backdrop,
+                    onClick = onDismiss,
+                )
+            }
         }
     }
 }

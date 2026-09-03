@@ -84,8 +84,10 @@ dependencies {
     implementation(project(":engine-storage")) // impostazioni su DataStore
     implementation(project(":engine-config")) // feature flag remoti, kill switch
     implementation(project(":engine-net")) // HTTP minimale per il manifest
-    // engine-update arriva con la prima release sul Pampa Store: porta con se'
-    // REQUEST_INSTALL_PACKAGES e non va incluso prima che serva.
+    // engine-update: la prima release stabile c'e', quindi l'app deve sapersi
+    // aggiornare da sola. Il modulo dichiara da se' REQUEST_INSTALL_PACKAGES e
+    // il receiver dell'installazione: qui non serve toccare il manifest.
+    implementation(project(":engine-update"))
     implementation(project(":engine-widget")) // i widget Glance della Fase 6
 
     // Il formato .ftb e il lettore mmap.

@@ -1219,6 +1219,28 @@ fun MapScreen(
                     LiveDownCapsule(backdrop = backdrop)
                 }
             }
+
+            // L'aggiornamento disponibile, nella stessa forma dell'avviso del
+            // live: e' un'app che non passa da uno store che aggiorna da solo,
+            // quindi se non lo dice qui non lo dice nessuno.
+            val update by app.updates.available.collectAsStateWithLifecycle()
+            val updateHidden by app.updates.capsuleDismissed.collectAsStateWithLifecycle()
+            androidx.compose.animation.AnimatedVisibility(visible = update != null && !updateHidden) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Spacer(Modifier.height(10.dp))
+                    update?.let { u ->
+                        UpdateCapsule(
+                            backdrop = backdrop,
+                            version = u.version,
+                            onInstall = { app.updates.install() },
+                            onDismiss = { app.updates.dismissCapsule() },
+                        )
+                    }
+                }
+            }
         }
 
         // --- angoli bassi: livelli a sinistra, posizione a destra --------

@@ -126,6 +126,21 @@ class FluidTransitApp : Application() {
         )
     }
 
+    /**
+     * L'aggiornamento in-app. L'app non passa da uno store che aggiorna da
+     * solo: se non se lo chiede lei, una versione nuova resta dov'e'.
+     */
+    val updates by lazy {
+        dev.antigravity.fluidtransit.data.update.UpdateHolder(
+            context = this,
+            scope = applicationScope,
+            manifestUrl = MANIFEST_URL,
+            applicationId = BuildConfig.APPLICATION_ID,
+            currentVersion = BuildConfig.VERSION_NAME,
+            userAgent = BundleManager.USER_AGENT,
+        )
+    }
+
     /** Il geocoding offline (luoghi.bin) e i posti dell'utente. */
     val placesManager by lazy { dev.antigravity.fluidtransit.data.places.PlacesManager(this, applicationScope) }
     val savedPlaces by lazy { dev.antigravity.fluidtransit.data.places.SavedPlaces(this) }
@@ -168,6 +183,9 @@ class FluidTransitApp : Application() {
 
         bundleManager.start()
         placesManager.start()
+        // Un giro di controllo all'avvio, in sottofondo: se c'e' una versione
+        // nuova lo dice la capsula sulla mappa, come deciso.
+        updates.check()
         // Le routine: canale di notifica pronto e sveglie riarmate (dopo un
         // aggiornamento dell'app le sveglie vecchie non esistono piu').
         dev.antigravity.fluidtransit.data.routines.RoutineScheduler.ensureChannel(this)

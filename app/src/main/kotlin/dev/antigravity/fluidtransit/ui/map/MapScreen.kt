@@ -650,6 +650,11 @@ fun MapScreen(
                             .scheduleNextCompute(context, routine)
                     }
                 }
+
+                // Le altre azioni (togliere una stella, spegnere una routine, fermare la
+                // navigazione) non hanno bisogno della mappa: le esegue il ponte da se', anche
+                // quando a chiedere e' un assistente esterno e questa schermata non esiste.
+                else -> Unit
             }
         }
     }

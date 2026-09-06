@@ -73,6 +73,39 @@ sealed interface AssistantAction {
     ) : AssistantAction {
         override val needsConfirmation = true
     }
+
+    /** Toglie la stella a una fermata. */
+    class UnstarStop(val idHashHex: String, val name: String) : AssistantAction {
+        override val needsConfirmation = true
+    }
+
+    /** Toglie la stella a una linea. */
+    class UnstarRoute(val idHashHex: String, val shortName: String) : AssistantAction {
+        override val needsConfirmation = true
+    }
+
+    class RemoveSavedPlace(val id: Long, val label: String) : AssistantAction {
+        override val needsConfirmation = true
+    }
+
+    /** Ferma la navigazione in corso: si annulla da soli, quindi basta un tocco. */
+    data object StopNavigation : AssistantAction {
+        override val needsConfirmation = false
+    }
+
+    /** Accende o spegne una routine. */
+    class SetRoutineEnabled(val id: Long, val label: String, val enabled: Boolean) : AssistantAction {
+        override val needsConfirmation = true
+    }
+
+    class RemoveRoutine(val id: Long, val label: String) : AssistantAction {
+        override val needsConfirmation = true
+    }
+
+    /** Riscarica l'orario offline: consuma rete, quindi si chiede. */
+    data object RefreshData : AssistantAction {
+        override val needsConfirmation = true
+    }
 }
 
 enum class ActionOutcome { DONE, REJECTED, TIMEOUT, UNAVAILABLE }

@@ -6,10 +6,15 @@ import dev.antigravity.fluidtransit.ai.tools.AssistantAction
 import dev.antigravity.fluidtransit.ai.tools.LiveVehicle
 import dev.antigravity.fluidtransit.ai.tools.NamedPoint
 import dev.antigravity.fluidtransit.ai.tools.RouteHit
+import dev.antigravity.fluidtransit.ai.tools.RoutineInfo
+import dev.antigravity.fluidtransit.ai.tools.SavedPlaceInfo
+import dev.antigravity.fluidtransit.ai.tools.StarredRoute
+import dev.antigravity.fluidtransit.ai.tools.StarredStop
 import dev.antigravity.fluidtransit.ai.tools.StopHit
 import dev.antigravity.fluidtransit.ai.tools.TransitBridge
 import dev.antigravity.fluidtransit.data.bundle.BundleManager.BundleState
 import dev.antigravity.fluidtransit.data.places.PlacesManager
+import dev.antigravity.fluidtransit.data.routines.Routines
 import dev.antigravity.fluidtransit.routing.BundleReader
 import dev.antigravity.fluidtransit.routing.DelayModel
 import dev.antigravity.fluidtransit.routing.PlacesSearch
@@ -172,9 +177,102 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
         }
     }.getOrDefault(emptyList())
 
+    override fun realtimeStatus(): String {
+        val status = app.realtime.status.value
+        val source = when (status.source) {
+            dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.PROXY -> "dal servizio Pampa"
+            dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.DIRECT -> "dal feed ufficiale"
+            dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.SCHEDULE_ONLY -> "nessuno: solo orario previsto"
+        }
+        val age = status.feedAgeSeconds?.let { "aggiornati ${it}s fa" } ?: "mai aggiornati"
+        val counts = "${status.vehicleCount} mezzi, ${status.delayCount} ritardi"
+        val error = status.lastError?.takeIf { it.isNotBlank() }?.let { " · ultimo errore: $it" } ?: ""
+        return "$source · $age · $counts$error"
+    }
+
+    override fun dataStatus(): String = when (val state = app.bundleManager.state.value) {
+        is BundleState.Ready -> "pronto (versione ${state.buildId})"
+        is BundleState.Downloading -> "in scaricamento (${(state.progress * 100).toInt()}%)"
+        is BundleState.AskMetered -> "in attesa: servono ${state.bytes / 1_000_000} MB su rete a consumo"
+        BundleState.WaitingForWifi -> "in attesa del Wi-Fi"
+        BundleState.Missing -> "mancante: l'orario non e' ancora stato scaricato"
+        is BundleState.Failed -> "non scaricato: ${state.message}"
+    }
+
+    override suspend fun refreshData(): String {
+        app.bundleManager.retry()
+        return dataStatus()
+    }
+
+    override fun routines(): List<RoutineInfo> = app.routines.list().map { r ->
+        RoutineInfo(
+            id = r.id,
+            label = r.label,
+            destination = r.toName,
+            days = r.days,
+            anchor = r.anchor,
+            anchorMinutes = r.anchorMinutes,
+            enabled = r.enabled,
+            lastAdvice = r.lastAdviceText.takeIf { it.isNotBlank() },
+        )
+    }
+
+    override fun savedPlacesWithId(): List<SavedPlaceInfo> =
+        app.savedPlaces.load().map { SavedPlaceInfo(it.id, it.label, it.lat, it.lon) }
+
+    override fun starredStops(): List<StarredStop> = app.favorites.stops().map { StarredStop(it.idHashHex, it.name) }
+
+    override fun starredRoutes(): List<StarredRoute> = app.favorites.routes().map { StarredRoute(it.idHashHex, it.shortName) }
+
+    override fun navigationLabel(): String? = app.navigation.state.value?.let { "${it.destName} · ${it.headline}" }
+
     // ---------------------------------------------------------- ActionExecutor
 
-    override suspend fun execute(action: AssistantAction): Boolean = actionFlow.tryEmit(action)
+    /**
+     * Le azioni che non hanno bisogno della mappa si fanno qui: cosi' funzionano anche quando a
+     * chiedere e' un assistente esterno e l'app non ha nessuna schermata aperta. Le altre restano
+     * un messaggio verso chi la mappa ce l'ha in mano.
+     */
+    override suspend fun execute(action: AssistantAction): Boolean = when (action) {
+        is AssistantAction.UnstarStop -> {
+            if (app.favorites.isStopFavorite(action.idHashHex)) app.favorites.toggleStop(action.idHashHex, action.name)
+            true
+        }
+        is AssistantAction.UnstarRoute -> {
+            if (app.favorites.isRouteFavorite(action.idHashHex)) app.favorites.toggleRoute(action.idHashHex, action.shortName, 0)
+            true
+        }
+        is AssistantAction.RemoveSavedPlace -> {
+            app.savedPlaces.remove(action.id)
+            true
+        }
+        AssistantAction.StopNavigation -> {
+            app.navigation.stop(app)
+            true
+        }
+        is AssistantAction.SetRoutineEnabled -> {
+            // `Routine` non e' una data class: si ricostruisce a mano, campo per campo.
+            app.routines.update(action.id) { r ->
+                Routines.Routine(
+                    id = r.id, label = r.label, fromLat = r.fromLat, fromLon = r.fromLon,
+                    toLat = r.toLat, toLon = r.toLon, toName = r.toName, days = r.days,
+                    anchor = r.anchor, anchorMinutes = r.anchorMinutes, enabled = action.enabled,
+                    lastAdviceEpoch = r.lastAdviceEpoch, lastAdviceText = r.lastAdviceText,
+                )
+            }
+            true
+        }
+        is AssistantAction.RemoveRoutine -> {
+            app.routines.remove(action.id)
+            dev.antigravity.fluidtransit.data.routines.RoutineScheduler.cancel(app, action.id)
+            true
+        }
+        AssistantAction.RefreshData -> {
+            app.bundleManager.retry()
+            true
+        }
+        else -> actionFlow.tryEmit(action)
+    }
 
     // ------------------------------------------------------------------ interni
 

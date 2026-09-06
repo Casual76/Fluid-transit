@@ -45,8 +45,12 @@ enum class ToolGroup(val id: String, val statusKey: String, val hint: String) {
     ),
     APP(
         "app", "app",
-        "azioni nell'app: mostrare qualcosa sulla mappa, avviare la navigazione, " +
-            "salvare un posto, mettere una stella, creare una routine",
+        "azioni nell'app: mostrare qualcosa sulla mappa, avviare o fermare la navigazione, " +
+            "salvare o togliere un posto, mettere o togliere una stella, i preferiti, lo stato dei dati offline",
+    ),
+    ROUTINE(
+        "routine", "routine",
+        "le routine dell'utente: i viaggi ricorrenti con i giorni e l'ora, crearle, cambiarle, toglierle",
     ),
     ;
 
@@ -140,7 +144,51 @@ interface TransitBridge {
 
     /** Gli avvisi di servizio delle linee che interessano all'utente. */
     suspend fun alerts(): List<String>
+
+    /** Lo stato del feed dal vivo, in parole: da dove arriva, quanto e' fresco, quanti mezzi vede. */
+    fun realtimeStatus(): String = "sconosciuto"
+
+    /** Lo stato dei dati offline (l'orario scaricato): pronto, in scaricamento, mancante. */
+    fun dataStatus(): String = "sconosciuto"
+
+    /** Riscarica l'orario offline; torna come e' andata, in parole. */
+    suspend fun refreshData(): String = "non disponibile"
+
+    /** Le routine dell'utente, con l'id per cambiarle. */
+    fun routines(): List<RoutineInfo> = emptyList()
+
+    /** I posti salvati con il loro id (quelli di [savedPlaces] non ce l'hanno). */
+    fun savedPlacesWithId(): List<SavedPlaceInfo> = emptyList()
+
+    /** Le fermate con la stella, con l'id per toglierla. */
+    fun starredStops(): List<StarredStop> = emptyList()
+
+    /** Le linee con la stella. */
+    fun starredRoutes(): List<StarredRoute> = emptyList()
+
+    /** La navigazione in corso, se c'e': una riga che dice dove si sta andando. */
+    fun navigationLabel(): String? = null
 }
+
+/** Una routine come la vede l'assistente. */
+class RoutineInfo(
+    val id: Long,
+    val label: String,
+    val destination: String,
+    /** Lunedi' = 1 … Domenica = 7. */
+    val days: Set<Int>,
+    /** "arrive" oppure "depart". */
+    val anchor: String,
+    val anchorMinutes: Int,
+    val enabled: Boolean,
+    val lastAdvice: String?,
+)
+
+class SavedPlaceInfo(val id: Long, val label: String, val lat: Double, val lon: Double)
+
+class StarredStop(val idHashHex: String, val name: String)
+
+class StarredRoute(val idHashHex: String, val shortName: String)
 
 /** Cosa un tool puo' toccare mentre gira. */
 class ToolContext(

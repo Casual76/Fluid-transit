@@ -26,6 +26,19 @@ internal object Resolve {
         val route: RouteHit? = null,
     )
 
+    /**
+     * L'indice della fermata di cui parla il modello: quella nominata, o la piu' vicina a dove si
+     * trova. E' la prima riga di meta' degli strumenti degli orari.
+     */
+    fun stopIndex(ctx: ToolContext, query: String?): Int? {
+        val reader = ctx.transit.reader ?: return null
+        if (query != null) return ctx.transit.findStops(query, 1).firstOrNull()?.stopIndex
+        val ref = ctx.reference ?: return null
+        return reader.stopsNear(ref.first, ref.second, 700.0).minByOrNull {
+            BundleReader.haversine(ref.first, ref.second, reader.stopLat(it), reader.stopLon(it))
+        }
+    }
+
     fun target(ctx: ToolContext, text: String?): Target? {
         val q = text?.trim().orEmpty()
         if (q.isEmpty()) {

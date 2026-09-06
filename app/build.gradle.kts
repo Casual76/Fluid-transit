@@ -89,6 +89,8 @@ dependencies {
     // il receiver dell'installazione: qui non serve toccare il manifest.
     implementation(project(":engine-update"))
     implementation(project(":engine-widget")) // i widget Glance della Fase 6
+    implementation(project(":engine-ai")) // i tipi dei tool per il bridge
+    implementation(project(":engine-ai-bridge")) // tool federati: gli autobus per PampAI/Aria
 
     // Il formato .ftb e il lettore mmap.
     implementation(project(":core-routing"))

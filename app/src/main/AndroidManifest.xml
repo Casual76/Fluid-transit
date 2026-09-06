@@ -94,6 +94,19 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+        <!--
+            Gli strumenti degli autobus per PampAI/Aria: permesso `signature`, quindi li chiama solo
+            un'app firmata con la stessa chiave. L'authority segue l'applicationId.
+        -->
+        <provider
+            android:name=".pampai.TransitToolHostProvider"
+            android:authorities="${applicationId}.ai.tools"
+            android:exported="true"
+            android:permission="dev.antigravity.fluidengine.permission.AI_TOOLS">
+            <meta-data
+                android:name="dev.antigravity.fluidengine.ai.TOOL_HOST"
+                android:value="1" />
+        </provider>
     </application>
 
 </manifest>

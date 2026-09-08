@@ -11,12 +11,12 @@
       "ref": "main"
     },
     "beta": {
-      "version": "1.0.1",
-      "releaseDate": "2026-09-03",
-      "changelog": "L'assistente adesso fa davvero quello che gli chiedi: quando un'azione ha bisogno del tuo assenso compare un tasto per darglielo, invece di una domanda a cui non si poteva rispondere.\n\nL'app sa aggiornarsi da sola. Quando c'e' una versione nuova te lo dice sulla mappa e la installa da li'; in Impostazioni trovi il quadro completo e l'interruttore per ricevere anche le versioni di prova.",
-      "releaseTag": "stable-fluid-transit-v1.0.1",
-      "apkAsset": "fluid-transit-1.0.1.apk",
-      "sizeBytes": 50391823
+      "version": "1.1.0",
+      "releaseDate": "2026-09-08",
+      "changelog": "Gli autobus parlano con Aria: quindici strumenti nuovi (le fermate vicine, le linee di una fermata, il percorso di una linea, gli orari del giorno, il prossimo bus per un posto, lo stato della rete, quando uscire, lo stato dei dati, i preferiti, le routine) e il ponte che li espone all'assistente PampAI anche senza aprire la mappa.",
+      "releaseTag": "stable-fluid-transit-v1.1.0",
+      "apkAsset": "fluid-transit-1.1.0.apk",
+      "sizeBytes": 50457538
     },
     "description": "Muoversi con i mezzi in Toscana: i bus dove sono davvero, orari che dicono se sono veri o previsti, e percorsi da un punto qualsiasi a un altro.",
     "iconUrl": "",
@@ -24,6 +24,14 @@
     "developer": "Pampa",
     "screenshots": [],
     "history": [
+      {
+        "version": "1.0.1",
+        "releaseDate": "2026-09-03",
+        "changelog": "L'assistente adesso fa davvero quello che gli chiedi: quando un'azione ha bisogno del tuo assenso compare un tasto per darglielo, invece di una domanda a cui non si poteva rispondere.\n\nL'app sa aggiornarsi da sola. Quando c'e' una versione nuova te lo dice sulla mappa e la installa da li'; in Impostazioni trovi il quadro completo e l'interruttore per ricevere anche le versioni di prova.",
+        "releaseTag": "stable-fluid-transit-v1.0.1",
+        "apkAsset": "fluid-transit-1.0.1.apk",
+        "sizeBytes": 50391823
+      },
       {
         "version": "1.0.0",
         "releaseDate": "2026-09-03",
@@ -34,12 +42,12 @@
       }
     ],
     "stable": {
-      "version": "1.0.1",
-      "releaseDate": "2026-09-03",
-      "changelog": "L'assistente adesso fa davvero quello che gli chiedi: quando un'azione ha bisogno del tuo assenso compare un tasto per darglielo, invece di una domanda a cui non si poteva rispondere.\n\nL'app sa aggiornarsi da sola. Quando c'e' una versione nuova te lo dice sulla mappa e la installa da li'; in Impostazioni trovi il quadro completo e l'interruttore per ricevere anche le versioni di prova.",
-      "releaseTag": "stable-fluid-transit-v1.0.1",
-      "apkAsset": "fluid-transit-1.0.1.apk",
-      "sizeBytes": 50391823
+      "version": "1.1.0",
+      "releaseDate": "2026-09-08",
+      "changelog": "Gli autobus parlano con Aria: quindici strumenti nuovi (le fermate vicine, le linee di una fermata, il percorso di una linea, gli orari del giorno, il prossimo bus per un posto, lo stato della rete, quando uscire, lo stato dei dati, i preferiti, le routine) e il ponte che li espone all'assistente PampAI anche senza aprire la mappa.",
+      "releaseTag": "stable-fluid-transit-v1.1.0",
+      "apkAsset": "fluid-transit-1.1.0.apk",
+      "sizeBytes": 50457538
     }
   },
   "engine": {

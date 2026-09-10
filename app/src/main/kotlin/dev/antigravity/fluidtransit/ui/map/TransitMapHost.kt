@@ -594,6 +594,30 @@ class TransitMapController(private val context: Context) {
 
     private var placeMarker: org.maplibre.geojson.Feature? = null
     private var journeyFeatures: org.maplibre.geojson.FeatureCollection? = null
+
+    /**
+     * Da forme neutre a FeatureCollection: la traduzione vive qui, che e'
+     * l'unico posto che deve sapere cos'e' MapLibre.
+     */
+    private fun toFeatures(shape: JourneyShape): org.maplibre.geojson.FeatureCollection {
+        val out = ArrayList<org.maplibre.geojson.Feature>(shape.lines.size)
+        for (line in shape.lines) {
+            if (line.size < 2) continue
+            val pts = ArrayList<org.maplibre.geojson.Point>(line.size)
+            for (i in 0 until line.size) {
+                pts.add(org.maplibre.geojson.Point.fromLngLat(line.lon[i], line.lat[i]))
+            }
+            val f = org.maplibre.geojson.Feature.fromGeometry(
+                org.maplibre.geojson.LineString.fromLngLats(pts),
+            )
+            f.addStringProperty("t", if (line.dashed) "w" else "r")
+            if (!line.dashed) {
+                f.addStringProperty("c", "#%06x".format(line.colorRgb and 0xFFFFFF))
+            }
+            out.add(f)
+        }
+        return org.maplibre.geojson.FeatureCollection.fromFeatures(out)
+    }
     private var savedPlaces: List<SavedRender> = emptyList()
     private var savedAccent: Int = 0x7C4DC4
 
@@ -735,8 +759,8 @@ class TransitMapController(private val context: Context) {
         source.setGeoJson(org.maplibre.geojson.FeatureCollection.fromFeatures(features))
     }
 
-    fun showJourney(features: org.maplibre.geojson.FeatureCollection) {
-        journeyFeatures = features
+    fun showJourney(shape: JourneyShape) {
+        journeyFeatures = toFeatures(shape)
         map?.getStyle { pushPlaceAndJourney(it) }
     }
 

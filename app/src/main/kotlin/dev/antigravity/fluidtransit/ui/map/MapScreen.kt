@@ -716,25 +716,71 @@ fun MapScreen(
         }
     }
 
-    // Il viaggio scelto si accende sulla mappa e la camera lo inquadra.
+    // Il viaggio scelto si accende sulla mappa mentre lo stai SCEGLIENDO, e
+    // la camera lo inquadra.
     //
-    // Il ramo di pulizia NON scatta mentre la navigazione e' in corso.
-    // Avviare un viaggio chiude il pannello (`panel = null` in onStart), e
-    // questo effetto ricadeva nell'else: si toccava "Vai" e il percorso
-    // spariva dalla mappa proprio nell'istante in cui serviva guardarlo.
-    // Restava una notifica che diceva "scendi a X" sopra una mappa vuota.
+    // Mentre lo stai facendo, no: durante la navigazione il percorso non si
+    // disegna. La camminata era una retta tratteggiata fra due punti — che
+    // taglia palazzi, fiumi e ferrovie — e mostrarla mentre uno cammina
+    // davvero e' peggio che non mostrare niente: si vede dove sei, e basta.
+    // Il percorso del bus arriva dopo, quando sali, dalla modalita' linea.
     LaunchedEffect(panel, journeys, navState) {
         val p = panel
         val r2 = ready?.reader
         if (p is Panel.JourneyDetail && r2 != null) {
             val j = journeys?.getOrNull(p.index) ?: return@LaunchedEffect
-            val (features, bbox) = withContext(Dispatchers.Default) {
+            val (shape, bbox) = withContext(Dispatchers.Default) {
                 buildJourneyGeometry(r2, j.raw)
             }
-            controller.showJourney(features)
+            controller.showJourney(shape)
             if (bbox[0] <= bbox[2]) controller.flyToBounds(bbox[0], bbox[1], bbox[2], bbox[3])
-        } else if (navState == null) {
+        } else {
             controller.clearJourney()
+        }
+    }
+
+    // Sali sul bus e la mappa ci si mette da sola: la tratta si accende, le
+    // sue fermate compaiono a qualunque zoom, e i mezzi vivi corrono sopra
+    // con la loro direzione. E' la stessa modalita' linea che si ottiene
+    // toccando un bus, solo che qui non serve toccare niente.
+    //
+    // Si spegne quando scendi, e SOLO se e' stata accesa da qui: se nel
+    // frattempo hai aperto tu una scheda linea, quella resta com'e'.
+    var navLitRoute by remember { mutableStateOf(-1) }
+    LaunchedEffect(navState?.phase, navState?.rideRoute) {
+        val s = navState
+        val reader = ready?.reader
+        val route = if (s != null && s.phase == "ride") s.rideRoute else -1
+        if (route == navLitRoute) return@LaunchedEffect
+
+        if (route >= 0 && reader != null) {
+            navLitRoute = route
+            withContext(Dispatchers.Default) {
+                val hashes = LinkedHashSet<String>()
+                for (pat in reader.patternsOfRoute(route)) {
+                    val n = reader.patternStopCount(pat)
+                    for (i in 0 until n) {
+                        hashes.add(
+                            java.lang.Long.toHexString(
+                                reader.stopIdHash(reader.patternStop(pat, i)),
+                            ),
+                        )
+                    }
+                }
+                val rh = java.lang.Long.toHexString(reader.routeIdHash(route))
+                withContext(Dispatchers.Main) {
+                    controller.enterRouteMode(rh, hashes.toTypedArray())
+                }
+            }
+        } else if (navLitRoute >= 0) {
+            navLitRoute = -1
+            // Solo se non c'e' una scheda linea o corsa aperta: quella l'ha
+            // voluta l'utente e non la si spegne alle sue spalle.
+            if (panel !is Panel.RouteMini && panel !is Panel.RouteFull &&
+                panel !is Panel.TripMini && panel !is Panel.TripFull
+            ) {
+                controller.exitRouteMode()
+            }
         }
     }
 

@@ -81,6 +81,15 @@ class NavState(
     val etaEpoch: Long,
     /** Metri che mancano al punto di questa fase. -1 se la posizione non si sa. */
     val metersToGo: Int = -1,
+    /**
+     * La linea su cui sei adesso, come indice del bundle. -1 quando non sei
+     * a bordo.
+     *
+     * Serve alla mappa per accendersi da sola sulla tratta giusta appena
+     * sali: il percorso del bus e i mezzi vivi con la loro direzione ci sono
+     * gia', mancava solo qualcuno che dicesse quale linea guardare.
+     */
+    val rideRoute: Int = -1,
 )
 
 /**

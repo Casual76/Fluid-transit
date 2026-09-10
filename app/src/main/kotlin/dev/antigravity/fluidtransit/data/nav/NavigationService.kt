@@ -378,6 +378,7 @@ class NavigationService : Service() {
                             totalStops = totalStops,
                             etaEpoch = alightTime,
                             metersToGo = metersToAlight,
+                            rideRoute = leg.route,
                         )
                     }
                 }

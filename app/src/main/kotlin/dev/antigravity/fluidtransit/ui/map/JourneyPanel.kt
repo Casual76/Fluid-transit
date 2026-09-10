@@ -592,11 +592,15 @@ private fun RoutineForm(
  * La geometria del viaggio per la mappa: corse ritagliate dalla polilinea
  * del pattern (v4; senza sezione si ripiega sulle fermate), camminate in
  * linea retta tratteggiata. Ritorna anche il riquadro da inquadrare.
+ *
+ * Il risultato non nomina nessun motore di mappa: prima usciva di qui gia'
+ * impacchettato come FeatureCollection di MapLibre, e cambiare mappa avrebbe
+ * voluto dire riscrivere anche questa funzione.
  */
 fun buildJourneyGeometry(
     reader: BundleReader,
     j: Raptor.Journey,
-): Pair<org.maplibre.geojson.FeatureCollection, DoubleArray> {
+): Pair<JourneyShape, DoubleArray> {
     var minLat = 90.0
     var maxLat = -90.0
     var minLon = 180.0
@@ -609,26 +613,27 @@ fun buildJourneyGeometry(
         if (lon > maxLon) maxLon = lon
     }
 
-    val features = ArrayList<org.maplibre.geojson.Feature>(j.legs.size)
+    val lines = ArrayList<MapLine>(j.legs.size)
     for (leg in j.legs) {
         when (leg) {
             is Raptor.Leg.Walk -> {
                 grow(leg.fromLat, leg.fromLon)
                 grow(leg.toLat, leg.toLon)
-                val f = org.maplibre.geojson.Feature.fromGeometry(
-                    org.maplibre.geojson.LineString.fromLngLats(
-                        listOf(
-                            org.maplibre.geojson.Point.fromLngLat(leg.fromLon, leg.fromLat),
-                            org.maplibre.geojson.Point.fromLngLat(leg.toLon, leg.toLat),
-                        ),
+                // Due punti: la retta fra dove sei e la fermata. E' il
+                // ripiego, e resta finche' non c'e' un percorso pedonale
+                // vero da seguire.
+                lines.add(
+                    MapLine(
+                        lat = doubleArrayOf(leg.fromLat, leg.toLat),
+                        lon = doubleArrayOf(leg.fromLon, leg.toLon),
+                        dashed = true,
                     ),
                 )
-                f.addStringProperty("t", "w")
-                features.add(f)
             }
 
             is Raptor.Leg.Ride -> {
-                val points = ArrayList<org.maplibre.geojson.Point>(64)
+                val la = ArrayList<Double>(64)
+                val lo = ArrayList<Double>(64)
                 val poly = reader.patternPolyline(leg.pattern)
                 if (poly != null) {
                     val a = reader.patternStopVertex(leg.pattern, leg.boardPosition)
@@ -637,33 +642,30 @@ fun buildJourneyGeometry(
                         .coerceIn(0, poly.size - 1)
                     for (v in minOf(a, b)..maxOf(a, b)) {
                         grow(poly.lat[v], poly.lon[v])
-                        points.add(org.maplibre.geojson.Point.fromLngLat(poly.lon[v], poly.lat[v]))
+                        la.add(poly.lat[v])
+                        lo.add(poly.lon[v])
                     }
                 } else {
                     for (pos in leg.boardPosition..leg.alightPosition) {
                         val s = reader.patternStop(leg.pattern, pos)
                         grow(reader.stopLat(s), reader.stopLon(s))
-                        points.add(
-                            org.maplibre.geojson.Point.fromLngLat(reader.stopLon(s), reader.stopLat(s)),
-                        )
+                        la.add(reader.stopLat(s))
+                        lo.add(reader.stopLon(s))
                     }
                 }
-                if (points.size >= 2) {
-                    val f = org.maplibre.geojson.Feature.fromGeometry(
-                        org.maplibre.geojson.LineString.fromLngLats(points),
+                if (la.size >= 2) {
+                    lines.add(
+                        MapLine(
+                            lat = la.toDoubleArray(),
+                            lon = lo.toDoubleArray(),
+                            colorRgb = reader.routeDisplayColor(leg.route) and 0xFFFFFF,
+                        ),
                     )
-                    f.addStringProperty("t", "r")
-                    f.addStringProperty(
-                        "c",
-                        "#%06x".format(reader.routeDisplayColor(leg.route) and 0xFFFFFF),
-                    )
-                    features.add(f)
                 }
             }
         }
     }
-    return org.maplibre.geojson.FeatureCollection.fromFeatures(features) to
-        doubleArrayOf(minLat, minLon, maxLat, maxLon)
+    return JourneyShape(lines) to doubleArrayOf(minLat, minLon, maxLat, maxLon)
 }
 
 /**

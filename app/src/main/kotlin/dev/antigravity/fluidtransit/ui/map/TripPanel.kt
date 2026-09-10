@@ -138,7 +138,7 @@ class TripInfo(
                 // Il ritardo di QUESTA fermata. Prima era lo stesso intero su
                 // tutte, e la scheda prometteva gli stessi otto minuti di
                 // ritardo al capolinea di un'ora dopo.
-                val live = delays?.at(ref.tripIndex, i, n)
+                val live = delays?.at(ref.tripIndex, i, n, java.time.Instant.now().epochSecond)
                 val confidence = live?.confidence
                     ?: if (delaySec != null) DelayModel.Confidence.PROJECTED else null
                 // Il feed dice fin dove il bus e' arrivato: piu' affidabile

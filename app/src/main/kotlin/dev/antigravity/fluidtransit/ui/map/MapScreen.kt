@@ -112,7 +112,12 @@ fun MapScreen(
     var routeDirection by remember { mutableStateOf(0) }
 
     // Lo zoom corrente (a camera ferma): decide se i bus vivi si scaricano.
-    var cameraZoom by remember { mutableStateOf(MapCatalog.HOME_ZOOM) }
+    //
+    // Salvabile, non solo `remember`: e' proprio questo valore che riaccende
+    // il polling, e tornandoci sopra da un'altra scheda ripartiva da
+    // HOME_ZOOM (7.6), sotto la soglia. Si tornava sulla mappa e il live era
+    // spento finche' non si zoomava di nuovo a mano.
+    var cameraZoom by rememberSaveable { mutableStateOf(MapCatalog.HOME_ZOOM) }
 
     // La modalita' linea (e la scheda corsa, che vive nello stesso posto)
     // prende il posto della tab bar: la shell lo sa da qui.
@@ -679,7 +684,11 @@ fun MapScreen(
         // Il realtime entra nel calcolo: ritardi e cancellazioni di ADESSO.
         val rtNow = resolved
         val liveData = if (rtNow != null) {
-            dev.antigravity.fluidtransit.routing.Raptor.Realtime(rtNow.delayByTrip, rtNow.canceledTrips)
+            dev.antigravity.fluidtransit.routing.Raptor.Realtime(
+                rtNow.delayByTrip,
+                rtNow.canceledTrips,
+                java.time.Instant.now().epochSecond,
+            )
         } else {
             dev.antigravity.fluidtransit.routing.Raptor.Realtime.NONE
         }
@@ -708,7 +717,13 @@ fun MapScreen(
     }
 
     // Il viaggio scelto si accende sulla mappa e la camera lo inquadra.
-    LaunchedEffect(panel, journeys) {
+    //
+    // Il ramo di pulizia NON scatta mentre la navigazione e' in corso.
+    // Avviare un viaggio chiude il pannello (`panel = null` in onStart), e
+    // questo effetto ricadeva nell'else: si toccava "Vai" e il percorso
+    // spariva dalla mappa proprio nell'istante in cui serviva guardarlo.
+    // Restava una notifica che diceva "scendi a X" sopra una mappa vuota.
+    LaunchedEffect(panel, journeys, navState) {
         val p = panel
         val r2 = ready?.reader
         if (p is Panel.JourneyDetail && r2 != null) {
@@ -718,9 +733,22 @@ fun MapScreen(
             }
             controller.showJourney(features)
             if (bbox[0] <= bbox[2]) controller.flyToBounds(bbox[0], bbox[1], bbox[2], bbox[3])
-        } else {
+        } else if (navState == null) {
             controller.clearJourney()
         }
+    }
+
+    // Un primo giro appena il bundle e' pronto, senza aspettare lo zoom.
+    //
+    // Il polling CONTINUO resta legato allo zoom, che e' giusto: i mezzi si
+    // disegnano da 10.2 in su e tenerli aggiornati sotto sarebbe traffico
+    // buttato. Ma il PRIMO dato deve esistere lo stesso — lo leggono la
+    // scheda Oggi, i Preferiti, il widget e l'assistente, che non zoomano
+    // niente — e quando poi si zooma i bus sono gia' in scena invece di
+    // comparire mezzo minuto dopo. E' la meta' dell'impressione che il live
+    // "si accenda solo dopo l'apertura".
+    LaunchedEffect(ready?.buildId) {
+        if (ready != null) runCatching { rt.refreshVehicles() }
     }
 
     // --- i cicli del realtime: vivono col ciclo di vita della schermata ----

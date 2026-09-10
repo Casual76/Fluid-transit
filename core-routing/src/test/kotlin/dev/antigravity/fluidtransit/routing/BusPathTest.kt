@@ -186,6 +186,111 @@ class BusPathTest {
         return out[1]
     }
 
+    // --- il verso di marcia ----------------------------------------------
+    //
+    // Questi tre inchiodano il difetto che l'utente ha descritto come "a
+    // volte lo fa andare nella direzione opposta di quella reale". Non era
+    // il pattern sbagliato: era il marker che ARRETRAVA lungo il pattern
+    // giusto, mentre la freccia — che viene dalla tangente della strada —
+    // continuava a puntare avanti.
+
+    @Test
+    fun `il marker non arretra mai, nemmeno col dato vero indietro`() {
+        val p = elle()
+        val m = BusPathMotion(p, startS = 400.0, startSpeed = 8.0)
+        m.onFix(latAt(p, 400.0), lonAt(p, 400.0), 8.0, 0, 0L)
+
+        // Il dato vero arriva cento metri DIETRO la posizione simulata: e'
+        // il caso normale quando il moto ha estrapolato piu' del reale.
+        m.onFix(latAt(p, 300.0), lonAt(p, 300.0), 8.0, 0, 30_000L)
+
+        var previous = m.s
+        var now = 30_000L
+        repeat(160) {
+            now += 125
+            m.tick(125, now)
+            assertTrue(
+                m.s >= previous - 0.001,
+                "il mezzo e' arretrato da $previous a ${m.s}: e' il bug della direzione",
+            )
+            previous = m.s
+        }
+        // Ha rallentato per smaltire l'anticipo, non si e' teletrasportato
+        // indietro e non si e' nemmeno piantato.
+        assertTrue(m.s > 400.0, "non ha ripreso ad avanzare: ${m.s}")
+    }
+
+    @Test
+    fun `lo stesso fix riapplicato non riporta il mezzo indietro`() {
+        val p = elle()
+        val m = BusPathMotion(p, startS = 0.0, startSpeed = 8.0)
+        val lat = latAt(p, 200.0)
+        val lon = lonAt(p, 200.0)
+        m.onFix(lat, lon, 8.0, 0, 0L)
+
+        var now = 0L
+        var previous = m.s
+        // Il feed si rigenera ogni ~2 minuti e l'app polla ogni 30 s: lo
+        // stesso rilevamento arriva piu' volte. Ogni riapplicazione trovava
+        // il mezzo piu' avanti del bersaglio congelato e lo tirava indietro.
+        repeat(6) {
+            repeat(80) {
+                now += 125
+                m.tick(125, now)
+                assertTrue(m.s >= previous - 0.001, "arretrato a ${m.s} da $previous")
+                previous = m.s
+            }
+            m.onFix(lat, lon, 8.0, 0, now)
+            assertTrue(m.s >= previous - 0.001, "il fix fotocopia ha arretrato il mezzo")
+            previous = m.s
+        }
+    }
+
+    @Test
+    fun `un fix fotocopia senza velocita dichiarata non congela il mezzo`() {
+        val p = elle()
+        // -1 = il feed non dichiara la velocita', che e' il caso comune.
+        val m = BusPathMotion(p, startS = 0.0, startSpeed = -1.0)
+        val lat = latAt(p, 100.0)
+        val lon = lonAt(p, 100.0)
+        m.onFix(lat, lon, -1.0, 0, 0L)
+
+        var now = 0L
+        // Due giri interi con lo stesso dato: prima la velocita' osservata
+        // fra due fix identici valeva zero, finiva in feedSpeed, e da li'
+        // DEFAULT_SPEED non tornava piu'. Il mezzo restava immobile per
+        // sempre — il congelamento che il moto sulla strada doveva togliere.
+        repeat(2) {
+            repeat(240) {
+                now += 125
+                m.tick(125, now)
+            }
+            m.onFix(lat, lon, -1.0, 0, now)
+        }
+        val start = m.s
+        repeat(240) {
+            now += 125
+            m.tick(125, now)
+        }
+        assertTrue(m.s > start + 50.0, "il mezzo si e' congelato: da $start a ${m.s}")
+    }
+
+    @Test
+    fun `la rotta della tratta si puo interrogare per validare l aggancio`() {
+        val p = elle()
+        // Il primo chilometro va verso nord, il secondo verso est.
+        assertEquals(0.0, p.headingAtS(100.0), 2.0)
+        assertEquals(90.0, p.headingAtS(1_500.0), 2.0)
+
+        // E la proiezione dice anche QUANTO si e' lontani dalla strada: e' il
+        // controllo che mancava per scartare un mezzo agganciato alla tratta
+        // sbagliata.
+        val out = DoubleArray(2)
+        p.projectWithDistance(latAt(p, 500.0), lonAt(p, 500.0), out)
+        assertEquals(500.0, out[0], 5.0)
+        assertTrue(out[1] < 2.0, "sulla tratta, ma dice ${out[1]} m")
+    }
+
     @Test
     fun `una geometria degenere non costruisce un indice`() {
         assertTrue(PathIndex.of(doubleArrayOf(43.0), doubleArrayOf(11.0), intArrayOf(0)) == null)

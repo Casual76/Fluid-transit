@@ -765,7 +765,30 @@ class TransitMapController(private val context: Context) {
                 android.os.SystemClock.elapsedRealtime(),
                 style,
                 context.resources.displayMetrics.density,
+                viewportWithMargin(),
             ),
+        )
+    }
+
+    /**
+     * Il riquadro visibile allargato, per il taglio dei mezzi fuori scena.
+     *
+     * Senza, ogni fotogramma ricostruiva la scheda di OGNI mezzo vivo della
+     * Toscana — a 8 Hz, sul thread della UI — anche quando a schermo ce
+     * n'erano dieci. Il margine e' largo di proposito: il taglio si basa
+     * sull'ultimo dato vero, che puo' avere due minuti, e un mezzo in due
+     * minuti fa qualche chilometro.
+     */
+    private fun viewportWithMargin(): DoubleArray? {
+        val m = map ?: return null
+        val b = runCatching { m.projection.visibleRegion.latLngBounds }.getOrNull() ?: return null
+        val padLat = (b.latitudeNorth - b.latitudeSouth) * 0.5 + 0.03
+        val padLon = (b.longitudeEast - b.longitudeWest) * 0.5 + 0.03
+        return doubleArrayOf(
+            b.latitudeSouth - padLat,
+            b.longitudeWest - padLon,
+            b.latitudeNorth + padLat,
+            b.longitudeEast + padLon,
         )
     }
 

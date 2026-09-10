@@ -76,6 +76,28 @@ class PathIndex private constructor(
         projectRange(pLat, pLon, 0.0, length).second
 
     /**
+     * L'ascissa del punto piu' vicino E quanto dista, in una scansione sola:
+     * out[0] = ascissa, out[1] = distanza in metri.
+     *
+     * Chi deve decidere se una tratta e' quella giusta ha bisogno di
+     * entrambi, e ricavarli con due chiamate significa scandire due volte.
+     */
+    fun projectWithDistance(pLat: Double, pLon: Double, out: DoubleArray) {
+        val (bestS, bestD) = projectRange(pLat, pLon, 0.0, length)
+        out[0] = bestS
+        out[1] = bestD
+    }
+
+    /**
+     * La rotta della tratta all'ascissa [s], in gradi da nord.
+     *
+     * Serve a chi deve DECIDERE se questa e' la tratta giusta: confrontata
+     * col bearing che il feed dichiara, dice se il mezzo sta percorrendo
+     * questo verso o quello opposto.
+     */
+    fun headingAtS(s: Double): Double = headingAt(s.coerceIn(0.0, length))
+
+    /**
      * Quanto gira la strada attorno a [s]: gradi di variazione di rotta per
      * cento metri. E' la misura che fa rallentare in curva e alle rotonde
      * senza sapere niente di rotonde.
@@ -238,8 +260,19 @@ class BusPathMotion(
     /** L'ultima velocita' dichiarata dal feed, -1 se il mezzo non la manda. */
     private var feedSpeed: Double = startSpeed
 
-    /** Metri di errore ancora da riassorbire dopo un dato nuovo. */
+    /** Metri di errore ancora da riassorbire dopo un dato nuovo. Mai negativo. */
     private var pending: Double = 0.0
+
+    /**
+     * Metri di ANTICIPO da smaltire: quanto siamo piu' avanti del dato vero.
+     *
+     * Si consuma frenando, in [tick], non arretrando. Prima l'anticipo
+     * finiva in [pending] col segno negativo e tirava indietro il marker
+     * mentre la freccia — che viene dalla tangente della strada — continuava
+     * a puntare avanti: e' quello che si vedeva come "il bus va nella
+     * direzione sbagliata".
+     */
+    private var overshoot: Double = 0.0
 
     /** Finche' non scade, il mezzo e' fermo a una fermata. */
     private var dwellUntilMs: Long = 0L
@@ -270,7 +303,13 @@ class BusPathMotion(
         if (hasFix && nowMs > lastFixMs) {
             val dt = (nowMs - lastFixMs) / 1000.0
             val moved = fixS - lastFixS
-            if (dt >= 20.0 && moved >= 0) {
+            // `moved > 0`, non `>= 0`: meta' degli snapshot ripetono la
+            // posizione precedente, e con lo zero dentro il blend la velocita'
+            // osservata risultava nulla. Senza una velocita' dichiarata dal
+            // feed (il ramo else) `feedSpeed` diventava 0 e non risaliva piu':
+            // il mezzo si piantava per sempre. E' il congelamento che il moto
+            // sulla strada doveva togliere di mezzo.
+            if (dt >= 20.0 && moved > 0.0) {
                 val observed = (moved / dt).coerceIn(0.0, MAX_SPEED)
                 feedSpeed = if (speedMs >= 0) feedSpeed * 0.6 + observed * 0.4 else observed
             }
@@ -291,10 +330,20 @@ class BusPathMotion(
             // servizio, corsa riassegnata, aggancio sbagliato. Si riparte.
             s = target
             pending = 0.0
+            overshoot = 0.0
             servedStop = -1
             dwellUntilMs = 0L
-        } else {
+        } else if (error >= 0.0) {
+            // Siamo indietro rispetto al dato vero: si recupera avanzando.
             pending = error
+            overshoot = 0.0
+        } else {
+            // Siamo AVANTI. Un bus in anticipo, nella realta', non torna
+            // indietro: rallenta. Qui l'anticipo si smaltisce frenando in
+            // [tick], e il marker non arretra mai — che e' l'unica cosa che
+            // l'occhio legge come direzione sbagliata.
+            pending = 0.0
+            overshoot = -error
         }
         if (feedSpeed >= 0) speed = feedSpeed
     }
@@ -307,9 +356,10 @@ class BusPathMotion(
             // recupera in un colpo, senza stare a simulare curve e soste di
             // un minuto intero che nessuno ha visto.
             val dt = dtMs.coerceAtMost(COARSE_CAP_MS) / 1000.0
-            val cruise = if (feedSpeed >= 0) feedSpeed else DEFAULT_SPEED
+            val cruise = if (feedSpeed > 0.0) feedSpeed else DEFAULT_SPEED
             s = (s + cruise * dt).coerceIn(0.0, path.length)
             pending = 0.0
+            overshoot = 0.0
             dwellUntilMs = 0L
             return
         }
@@ -328,7 +378,11 @@ class BusPathMotion(
             return
         }
 
-        val cruise = if (feedSpeed >= 0) feedSpeed else DEFAULT_SPEED
+        // `> 0.0`, non `>= 0`: una velocita' dichiarata nulla e' il mezzo
+        // fermo DUE MINUTI FA, non adesso — e il principio di questa classe
+        // (scritto in testa) e' che fra un dato e l'altro il bus non sta
+        // fermo. Con `>= 0` uno zero mandava `wanted` a zero e ce lo teneva.
+        val cruise = if (feedSpeed > 0.0) feedSpeed else DEFAULT_SPEED
         var wanted = cruise
 
         // Rallenta dove la strada gira: una svolta ad angolo retto lascia
@@ -359,7 +413,16 @@ class BusPathMotion(
         val maxStep = ACCEL * dt
         speed = (speed + (wanted - speed).coerceIn(-maxStep * 2.0, maxStep))
             .coerceIn(0.0, MAX_SPEED)
-        s = (s + speed * dt).coerceIn(0.0, path.length)
+        var step = speed * dt
+        if (overshoot > 0.0) {
+            // L'anticipo si paga togliendo una parte del passo: il mezzo
+            // rallenta e il dato vero lo riprende. Mai un passo negativo.
+            val brake = min(overshoot, step * OVERSHOOT_BLEED)
+            overshoot -= brake
+            step -= brake
+            if (overshoot < 0.5) overshoot = 0.0
+        }
+        s = (s + step).coerceIn(0.0, path.length)
     }
 
     fun sample(out: DoubleArray) = path.sample(s, out)
@@ -370,6 +433,12 @@ class BusPathMotion(
 
         /** Oltre questo scarto non e' una correzione: e' un altro posto. */
         const val SNAP_M = 1_200.0
+
+        /**
+         * Quanta parte del passo si cede per smaltire l'anticipo. A 0.6 il
+         * mezzo tiene il 40% dell'andatura invece di fermarsi o arretrare.
+         */
+        const val OVERSHOOT_BLEED = 0.6
 
         /** Quando il feed non dichiara la velocita': ~25 km/h. */
         const val DEFAULT_SPEED = 7.0

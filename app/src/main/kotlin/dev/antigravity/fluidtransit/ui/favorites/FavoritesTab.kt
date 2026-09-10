@@ -77,7 +77,13 @@ fun FavoritesTab(
                             d.tripIndex,
                             d.positionInPattern,
                             r.patternStopCount(d.patternIndex),
+                            java.time.Instant.now().epochSecond,
                         )
+                            // Le fermate gia' servite le filtrano tutte le
+                            // altre schermate: qui mancava, e la stessa
+                            // fermata mostrava minuti diversi fra Preferiti
+                            // e la sua scheda.
+                            ?.takeIf { it.confidence != dev.antigravity.fluidtransit.routing.DelayModel.Confidence.SERVED }
                         if (live != null) anyLive = true
                         val eff = d.instant.epochSecond + (live?.delaySeconds ?: 0)
                         val line = r.routeShortName(d.routeIndex)

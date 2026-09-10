@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,6 +80,16 @@ fun AppRoot(app: FluidTransitApp) {
 private fun AppShell(app: FluidTransitApp) {
     var route by rememberSaveable { mutableStateOf(RouteMap) }
 
+    /**
+     * Lo stato salvabile di ogni scheda, tenuto da parte mentre un'altra e'
+     * davanti. Senza, il `when` qui sotto e' uno scambio secco: la scheda che
+     * esce viene smontata e tutto il suo `rememberSaveable` sparisce. Sulla
+     * mappa si vedeva bene — bastava un giro su Oggi e al ritorno la camera
+     * era tornata al punto di partenza, col pannello chiuso, i filtri
+     * azzerati e la ricerca svuotata.
+     */
+    val tabState = rememberSaveableStateHolder()
+
     // La modalita' linea della mappa prende il posto della tab bar: quando
     // il suo pannello ridotto e' giu', la barra si sfila con lui.
     var mapHidesTabBar by remember { mutableStateOf(false) }
@@ -123,17 +134,19 @@ private fun AppShell(app: FluidTransitApp) {
                         .fillMaxSize()
                         .fluidGlassModalObscured(),
                 ) {
-                    when (route) {
-                        RouteToday -> TodayTab(app, onOpenOnMap = openOnMap)
-                        RouteFavorites -> FavoritesTab(app, onOpenOnMap = openOnMap)
-                        RouteSettings -> SettingsTab(app)
-                        else -> MapScreen(
-                            app,
-                            mapBackdrop,
-                            onTabBarHidden = { mapHidesTabBar = it },
-                            intent = mapIntent,
-                            onIntentConsumed = { mapIntent = null },
-                        )
+                    tabState.SaveableStateProvider(route) {
+                        when (route) {
+                            RouteToday -> TodayTab(app, onOpenOnMap = openOnMap)
+                            RouteFavorites -> FavoritesTab(app, onOpenOnMap = openOnMap)
+                            RouteSettings -> SettingsTab(app)
+                            else -> MapScreen(
+                                app,
+                                mapBackdrop,
+                                onTabBarHidden = { mapHidesTabBar = it },
+                                intent = mapIntent,
+                                onIntentConsumed = { mapIntent = null },
+                            )
+                        }
                     }
                 }
             }

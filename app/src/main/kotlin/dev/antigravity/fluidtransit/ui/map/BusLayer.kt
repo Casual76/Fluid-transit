@@ -75,7 +75,33 @@ class BusOverlay {
         var lastMoveMs: Long = 0L,
         /** Ultimo snapshot in cui il feed ha nominato questo mezzo. */
         var lastSeenMs: Long = 0L,
+        /**
+         * L'ultimo dato VERO gia' consegnato al moto sulla strada. Serve a
+         * riconoscere le fotocopie: il feed si rigenera ogni ~2 minuti e
+         * l'app polla ogni 30 s, quindi la maggior parte degli snapshot
+         * ripete lo stesso rilevamento.
+         */
+        var fixLat: Double = Double.NaN,
+        var fixLon: Double = Double.NaN,
+        var fixAgeSec: Int = Int.MIN_VALUE,
+        /**
+         * Quando questo mezzo e' stato mosso l'ultima volta. Per mezzo e non
+         * globale, perche' con il taglio per riquadro un mezzo puo' restare
+         * fermo molti fotogrammi: al rientro deve recuperare il SUO tempo,
+         * non quello dell'ultimo fotogramma disegnato.
+         */
+        var lastTickMs: Long = 0L,
     ) {
+        /** Questo dato dice qualcosa che non sapevamo gia'? */
+        fun isNewFix(b: BusRender): Boolean =
+            b.lat != fixLat || b.lon != fixLon || b.fixAgeSec != fixAgeSec
+
+        fun rememberFix(b: BusRender) {
+            fixLat = b.lat
+            fixLon = b.lon
+            fixAgeSec = b.fixAgeSec
+        }
+
         fun glideAt(nowMs: Long): Pair<Double, Double> {
             if (durationMs <= 0) return toLat to toLon
             val t = ((nowMs - startMs).toDouble() / durationMs).coerceIn(0.0, 1.0)
@@ -105,7 +131,17 @@ class BusOverlay {
 
             val motion = prev.motion
             if (motion != null) {
-                motion.onFix(b.lat, b.lon, b.speedMs, b.fixAgeSec, nowMs)
+                // Solo se il dato e' nuovo. Riapplicare la stessa posizione
+                // non era innocuo: l'eta' del rilevamento e' congelata, quindi
+                // il bersaglio resta fermo mentre il mezzo simulato e'
+                // avanzato, e la "correzione" lo tirava indietro — con la
+                // freccia che, venendo dalla tangente della strada, continuava
+                // a puntare avanti. Il ramo di ripiego qui sotto questo filtro
+                // ce l'ha da sempre (moved < 8); mancava solo qui.
+                if (prev.isNewFix(b)) {
+                    prev.rememberFix(b)
+                    motion.onFix(b.lat, b.lon, b.speedMs, b.fixAgeSec, nowMs)
+                }
                 continue
             }
             glideToward(prev, b, nowMs)
@@ -122,8 +158,16 @@ class BusOverlay {
 
     val isEmpty: Boolean get() = tracks.isEmpty()
 
-    fun features(nowMs: Long, style: Style, density: Float): FeatureCollection {
-        val dt = if (lastFrameMs == 0L) 0L else nowMs - lastFrameMs
+    fun features(
+        nowMs: Long,
+        style: Style,
+        density: Float,
+        /**
+         * Il riquadro da disegnare, GIA' allargato dal chiamante:
+         * (minLat, minLon, maxLat, maxLon). null = nessun taglio.
+         */
+        view: DoubleArray? = null,
+    ): FeatureCollection {
         lastFrameMs = nowMs
 
         val out = ArrayList<Feature>(tracks.size)
@@ -131,6 +175,23 @@ class BusOverlay {
         for (t in tracks.values) {
             if (nowMs - t.lastSeenMs > HIDE_MS) continue
             val b = t.render
+
+            // Fuori dalla scena non si disegna e non si simula.
+            //
+            // Il taglio guarda la posizione dell'ULTIMO DATO VERO, che e' nota
+            // senza far avanzare niente — ed e' per questo che il riquadro
+            // arriva gia' allargato di qualche chilometro: fra un dato e
+            // l'altro passano ~2 minuti, e un mezzo in quel tempo fa strada.
+            // Quando rientra, il tempo accumulato manda tick() sul recupero in
+            // blocco, che e' esattamente il caso per cui quel ramo esiste.
+            if (view != null &&
+                (b.lat < view[0] || b.lat > view[2] || b.lon < view[1] || b.lon > view[3])
+            ) {
+                continue
+            }
+
+            val dt = if (t.lastTickMs == 0L) 0L else nowMs - t.lastTickMs
+            t.lastTickMs = nowMs
             val motion = t.motion
             val lat: Double
             val lon: Double
@@ -185,6 +246,7 @@ class BusOverlay {
         attachMotion(t, b)
         // Comparire nel posto giusto non e' un teletrasporto: e' l'unica
         // cosa onesta da fare al primo dato.
+        t.rememberFix(b)
         t.motion?.onFix(b.lat, b.lon, b.speedMs, b.fixAgeSec, nowMs)
         return t
     }
@@ -197,13 +259,56 @@ class BusOverlay {
     private fun attachMotion(t: Track, b: BusRender) {
         if (t.motion != null && t.pattern == b.patternIndex) return
         val cache = paths ?: return
+
+        // Il ripiego: nessuna geometria, si scivola fra due dati veri. E'
+        // sempre meglio della geometria SBAGLIATA, che manda il mezzo a
+        // percorrere una strada che non e' la sua.
+        fun fallback() {
+            t.motion = null
+            t.pattern = b.patternIndex
+        }
+
         if (b.patternIndex < 0) {
             t.motion = null
             t.pattern = -1
             return
         }
-        val path = cache.get(b.patternIndex) ?: return
-        val startS = path.project(b.lat, b.lon)
+        val path = cache.get(b.patternIndex)
+        if (path == null) {
+            // La decodifica del pattern e' asincrona. Prima si usciva di qui
+            // lasciando il moto sulla geometria PRECEDENTE: il mezzo aveva
+            // gia' cambiato corsa — al capolinea vuol dire verso invertito —
+            // e continuava a correre sul ramo di prima, cioe' all'indietro.
+            fallback()
+            return
+        }
+
+        val probe = DoubleArray(2)
+        path.projectWithDistance(b.lat, b.lon, probe)
+        val startS = probe[0]
+
+        // 1. Il mezzo deve stare SULLA strada che gli stiamo attribuendo.
+        //    project() aggancia sempre, anche a chilometri di distanza: senza
+        //    questo controllo una corsa risolta male faceva correre il bus
+        //    lungo un percorso qualsiasi della linea. distanceTo esisteva gia'
+        //    e fuori dai test non la chiamava nessuno.
+        if (probe[1] > MAX_PATH_OFFSET_M) {
+            fallback()
+            return
+        }
+
+        // 2. Quando il feed dichiara la rotta e' una controprova gratuita: se
+        //    la tangente della tratta punta dalla parte opposta, quello e' il
+        //    pattern del verso sbagliato. Il bearing arriva su pochi mezzi
+        //    (misurati 37 su ~1250), quindi vale come smentita e non come
+        //    sorgente — ma quando c'e' e' decisivo.
+        if (b.bearingDeg >= 0 &&
+            angleBetween(path.headingAtS(startS), b.bearingDeg.toDouble()) > OPPOSITE_DEG
+        ) {
+            fallback()
+            return
+        }
+
         t.pattern = b.patternIndex
         t.motion = BusPathMotion(
             path = path,
@@ -252,6 +357,27 @@ class BusOverlay {
 
         /** Assente da tantissimo: si butta. */
         const val FORGET_MS = 300_000L
+
+        /**
+         * Oltre questa distanza dalla tratta, quel mezzo non sta percorrendo
+         * quella tratta. Le shape sono semplificate e il GPS sbaglia, quindi
+         * la soglia e' larga: serve a scartare gli agganci assurdi, non a
+         * fare i pignoli sui metri.
+         */
+        const val MAX_PATH_OFFSET_M = 250.0
+
+        /**
+         * Oltre questo scarto fra la rotta dichiarata dal feed e la tangente
+         * della tratta, il mezzo sta andando dall'altra parte.
+         */
+        const val OPPOSITE_DEG = 120.0
+
+        /** Differenza fra due rotte, 0..180. */
+        fun angleBetween(a: Double, b: Double): Double {
+            var d = kotlin.math.abs(a - b) % 360.0
+            if (d > 180.0) d = 360.0 - d
+            return d
+        }
 
         /** Rotta iniziale (gradi da nord, orari) dal punto vecchio al nuovo. */
         fun bearingDegrees(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Int {

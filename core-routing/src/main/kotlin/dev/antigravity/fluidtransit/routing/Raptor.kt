@@ -47,6 +47,11 @@ class Raptor(private val reader: BundleReader) {
     class Realtime(
         val delayByTrip: Map<Int, Int> = emptyMap(),
         val canceledTrips: Set<Int> = emptySet(),
+        /**
+         * Quando quei ritardi sono stati osservati. 0 = ignoto, e allora si
+         * applicano senza guardare l'orologio (com'era prima).
+         */
+        val observedAtEpoch: Long = 0L,
     ) {
         companion object {
             val NONE = Realtime()
@@ -233,6 +238,31 @@ class Raptor(private val reader: BundleReader) {
     private fun walkSeconds(meters: Double): Int =
         Math.ceil(meters * options.walkFactor / options.walkSpeedMs).toInt()
 
+    /**
+     * Il ritardo live da applicare a una corsa che parte, in teoria, a
+     * [scheduledEpoch]. Due cautele che prima non c'erano.
+     *
+     * **Il giorno.** I ritardi descrivono i mezzi in strada ADESSO, ma questo
+     * algoritmo guarda tre giorni di servizio (ieri, oggi, domani: alle 00:30
+     * la corsa giusta e' quasi sempre quella di ieri alle "24:30"). Senza
+     * questo controllo il ritardo osservato oggi finiva pari pari sulla stessa
+     * corsa di domani, e l'itinerario per domattina nasceva gia' sbagliato.
+     *
+     * **L'anticipo.** Un ritardo negativo non si usa MAI per far partire un
+     * bus prima: se l'app dice che passa due minuti in anticipo e la persona
+     * arriva all'orario scritto, l'ha perso. L'anticipo si ignora e si tiene
+     * l'orario di tabella, che e' l'unica cosa su cui si puo' contare.
+     */
+    private fun liveDelay(rt: Realtime, trip: Int, scheduledEpoch: Long): Int {
+        val raw = rt.delayByTrip[trip] ?: return 0
+        if (rt.observedAtEpoch > 0 &&
+            Math.abs(scheduledEpoch - rt.observedAtEpoch) > LIVE_WINDOW_SECONDS
+        ) {
+            return 0
+        }
+        return raw.coerceAtLeast(0)
+    }
+
     private fun serviceDays(aroundEpoch: Long): List<ServiceDay> {
         val date = Instant.ofEpochSecond(aroundEpoch).atZone(Ftb.ROME).toLocalDate()
         val out = ArrayList<ServiceDay>(3)
@@ -246,6 +276,13 @@ class Raptor(private val reader: BundleReader) {
     }
 
     private companion object {
+        /**
+         * Quanto lontano dall'istante di osservazione un ritardo live ha
+         * ancora senso. Due ore: oltre, quella corsa o non e' ancora partita
+         * o e' arrivata da un pezzo, e il numero non la riguarda.
+         */
+        const val LIVE_WINDOW_SECONDS = 2 * 60 * 60
+
         const val INF = Long.MAX_VALUE / 4
         const val KIND_NONE = 0.toByte()
         const val KIND_RIDE = 1.toByte()
@@ -468,9 +505,10 @@ class Raptor(private val reader: BundleReader) {
                 if (bestSoFar != null && day.startEpoch + dep0 > bestSoFar.dep) break
                 if (trip in rt.canceledTrips) continue
                 if (!reader.serviceActive(reader.tripService(trip), day.dayIndex)) continue
-                val delay = rt.delayByTrip[trip] ?: 0
-                val dep = day.startEpoch + dep0 +
-                    reader.profileOffset(reader.tripProfile(trip), pos) + delay
+                val scheduled = day.startEpoch + dep0 +
+                    reader.profileOffset(reader.tripProfile(trip), pos)
+                val delay = liveDelay(rt, trip, scheduled)
+                val dep = scheduled + delay
                 if (dep < notBefore) continue
                 if (bestSoFar == null || dep < bestSoFar.dep) {
                     best = Board(trip, dep, day.startEpoch, delay)
@@ -537,7 +575,15 @@ class Raptor(private val reader: BundleReader) {
                     val pattern = reader.tripPattern(trip)
                     val profile = reader.tripProfile(trip)
                     val dep0 = reader.tripDeparture0(trip)
-                    val delay = rt.delayByTrip[trip] ?: 0
+                    // Lo STESSO ritardo che ha deciso il percorso, non quello
+                    // grezzo: altrimenti la tratta mostrata all'utente porta
+                    // un orario diverso da quello con cui l'itinerario e'
+                    // stato costruito.
+                    val delay = liveDelay(
+                        rt,
+                        trip,
+                        dayStart + dep0 + reader.profileOffset(profile, boardPos),
+                    )
                     val boardStop = reader.patternStop(pattern, boardPos)
                     legs.add(
                         Leg.Ride(

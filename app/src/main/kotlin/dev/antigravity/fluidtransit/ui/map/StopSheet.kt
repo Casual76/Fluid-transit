@@ -142,6 +142,7 @@ fun StopPanelContent(
                         d.tripIndex,
                         d.positionInPattern,
                         reader.patternStopCount(d.patternIndex),
+                        java.time.Instant.now().epochSecond,
                     )
                     DepartureRow(
                         tripIndex = d.tripIndex,

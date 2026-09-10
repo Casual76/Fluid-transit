@@ -35,7 +35,22 @@ object Flags {
 class FluidTransitApp : Application() {
 
     /** Vive quanto il processo: niente di quello che parte qui ha qualcosa da cui essere cancellato. */
-    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /**
+     * La rete sotto tutto quello che gira in sottofondo.
+     *
+     * SupervisorJob impedisce che un figlio caduto porti giu' i fratelli, ma
+     * non basta: una coroutine radice che esplode senza gestore finisce sul
+     * gestore di default del thread, cioe' termina il PROCESSO. Il giro
+     * delle routine ci arrivava per davvero — try/finally senza catch, e un
+     * lettore del bundle chiuso sotto i piedi dallo scambio notturno — e
+     * l'app si chiudeva da sola senza dire niente a nessuno.
+     */
+    private val scopeGuard = kotlinx.coroutines.CoroutineExceptionHandler { _, t ->
+        android.util.Log.e("FluidTransit", "coroutine di fondo caduta", t)
+    }
+
+    val applicationScope =
+        CoroutineScope(SupervisorJob() + Dispatchers.Default + scopeGuard)
 
     val settingsStore by lazy { EngineSettingsStore(this) }
 
@@ -71,6 +86,13 @@ class FluidTransitApp : Application() {
      * proprio mentre serve.
      */
     val delayModel by lazy { dev.antigravity.fluidtransit.routing.DelayModel() }
+
+    /**
+     * Le corse che il feed dichiara cancellate, gia' risolte in indici del
+     * bundle. Popolato dallo stesso collettore dei ritardi.
+     */
+    val canceledTrips = kotlinx.coroutines.flow.MutableStateFlow<Set<Int>>(emptySet())
+
 
     /**
      * L'assistente. Vive qui, nello scope dell'Application, perche' una
@@ -213,10 +235,27 @@ class FluidTransitApp : Application() {
                     }
                 }
         }
+        // Un bundle nuovo azzera i ritardi. Gli indici di corsa cambiano a
+        // ogni build, quindi tenersi le osservazioni vecchie vuol dire
+        // attribuirle a corse a caso.
+        applicationScope.launch {
+            var lastBuild: Long? = null
+            bundleManager.state.collect { s ->
+                val id = (s as? BundleManager.BundleState.Ready)?.buildId ?: return@collect
+                val prev = lastBuild
+                if (prev != null && prev != id) delayModel.clear()
+                lastBuild = id
+            }
+        }
         // Ogni giro di trip-updates entra nel modello dei ritardi, da qui e
         // una volta sola, qualunque schermata sia aperta.
         applicationScope.launch {
             realtime.delays.collect { snapshot ->
+                // Le cancellate viaggiano insieme ai ritardi: chi le vuole
+                // (la navigazione) altrimenti doveva ricostruire l'intero
+                // snapshot risolto — ottocento oggetti e tre mappe — solo per
+                // leggerne un insieme di interi.
+                canceledTrips.value = emptySet()
                 val ready = bundleManager.state.value as? BundleManager.BundleState.Ready
                 val reader = ready?.reader ?: return@collect
                 if (snapshot == null) return@collect
@@ -233,6 +272,18 @@ class FluidTransitApp : Application() {
                         ?: continue
                     delayModel.observe(trip, d.delaySec, d.nextStopSeq, at)
                 }
+                canceledTrips.value = snapshot.byTripHash.values
+                    .asSequence()
+                    .filter { it.canceled }
+                    .mapNotNull { d ->
+                        reader.findTripByIdHash(d.tripHash).takeIf { it >= 0 }
+                            ?: reader.findTripByRouteAndDeparture(
+                                d.routeHash,
+                                d.direction,
+                                d.startTimeSec,
+                            ).takeIf { it >= 0 }
+                    }
+                    .toSet()
                 // Le corse di cui non si sente parlare da mezz'ora sono
                 // finite: la memoria non deve crescere per sempre.
                 delayModel.forgetBefore(at - 30 * 60)

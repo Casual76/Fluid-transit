@@ -91,7 +91,11 @@ class TransitToolHostProvider : AiToolHostProvider<ToolContext>() {
     return ToolContext(
       transit = app.assistantBridge,
       locale = Locale.getDefault(),
-      zone = ZoneId.systemDefault(),
+      // I bus circolano con l'orario italiano, non con quello del telefono.
+      // Col fuso di sistema, un telefono impostato su un altro fuso faceva
+      // calcolare all'assistente il giorno di servizio sbagliato — e con
+      // esso l'intera risposta su cosa passa adesso.
+      zone = dev.antigravity.fluidtransit.routing.Ftb.ROME,
       nowMillis = System.currentTimeMillis(),
       actionsEnabled = true,
       actions = BridgeActionSink(app, context!!),

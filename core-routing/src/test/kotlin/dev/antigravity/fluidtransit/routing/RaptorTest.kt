@@ -182,6 +182,53 @@ class RaptorTest {
     }
 
     @Test
+    fun `un anticipo non fa partire il bus prima dell'orario`() {
+        BundleReader(writeBundle()).use { r ->
+            val raptor = Raptor(r)
+            // Il feed dichiara la R1 in anticipo di cinque minuti. Costruire
+            // l'itinerario su quel numero vuol dire mandare la persona alla
+            // fermata per un bus che, se l'anticipo non c'e' davvero, e'
+            // gia' passato. L'orario di tabella e' l'unica cosa garantita.
+            val rt = Raptor.Realtime(delayByTrip = mapOf(0 to -300))
+            val journeys = raptor.plan(nearA, nearD, epochAt(feedStart, 7, 50), rt)
+            val bus = journeys.first { !it.isWalkOnly }
+            val ride = bus.legs.filterIsInstance<Raptor.Leg.Ride>().first()
+            val day = Ftb.serviceDayStart(feedStart).epochSecond
+            assertEquals(
+                day + 8 * 3600,
+                ride.departure.epochSecond,
+                "l'anticipo dichiarato dal feed e' finito nell'orario di partenza",
+            )
+        }
+    }
+
+    @Test
+    fun `il ritardo di adesso non si applica alla corsa di un altro giorno`() {
+        BundleReader(writeBundle()).use { r ->
+            val raptor = Raptor(r)
+            val day = Ftb.serviceDayStart(feedStart).epochSecond
+            // Stesso ritardo del test qui sopra, ma osservato all'alba: la
+            // corsa delle 08:00 e' fuori dalla finestra in cui quel dato
+            // significa qualcosa. Questo algoritmo guarda tre giorni di
+            // servizio, e senza il controllo il ritardo di oggi finiva
+            // pari pari sulla stessa corsa di domani.
+            val rt = Raptor.Realtime(
+                delayByTrip = mapOf(0 to 600),
+                observedAtEpoch = day - 12 * 3600,
+            )
+            val journeys = raptor.plan(nearA, nearD, epochAt(feedStart, 7, 50), rt)
+            val bus = journeys.first { !it.isWalkOnly }
+            val ride = bus.legs.filterIsInstance<Raptor.Leg.Ride>().first()
+            assertEquals(
+                day + 8 * 3600,
+                ride.departure.epochSecond,
+                "un ritardo di dodici ore fa e' stato applicato lo stesso",
+            )
+            assertEquals(0, ride.delaySeconds)
+        }
+    }
+
+    @Test
     fun `la corsa cancellata non si sale`() {
         BundleReader(writeBundle()).use { r ->
             val raptor = Raptor(r)

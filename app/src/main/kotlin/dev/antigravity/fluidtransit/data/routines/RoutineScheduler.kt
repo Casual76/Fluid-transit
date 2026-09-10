@@ -114,6 +114,17 @@ object RoutineScheduler {
         app.applicationScope.launch(Dispatchers.IO) {
             try {
                 computeAndNotify(app, id, phase)
+            } catch (e: Exception) {
+                // C'era solo try/finally. Un'eccezione qui dentro — il
+                // lettore del bundle chiuso sotto i piedi dallo scambio
+                // notturno, la rete che salta — non fermava la routine:
+                // saliva su uno scope senza gestore e portava giu' il
+                // processo. E la sveglia successiva non veniva armata da
+                // nessuno, quindi la routine moriva li'.
+                runCatching {
+                    Routines(app).list().firstOrNull { it.id == id && it.enabled }
+                        ?.let { scheduleNextCompute(app, it) }
+                }
             } finally {
                 whenDone()
             }
@@ -125,9 +136,18 @@ object RoutineScheduler {
         val r = store.list().firstOrNull { it.id == id } ?: return
         if (!r.enabled) return
 
-        val ready = withTimeoutOrNull(30_000) {
+        // L'attesa e' corta di proposito: questo giro nasce da un
+        // BroadcastReceiver, che il sistema non lascia lavorare a lungo.
+        // Trenta secondi erano una richiesta di essere uccisi.
+        val ready = withTimeoutOrNull(BUNDLE_WAIT_MS) {
             app.bundleManager.state.filterIsInstance<BundleManager.BundleState.Ready>().first()
-        } ?: return
+        } ?: run {
+            // E soprattutto: si RIARMA. Prima si usciva e basta, e quella
+            // routine non si sarebbe piu' fatta viva — nessun errore, nessun
+            // avviso, semplicemente non suonava mai piu'.
+            scheduleNextCompute(app, r)
+            return
+        }
         val reader = ready.reader
 
         // I ritardi di ADESSO: un giro di realtime prima del calcolo.
@@ -144,7 +164,11 @@ object RoutineScheduler {
             }
         }.getOrNull()
         val live = if (resolvedDelays != null) {
-            Raptor.Realtime(resolvedDelays.delayByTrip, resolvedDelays.canceledTrips)
+            Raptor.Realtime(
+                resolvedDelays.delayByTrip,
+                resolvedDelays.canceledTrips,
+                java.time.Instant.now().epochSecond,
+            )
         } else {
             Raptor.Realtime.NONE
         }
@@ -228,6 +252,9 @@ object RoutineScheduler {
             scheduleNextCompute(app, r)
         }
     }
+
+    /** Quanto si aspetta il bundle dentro il giro di una sveglia. */
+    private const val BUNDLE_WAIT_MS = 8_000L
 
     private fun hm(i: Instant): String = ZonedDateTime.ofInstant(i, Ftb.ROME)
         .let { "%02d:%02d".format(it.hour, it.minute) }

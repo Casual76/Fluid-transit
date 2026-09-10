@@ -40,7 +40,19 @@ class NavPlan(
 )
 
 sealed class NavLeg {
-    class Walk(val seconds: Int, val toName: String, val startEpoch: Long) : NavLeg()
+    /**
+     * Una camminata. Porta anche DOVE si va, non solo per quanto: senza le
+     * coordinate il servizio poteva dire "cammina per 4 minuti" e nient'altro
+     * — mai quanto manca davvero, perche' non sapeva ne' dove sei tu ne' dove
+     * e' la fermata.
+     */
+    class Walk(
+        val seconds: Int,
+        val toName: String,
+        val startEpoch: Long,
+        val toLat: Double = 0.0,
+        val toLon: Double = 0.0,
+    ) : NavLeg()
     class Ride(
         val trip: Int,
         val pattern: Int,
@@ -67,6 +79,8 @@ class NavState(
     val stopsRemaining: Int,
     val totalStops: Int,
     val etaEpoch: Long,
+    /** Metri che mancano al punto di questa fase. -1 se la posizione non si sa. */
+    val metersToGo: Int = -1,
 )
 
 /**

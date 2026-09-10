@@ -117,6 +117,7 @@ fun TodayTab(
                         d.tripIndex,
                         d.positionInPattern,
                         reader.patternStopCount(d.patternIndex),
+                        java.time.Instant.now().epochSecond,
                     )?.takeIf { it.confidence != DelayModel.Confidence.SERVED }
                     DepRow(
                         stopName = reader.stopName(stop),

@@ -98,15 +98,41 @@ class DelayModel {
      * pattern che ne ha [stopCount]. Null quando di quella corsa non
      * sappiamo niente.
      */
-    fun at(tripKey: Int, position: Int, stopCount: Int): Live? {
+    fun at(tripKey: Int, position: Int, stopCount: Int, nowEpoch: Long = 0L): Live? {
         val track = tracks[tripKey] ?: return null
         val last = track.newest ?: return null
-        val seq = last.seq
 
-        if (seq >= 0 && position < seq) {
+        // Un'osservazione vecchia non e' il ritardo di adesso.
+        //
+        // Il feed puo' smettere di parlare di una corsa (mezzo che esce dal
+        // servizio, trip-updates che non arrivano piu', app in DIRECT), e
+        // senza questo controllo l'ultimo numero visto restava a schermo per
+        // sempre: mezz'ora dopo si leggeva ancora "+8 min" come se fosse
+        // fresco. `forgetBefore` da solo non basta, perche' gira solo quando
+        // arriva uno snapshot nuovo — cioe' mai, proprio nel caso che conta.
+        if (nowEpoch > 0 && last.at > 0 && nowEpoch - last.at > STALE_SECONDS) return null
+
+        // Lo `stop_sequence` del feed NON e' la posizione nel pattern.
+        //
+        // GTFS lo lascia libero, ma il feed di Autolinee Toscane e' stato
+        // MISURATO sui dati veri: su 1649 corse con la sequenza dichiarata i
+        // valori vanno da 1 a 71 e lo zero non compare mai (452 corse
+        // partono da 1). E' 1-based. Il bundle invece indicizza le fermate
+        // da 0, e i numeri originali non li conserva: il builder li usa per
+        // ordinare le fermate e poi li butta.
+        //
+        // Confrontarli come se fossero la stessa cosa — che e' quello che si
+        // faceva qui — sposta tutto di una fermata, e a sparire e' proprio
+        // quella verso cui il bus sta andando: l'unica che all'utente
+        // interessa davvero. Un `seq` fuori scala, poi, marcava OGNI fermata
+        // come gia' servita e faceva sparire il live per intero.
+        val seq = if (last.seq in 0..stopCount) last.seq else -1
+        val servedBelow = if (seq > 0) seq - 1 else 0
+
+        if (seq >= 0 && position < servedBelow) {
             return Live(last.delaySeconds, Confidence.SERVED)
         }
-        val from = max(seq, 0)
+        val from = max(servedBelow, 0)
         val ahead = position - from
         if (ahead <= 0) return Live(last.delaySeconds, Confidence.OBSERVED)
 
@@ -135,6 +161,17 @@ class DelayModel {
         return Live(Math.round(clamped).toInt(), Confidence.PROJECTED)
     }
 
+    /**
+     * Butta tutto.
+     *
+     * Le chiavi sono indici del bundle, e gli indici NON sopravvivono a un
+     * bundle nuovo: sono assegnati nell'ordine in cui il builder scandisce
+     * gli orari. Dopo lo scambio notturno i ritardi di ieri restavano
+     * appiccicati a indici che ormai indicano altre corse — un ritardo vero,
+     * su una linea sbagliata.
+     */
+    fun clear() = tracks.clear()
+
     /** Housekeeping: le corse di cui non si sente parlare da un pezzo. */
     fun forgetBefore(epoch: Long) {
         val it = tracks.entries.iterator()
@@ -148,6 +185,13 @@ class DelayModel {
     private companion object {
         /** Quante osservazioni bastano a leggere un andamento senza inseguire il rumore. */
         const val HISTORY = 5
+
+        /**
+         * Oltre questa eta' l'osservazione non descrive piu' il presente.
+         * Dieci minuti: il feed si rigenera ogni due, quindi cinque giri
+         * mancati sono gia' un silenzio che vuol dire qualcosa.
+         */
+        const val STALE_SECONDS = 600L
 
         /** Quanto del ritardo si assume recuperato al capolinea, senza altre prove. */
         const val DEFAULT_RECOVERY = 0.30

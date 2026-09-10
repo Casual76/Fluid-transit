@@ -34,10 +34,31 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
                 when (val s = state) {
                     is BundleState.Ready -> {
                         val r = s.reader
+                        // Quanto manca alla fine della validita'. Oltre quella
+                        // data l'app rispondeva "nessun passaggio" a
+                        // qualunque domanda, senza mai dire che il motivo era
+                        // che gli orari erano finiti: sembrava un guasto.
+                        val today = java.time.LocalDate.now(
+                            dev.antigravity.fluidtransit.routing.Ftb.ROME,
+                        )
+                        val daysLeft = java.time.temporal.ChronoUnit.DAYS
+                            .between(today, r.feedEnd)
                         FluidListRow(
                             title = "Orari caricati",
-                            subtitle = "Validi dal ${r.feedStart} al ${r.feedEnd}",
-                            meta = "ok",
+                            subtitle = when {
+                                daysLeft < 0 ->
+                                    "SCADUTI il ${r.feedEnd}. Gli orari non coprono piu' oggi: " +
+                                        "finche' non arriva un bundle nuovo, molte ricerche " +
+                                        "non troveranno passaggi."
+                                daysLeft <= 3 ->
+                                    "Validi dal ${r.feedStart} al ${r.feedEnd} — in scadenza"
+                                else -> "Validi dal ${r.feedStart} al ${r.feedEnd}"
+                            },
+                            meta = when {
+                                daysLeft < 0 -> "scaduti"
+                                daysLeft <= 3 -> "$daysLeft g"
+                                else -> "ok"
+                            },
                         )
                         FluidListRow(
                             title = "Versione dei dati",

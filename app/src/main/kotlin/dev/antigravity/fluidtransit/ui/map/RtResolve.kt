@@ -37,6 +37,12 @@ class BusMeta(
 private const val UNKNOWN_COLOR = 0x8A8A93
 
 /**
+ * Oltre questo scarto fra l'orologio del telefono e quello del proxy non si
+ * corregge piu': non e' latenza, e' un orologio sbagliato.
+ */
+private const val MAX_SNAPSHOT_LAG_SEC = 300L
+
+/**
  * La chiave con cui un mezzo resta LO STESSO mezzo fra due snapshot.
  *
  * Il feed non mette `vehicle.id` su tutti i veicoli, e fino alla Fase 8
@@ -53,17 +59,38 @@ private fun vehicleKey(v: dev.antigravity.fluidtransit.data.rt.RtVehicle): Int {
 }
 
 fun resolveRt(reader: BundleReader, vehicles: RtVehicles, delays: RtDelays?): ResolvedRt {
+    // I contatori riguardano SOLO i veicoli, e contano anche i successi del
+    // matcher secondario. Prima il denominatore raccoglieva pure i ritardi
+    // (resolveTrip e' chiamata anche nel loop qui sotto) e il numeratore
+    // ignorava il ripiego: la percentuale non misurava quello che dichiarava,
+    // quindi non si poteva usare per capire se un cambio al matcher fosse un
+    // miglioramento o un peggioramento.
     var withTripId = 0
     var resolved = 0
 
+    // Quanto e' passato da quando il proxy ha generato questo snapshot.
+    //
+    // `fixAgeSec` nei record e' l'eta' del rilevamento GPS ALLORA. Fra allora
+    // e adesso ci sono il giro di cron, la cache dell'edge e il giro di poll
+    // dell'app: decine di secondi, che a 30 km/h sono centinaia di metri. Non
+    // sommarli voleva dire disegnare ogni mezzo sistematicamente indietro
+    // rispetto a dov'e' davvero — e, peggio, dare al moto sulla strada un
+    // bersaglio fermo che poi lo tirava all'indietro.
+    //
+    // Il clamp c'e' perche' questo e' l'unico punto in cui entra l'orologio
+    // del telefono: se e' sbagliato, il danno resta limitato.
+    val sinceSnapshot = if (vehicles.generatedAt > 0L) {
+        (java.time.Instant.now().epochSecond - vehicles.generatedAt)
+            .coerceIn(0L, MAX_SNAPSHOT_LAG_SEC)
+            .toInt()
+    } else {
+        0
+    }
+
     fun resolveTrip(tripHash: Long, routeHash: Long, direction: Int, startTime: Int): Int {
         if (tripHash != 0L) {
-            withTripId++
             val direct = reader.findTripByIdHash(tripHash)
-            if (direct >= 0) {
-                resolved++
-                return direct
-            }
+            if (direct >= 0) return direct
         }
         // Il matcher secondario del piano: le due generazioni di dati non
         // sono sincronizzate e i trip_id orfani sono la normalita', non
@@ -84,8 +111,14 @@ fun resolveRt(reader: BundleReader, vehicles: RtVehicles, delays: RtDelays?): Re
         // corsa ne' linea (depositi, fuori servizio) e ~100 hanno un fix
         // piu' vecchio di 10 minuti. Non sono "bus vivi": via.
         if (v.tripHash == 0L && v.routeHash == 0L) continue
-        if (v.fixAgeSec > 600) continue
+        // L'eta' del rilevamento riportata ad adesso: e' questa che decide se
+        // il mezzo e' ancora "vivo", ed e' questa che il moto sulla strada usa
+        // per estrapolare in avanti. -1 resta -1: eta' ignota.
+        val fixAgeNow = if (v.fixAgeSec < 0) -1 else v.fixAgeSec + sinceSnapshot
+        if (fixAgeNow > 600) continue
+        if (v.tripHash != 0L) withTripId++
         val tripIndex = resolveTrip(v.tripHash, v.routeHash, v.direction, v.startTimeSec)
+        if (v.tripHash != 0L && tripIndex >= 0) resolved++
         val patternIndex = if (tripIndex >= 0) reader.tripPattern(tripIndex) else -1
         val routeIndex = when {
             patternIndex >= 0 -> reader.patternRoute(patternIndex)
@@ -117,7 +150,7 @@ fun resolveRt(reader: BundleReader, vehicles: RtVehicles, delays: RtDelays?): Re
                 tripHashHex = java.lang.Long.toHexString(v.tripHash),
                 patternIndex = patternIndex,
                 speedMs = v.speedMs,
-                fixAgeSec = v.fixAgeSec,
+                fixAgeSec = fixAgeNow,
             ),
         )
         metaByKey[key] = BusMeta(
@@ -128,7 +161,7 @@ fun resolveRt(reader: BundleReader, vehicles: RtVehicles, delays: RtDelays?): Re
             routeIndex = routeIndex,
             lat = v.lat,
             lon = v.lon,
-            fixAgeSec = v.fixAgeSec,
+            fixAgeSec = fixAgeNow,
         )
         if (tripIndex >= 0) vehicleByTrip[tripIndex] = key
     }

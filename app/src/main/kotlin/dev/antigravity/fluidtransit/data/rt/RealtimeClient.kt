@@ -42,7 +42,18 @@ class RealtimeClient(
         val delayCount: Int,
     )
 
-    private val http = OkHttpClient()
+    /**
+     * I timeout sono espliciti perche' i default di OkHttp non coprono il
+     * caso che conta: il proxy, quando lo snapshot e' vecchio, puo' fermarsi
+     * a rifare il giro verso l'origine prima di rispondere. Senza
+     * `callTimeout` un giro impantanato tiene occupato il ciclo di poll e la
+     * mappa resta con i dati di prima senza dire niente.
+     */
+    private val http = OkHttpClient.Builder()
+        .connectTimeout(java.time.Duration.ofSeconds(10))
+        .readTimeout(java.time.Duration.ofSeconds(20))
+        .callTimeout(java.time.Duration.ofSeconds(30))
+        .build()
 
     private val _vehicles = MutableStateFlow<RtVehicles?>(null)
     val vehicles: StateFlow<RtVehicles?> = _vehicles
@@ -107,7 +118,14 @@ class RealtimeClient(
                     return@withContext
                 }
             } catch (e: Exception) {
-                registerProxyFailure(e.message ?: e.javaClass.simpleName)
+                // Si scende in DIRECT solo dopo tre errori DI FILA, che e' il
+                // contratto scritto in testa alla classe. Prima l'esecuzione
+                // cadeva sul ramo qui sotto gia' al primo intoppo: un singolo
+                // timeout portava la cadenza a tre minuti e azzerava i
+                // ritardi, senza che niente lo dicesse all'utente.
+                if (!registerProxyFailure(e.message ?: e.javaClass.simpleName)) {
+                    return@withContext
+                }
             }
         }
 
@@ -126,8 +144,16 @@ class RealtimeClient(
     }
 
     suspend fun refreshDelays() = withContext(Dispatchers.IO) {
-        // Solo dal proxy: e' il compromesso deciso per DIRECT (trip-updates
-        // integrale da 1-2 MB al minuto non e' roba da telefono).
+        // In un processo fresco lo stato parte da SCHEDULE_ONLY e nessuno ha
+        // ancora interrogato il proxy. Uscire di qui voleva dire che il
+        // widget, le routine e la scheda Oggi non vedevano MAI un ritardo,
+        // perche' erano gli unici a chiedere e nessuno prima di loro aveva
+        // stabilito lo stato. Il giro dei veicoli e' quello che lo stabilisce.
+        if (_status.value.source != Source.PROXY && _status.value.lastSuccessAt == null) {
+            refreshVehicles()
+        }
+        // Poi vale il compromesso deciso per DIRECT: i trip-updates integrali
+        // dall'origine sono 1-2 MB al minuto, non roba da telefono.
         if (_status.value.source != Source.PROXY) return@withContext
         try {
             val fetched = fetchBinary("$PROXY_BASE/updates", delaysEtag) ?: return@withContext
@@ -143,6 +169,7 @@ class RealtimeClient(
 
     private var alertsCache: List<GtfsRtLite.RtAlert>? = null
     private var alertsCacheAt = 0L
+    private var alertsEtag: String? = null
 
     /**
      * Gli avvisi di servizio, dal proxy, con 5 minuti di cache: la scheda
@@ -152,23 +179,36 @@ class RealtimeClient(
         val now = System.currentTimeMillis()
         alertsCache?.let { if (now - alertsCacheAt < 5 * 60_000) return@withContext it }
         runCatching {
-            val bytes = fetchRaw("$PROXY_BASE/alerts")
-            GtfsRtLite.parseAlerts(bytes).also {
-                alertsCache = it
+            // Col condizionale come le altre due sezioni: gli alerts sono la
+            // fetta piu' grossa dello snapshot (centinaia di kB di protobuf
+            // grezzo) e cambiano di rado. Un 304 qui vale piu' che altrove.
+            val fetched = fetchBinary("$PROXY_BASE/alerts", alertsEtag)
+            if (fetched == null) {
+                // Invariati: si rinnova solo la scadenza della cache locale.
                 alertsCacheAt = now
+                alertsCache ?: emptyList()
+            } else {
+                alertsEtag = fetched.etag
+                GtfsRtLite.parseAlerts(fetched.bytes).also {
+                    alertsCache = it
+                    alertsCacheAt = now
+                }
             }
         }.getOrElse { alertsCache ?: emptyList() }
     }
 
-    private fun registerProxyFailure(message: String) {
+    /** true se e' ora di provare l'origine diretta, false se si riprova col proxy. */
+    private fun registerProxyFailure(message: String): Boolean {
         proxyFailures++
-        if (proxyFailures >= 3) {
+        val giveUp = proxyFailures >= 3
+        if (giveUp) {
             directHoldUntilMs = System.currentTimeMillis() + DIRECT_HOLD_MS
             proxyFailures = 0
         }
         _status.value = _status.value.let {
             Status(it.source, it.feedAgeSeconds, it.lastSuccessAt, message, it.vehicleCount, it.delayCount)
         }
+        return giveUp
     }
 
     private fun publish(source: Source, age: Long?, error: String?) {

@@ -151,6 +151,7 @@ class StopWidget : GlanceAppWidget() {
                 d.tripIndex,
                 d.positionInPattern,
                 reader.patternStopCount(d.patternIndex),
+                java.time.Instant.now().epochSecond,
             )?.takeIf { it.confidence != DelayModel.Confidence.SERVED }
             Row(
                 line = reader.routeShortName(d.routeIndex).ifEmpty { reader.routeLongName(d.routeIndex) },

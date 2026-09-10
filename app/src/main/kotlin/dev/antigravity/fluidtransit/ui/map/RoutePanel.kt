@@ -127,7 +127,10 @@ class RouteInfo(
                     val s = reader.patternStop(best, i)
                     StopRef(
                         timeEpoch = if (offsets != null) {
-                            val live = delays?.at(nextTrip, i, n)
+                            val live = delays?.at(nextTrip, i, n, java.time.Instant.now().epochSecond)
+                                // Come sopra: il filtro delle fermate gia'
+                                // servite mancava solo qui e in Preferiti.
+                                ?.takeIf { it.confidence != dev.antigravity.fluidtransit.routing.DelayModel.Confidence.SERVED }
                             nextDep + offsets[i] + (live?.delaySeconds ?: 0)
                         } else {
                             0L

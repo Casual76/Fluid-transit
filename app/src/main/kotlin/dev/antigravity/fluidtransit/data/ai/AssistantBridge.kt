@@ -88,7 +88,11 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
         val r = reader ?: return emptyList()
         val rt = resolved
         val live = if (rt != null) {
-            Raptor.Realtime(rt.delayByTrip, rt.canceledTrips)
+            Raptor.Realtime(
+                rt.delayByTrip,
+                rt.canceledTrips,
+                java.time.Instant.now().epochSecond,
+            )
         } else {
             Raptor.Realtime.NONE
         }

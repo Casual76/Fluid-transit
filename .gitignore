@@ -25,3 +25,9 @@ spikes/**/work/
 tools/**/work/
 *.ftb
 *.pmtiles
+
+# La configurazione Firebase: il repo e' pubblico, e anche se le chiavi di
+# google-services.json sono chiavi client (finiscono nell'APK) non c'e' motivo
+# di regalarne le quote. Stesso patto di keystore.properties: chi compila
+# senza il file ottiene un build identico, solo senza Crashlytics.
+app/google-services.json

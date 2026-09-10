@@ -40,9 +40,59 @@ class DelayModelTest {
     fun `la prossima fermata riceve il dato osservato, non una stima`() {
         val m = DelayModel()
         m.observe(trip, delaySeconds = 300, nextStopSeq = 10, atEpoch = 1_000)
-        val next = assertNotNull(m.at(trip, 10, 30))
+        // Il feed e' 1-based (misurato: 1..71, mai 0), il pattern e' 0-based:
+        // la fermata verso cui il bus sta andando e' la POSIZIONE 9.
+        val next = assertNotNull(m.at(trip, 9, 30))
         assertEquals(DelayModel.Confidence.OBSERVED, next.confidence)
         assertEquals(300, next.delaySeconds)
+    }
+
+    @Test
+    fun `stop_sequence e posizione non sono la stessa cosa`() {
+        val m = DelayModel()
+        m.observe(trip, delaySeconds = 300, nextStopSeq = 1, atEpoch = 1_000)
+        // Con la sequenza a 1 il bus non ha ancora servito NIENTE: la prima
+        // fermata del pattern e' quella verso cui sta andando. Prima veniva
+        // marcata come gia' passata, e il ritardo spariva da li'.
+        val first = assertNotNull(m.at(trip, 0, 20))
+        assertEquals(DelayModel.Confidence.OBSERVED, first.confidence)
+    }
+
+    @Test
+    fun `una sequenza fuori scala non fa sparire il live`() {
+        val m = DelayModel()
+        // Un pattern da 20 fermate e una sequenza da 900: il dato e' sballato.
+        // Trattarlo alla lettera marcava OGNI fermata come servita, cioe'
+        // faceva sparire il ritardo dall'intera corsa.
+        m.observe(trip, delaySeconds = 240, nextStopSeq = 900, atEpoch = 1_000)
+        val live = assertNotNull(m.at(trip, 3, 20))
+        assertTrue(
+            live.confidence != DelayModel.Confidence.SERVED,
+            "sequenza impossibile presa alla lettera: il live e' sparito",
+        )
+    }
+
+    @Test
+    fun `un'osservazione vecchia non e' il ritardo di adesso`() {
+        val m = DelayModel()
+        m.observe(trip, delaySeconds = 480, nextStopSeq = 5, atEpoch = 1_000)
+        // Poco dopo vale ancora.
+        assertNotNull(m.at(trip, 8, 20, nowEpoch = 1_200))
+        // Venti minuti dopo no: il feed ha smesso di parlare di questa corsa
+        // e l'ultimo numero visto non descrive piu' niente.
+        assertNull(m.at(trip, 8, 20, nowEpoch = 1_000 + 20 * 60))
+    }
+
+    @Test
+    fun `un bundle nuovo azzera tutto`() {
+        val m = DelayModel()
+        m.observe(trip, delaySeconds = 60, nextStopSeq = 3, atEpoch = 1_000)
+        assertNotNull(m.at(trip, 8, 20))
+        // Gli indici di corsa cambiano a ogni build: tenerli sarebbe
+        // attribuire un ritardo vero a una corsa a caso.
+        m.clear()
+        assertEquals(0, m.size)
+        assertNull(m.at(trip, 8, 20))
     }
 
     @Test
@@ -63,7 +113,8 @@ class DelayModelTest {
         // Trecento secondi recuperati in cinque fermate: sessanta per fermata.
         m.observe(trip, delaySeconds = 600, nextStopSeq = 5, atEpoch = 1_000)
         m.observe(trip, delaySeconds = 300, nextStopSeq = 10, atEpoch = 1_300)
-        val ahead = assertNotNull(m.at(trip, 13, 30))
+        // Sequenza 10 = posizione 9: tre fermate piu' avanti e' la 12.
+        val ahead = assertNotNull(m.at(trip, 12, 30))
         assertEquals(120, ahead.delaySeconds, "600->300 in 5 fermate: -60/fermata")
         // E non diventa mai un anticipo.
         val far = assertNotNull(m.at(trip, 25, 30))

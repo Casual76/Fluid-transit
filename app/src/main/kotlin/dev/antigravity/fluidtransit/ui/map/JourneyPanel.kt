@@ -682,6 +682,8 @@ fun buildNavPlan(
                 seconds = leg.seconds,
                 toName = if (leg.toStop >= 0) reader.stopName(leg.toStop) else destName,
                 startEpoch = leg.departure.epochSecond,
+                toLat = leg.toLat,
+                toLon = leg.toLon,
             )
 
             is Raptor.Leg.Ride -> {

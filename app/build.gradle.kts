@@ -19,6 +19,19 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
+// Crashlytics, con lo stesso patto della firma qui sopra: c'e' se c'e' il
+// file, e se non c'e' il build non se ne accorge.
+//
+// Serve perche' la release e' offuscata (isMinifyEnabled) e la distribuzione
+// passa dal Pampa Store, non dal Play Store: di un crash sul telefono di
+// qualcuno, oggi, non resta assolutamente niente. Il plugin carica da se' il
+// file di mapping di R8, quindi gli stack trace arrivano leggibili.
+val googleServicesFile = rootProject.file("app/google-services.json")
+if (googleServicesFile.exists()) {
+    apply(plugin = "com.google.gms.google-services")
+    apply(plugin = "com.google.firebase.crashlytics")
+}
+
 android {
     namespace = "dev.antigravity.fluidtransit"
     compileSdk = 36
@@ -29,6 +42,14 @@ android {
         targetSdk = 36
         versionCode = 3
         versionName = "1.1.0"
+
+        ndk {
+            // MapLibre porta le librerie native per quattro ABI. Le due x86
+            // esistono per gli emulatori: su un telefono vero non le carica
+            // nessuno, e pesano 22,5 dei 50 MB dell'APK. Chi sviluppa usa la
+            // build di debug, che non passa di qui.
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     signingConfigs {
@@ -110,4 +131,12 @@ dependencies {
     // condividere il client (cache tile + trucchi PMTiles) con il resto.
     implementation("org.maplibre.gl:android-sdk:11.11.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // Crashlytics e basta: niente Analytics. Non serve a raccogliere i
+    // crash, e' tracciamento che nessuno ha chiesto, e sono megabyte in
+    // piu' su un APK che abbiamo appena dimezzato.
+    if (googleServicesFile.exists()) {
+        implementation(platform("com.google.firebase:firebase-bom:34.19.0"))
+        implementation("com.google.firebase:firebase-crashlytics")
+    }
 }

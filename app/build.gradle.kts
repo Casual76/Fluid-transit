@@ -132,7 +132,6 @@ dependencies {
     implementation("org.maplibre.gl:android-sdk:11.11.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
-
     // Crashlytics e basta: niente Analytics. Non serve a raccogliere i
     // crash, e' tracciamento che nessuno ha chiesto, e sono megabyte in
     // piu' su un APK che abbiamo appena dimezzato.

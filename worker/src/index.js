@@ -42,6 +42,25 @@ const NO_CACHE = {
  * quella congelata dentro la voce.
  */
 const MAX_AGE_SECONDS = 35;
+
+/**
+ * Le tre sezioni, affettate e compresse UNA volta dal cron.
+ *
+ * Prima ogni richiesta leggeva `rt/latest.bin` per intero — circa 400 kB, di
+ * cui 294 sono gli alerts — per poi affettarne 30 e ricomprimerli. Chi
+ * chiedeva i veicoli pagava gli avvisi di servizio, ogni volta, e il gzip si
+ * rifaceva a ogni scadenza della cache dell'edge.
+ *
+ * Ora la richiesta e' una lettura da qualche kilobyte e una copia. Lo
+ * snapshot intero resta scritto: serve al confronto dei timestamp del giro
+ * dopo (una range read da 64 byte) e come ripiego finche' le sezioni non
+ * esistono.
+ */
+const SECTION_KEYS = {
+  1: 'rt/vehicles.gz',
+  2: 'rt/updates.gz',
+  3: 'rt/alerts.gz',
+};
 const HEARTBEAT_KEY = 'rt/cron-heartbeat';
 
 /**
@@ -272,7 +291,32 @@ async function refresh(env) {
     flags: 0,
   });
   await env.RT.put(SNAPSHOT_KEY, snapshot);
+  await writeSections(env, snapshot);
   return 'scritto: ' + vp.vehicles.length + ' veicoli, ' + tu.updates.length + ' update, ' + snapshot.length + ' B';
+}
+
+/**
+ * Le tre sezioni pronte da servire. I metadati viaggiano con l'oggetto:
+ * servono a costruire ETag ed eta' senza rileggere niente altro.
+ */
+async function writeSections(env, snapshot) {
+  const header = readHeader(snapshot);
+  if (!header) return;
+  const parts = [
+    [1, sliceSection(snapshot, header, 1), header.vpTimestamp],
+    [2, sliceSection(snapshot, header, 2), header.tuTimestamp],
+    [3, snapshot.subarray(header.alertsOff, header.alertsOff + header.alertsLen), header.alTimestamp],
+  ];
+  await Promise.all(parts.map(async ([kind, body, feedTs]) => {
+    const gz = await gzipBytes(body);
+    await env.RT.put(SECTION_KEYS[kind], gz, {
+      customMetadata: {
+        feedTs: String(feedTs || 0),
+        len: String(body.length),
+        gen: String(header.generatedAt || 0),
+      },
+    });
+  }));
 }
 
 // --- richieste --------------------------------------------------------------
@@ -297,6 +341,38 @@ async function serveSection(request, env, ctx, kind) {
   const cacheKey = new Request(new URL(request.url).origin + new URL(request.url).pathname);
 
   let response = await cache.match(cacheKey);
+
+  // La via veloce: la sezione gia' affettata e gia' compressa. Nessun parse,
+  // nessun gzip, e si leggono i byte di QUESTA sezione invece dei 400 kB
+  // dello snapshot intero.
+  if (!response) {
+    const direct = await env.RT.get(SECTION_KEYS[kind]);
+    if (direct) {
+      const meta = direct.customMetadata || {};
+      const feedTs = Number(meta.feedTs || 0);
+      const bodyLen = Number(meta.len || 0);
+      const generatedAt = Number(meta.gen || 0);
+      const gz = new Uint8Array(await direct.arrayBuffer());
+      const headers = new Headers({
+        'content-type': kind === 3 ? 'application/x-protobuf' : 'application/octet-stream',
+        'content-encoding': 'gzip',
+        'cache-control': `public, max-age=${MAX_AGE_SECONDS}`,
+        etag: `W/"${(feedTs || 0).toString(16)}-${bodyLen.toString(16)}"`,
+        'x-data-source': ATTRIBUTION,
+        'x-snapshot-generated': String(generatedAt),
+      });
+      const age = feedAgeHeader(feedTs);
+      if (age !== null) headers.set('x-feed-age', age);
+      if (feedTs) headers.set('x-feed-timestamp', String(feedTs));
+      response = new Response(gz, { headers, encodeBody: 'manual' });
+      ctx.waitUntil(cache.put(cacheKey, response.clone()));
+      // Il refresh resta agganciato all'eta' dello snapshot, come prima.
+      maybeLazyRefresh(env, ctx, generatedAt);
+    }
+  }
+
+  // Il ripiego: lo snapshot intero. Vale finche' le sezioni non sono state
+  // scritte nemmeno una volta — cioe' dal deploy al primo giro di cron.
   if (!response) {
     const obj = await env.RT.get(SNAPSHOT_KEY);
     if (!obj) {

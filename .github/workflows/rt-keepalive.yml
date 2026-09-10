@@ -28,8 +28,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
+      # La chiave viaggia in un header, non nella query: l'URL finisce nei log
+      # di Actions, l'header no. Se il secret non e' configurato la variabile e'
+      # vuota, non si manda nessun header, e il Worker — che a sua volta lascia
+      # passare finche' REFRESH_SECRET non c'e' — risponde lo stesso: cosi' il
+      # keepalive non si rompe nell'intervallo fra questo deploy e la messa in
+      # opera del segreto.
       - name: Un giro di refresh
+        env:
+          REFRESH_KEY: ${{ secrets.RT_REFRESH_SECRET }}
         run: |
-          curl --fail --silent --show-error --max-time 60 \
-            "https://fluid-transit-rt.fluid-transit.workers.dev/rt/v1/refresh"
+          curl --fail --silent --show-error --max-time 60 ${REFRESH_KEY:+-H "x-refresh-key: $REFRESH_KEY"} "https://fluid-transit-rt.fluid-transit.workers.dev/rt/v1/refresh"
           echo

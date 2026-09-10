@@ -87,7 +87,7 @@ function startTimeSeconds(s) {
 
 // --- costruzione -----------------------------------------------------------
 
-export function buildSnapshot({ generatedAt, vp, tu, alertsBytes, flags }) {
+export function buildSnapshot({ generatedAt, vp, tu, alertsBytes, alTimestamp, flags }) {
   const vehicles = vp ? vp.vehicles : [];
   const updates = tu ? tu.updates : [];
   const alerts = alertsBytes || new Uint8Array(0);
@@ -105,7 +105,13 @@ export function buildSnapshot({ generatedAt, vp, tu, alertsBytes, flags }) {
   view.setUint32(8, generatedAt, true);
   view.setUint32(12, (vp && vp.timestamp) || 0, true);
   view.setUint32(16, (tu && tu.timestamp) || 0, true);
-  view.setUint32(20, alertsTimestamp(alerts) || 0, true);
+  // Chi chiama l'ha gia' letto per il confronto dei timestamp: si riusa.
+  // Il ripiego su alertsTimestamp resta per i chiamanti che non lo passano.
+  view.setUint32(
+    20,
+    (alTimestamp === undefined ? alertsTimestamp(alerts) : alTimestamp) || 0,
+    true,
+  );
   const vehiclesOff = HEADER_LEN;
   const delaysOff = vehiclesOff + vehiclesLen;
   const alertsOff = delaysOff + delaysLen;

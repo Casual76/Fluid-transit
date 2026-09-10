@@ -232,6 +232,12 @@ function parseTripUpdate(buf, start, end) {
         return m.end;
       }
       case 2: {
+        // Serve SOLO il primo StopTimeUpdate che porta un delay (vedi il
+        // commento in testa alla funzione). Trovato quello, i successivi si
+        // saltano senza entrarci: una corsa ne porta uno per ogni fermata
+        // rimanente, quindi era l'85-90% del lavoro sui trip-updates —
+        // decodificato per intero e poi scartato dal controllo a valle.
+        if (firstStuDelay !== null) return subMessage(buf, pos).end;
         const m = subMessage(buf, pos);
         // StopTimeUpdate: stop_sequence(1), arrival(2), departure(3)
         let seq = null;

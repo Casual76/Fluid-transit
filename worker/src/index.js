@@ -7,7 +7,7 @@
  *   cron (1/min)  = fetch dei 3 feed + decoder protobuf statico + snapshot
  *                   binario compatto scritto UNA volta su R2 (rt/latest.bin);
  *   richiesta     = lettura R2 + copia di intervalli di byte gia' pronti,
- *                   dietro la Cache API con max-age 45 s.
+ *                   dietro la Cache API con max-age 35 s.
  *
  * L'origine si rigenera ogni ~2 minuti e non manda validatori: meta' dei
  * poll sono ridondanti e non si possono evitare — ma la SCRITTURA si evita:
@@ -33,7 +33,15 @@ const NO_CACHE = {
   cacheTtlByStatus: { '200-299': -1, '300-399': -1, '400-599': -1 },
 };
 
-const MAX_AGE_SECONDS = 25;
+/**
+ * La voce di cache deve sopravvivere al poll SUCCESSIVO dell'app, che arriva
+ * a 30 s (RealtimeClient.vehiclesIntervalMs). A 25 s scadeva cinque secondi
+ * prima, quindi il tasso di hit era strutturalmente zero e ogni richiesta
+ * ripagava lettura R2 + slice + gzip. L'eta' del feed non ne soffre: da qui
+ * in giu' `x-feed-age` si ricalcola al momento della risposta, non e' piu'
+ * quella congelata dentro la voce.
+ */
+const MAX_AGE_SECONDS = 35;
 const HEARTBEAT_KEY = 'rt/cron-heartbeat';
 
 /**
@@ -76,8 +84,17 @@ function sharedRefresh(env) {
 }
 
 function maybeLazyRefresh(env, ctx, generatedAt) {
-  const age = Math.floor(Date.now() / 1000) - (generatedAt || 0);
+  const now = Math.floor(Date.now() / 1000);
+  const age = now - (generatedAt || 0);
   if (age < LAZY_REFRESH_AFTER_SECONDS || refreshInFlight) return;
+  // La guardia che mancava. `refreshInFlight` copre solo le richieste
+  // CONCORRENTI; due poll a 30 s di distanza facevano due giri completi.
+  // E siccome il ramo 'invariato' non riscrive lo snapshot, `generatedAt`
+  // avanza solo quando l'origine si muove davvero (~120 s): l'eta' restava
+  // sopra soglia per la maggior parte del tempo, e ogni richiesta in quella
+  // finestra rifaceva 3 fetch + parse + build + put. Era il moltiplicatore
+  // piu' grosso della bolletta CPU.
+  if (now - lastRefreshAt < LAZY_REFRESH_AFTER_SECONDS) return;
   ctx.waitUntil(sharedRefresh(env).catch(() => {}));
 }
 
@@ -90,7 +107,10 @@ export default {
       (async () => {
         let outcome;
         try {
-          outcome = await refresh(env);
+          // sharedRefresh, non refresh: e' l'unico punto che aggiorna
+          // `lastRefreshAt`, il guardiano che tiene disarmati il refresh
+          // pigro e quello bloccante subito dopo un giro appena fatto.
+          outcome = await sharedRefresh(env);
         } catch (e) {
           outcome = 'errore: ' + String(e);
         }
@@ -109,7 +129,7 @@ export default {
       case '/rt/v1/updates': return serveSection(request, env, ctx, 2);
       case '/rt/v1/alerts': return serveSection(request, env, ctx, 3);
       case '/rt/v1/health': return serveHealth(env, ctx);
-      case '/rt/v1/refresh': return serveRefresh(env);
+      case '/rt/v1/refresh': return serveRefresh(request, env);
       default:
         return new Response('Fluid Transit realtime proxy. Endpoints: /rt/v1/{vehicles,updates,alerts,health}\n', {
           status: url.pathname === '/' ? 200 : 404,
@@ -132,11 +152,32 @@ async function fetchFeed(name) {
 
 /**
  * Lo stesso lavoro del cron, a comando: per il debug e per forzare un giro.
- * Costa quanto un tick di cron; niente da proteggere.
+ *
+ * Costa quanto un tick di cron, e siccome il Cron Trigger di Cloudflare non
+ * e' mai scattato questo endpoint E' il motore di refresh vero (lo chiama il
+ * keepalive su GitHub Actions). Due conseguenze che prima non erano gestite:
+ * passa da `sharedRefresh` come tutti gli altri, e vuole un segreto — l'URL
+ * sta in chiaro dentro un workflow pubblico, e chiunque poteva far partire
+ * un giro completo a piacimento.
+ *
+ * Finche' `REFRESH_SECRET` non e' configurato l'endpoint resta aperto: il
+ * keepalive non deve rompersi nell'intervallo fra questo deploy e la messa
+ * in opera del segreto.
  */
-async function serveRefresh(env) {
+async function serveRefresh(request, env) {
+  const secret = env.REFRESH_SECRET;
+  if (secret) {
+    const url = new URL(request.url);
+    const given = request.headers.get('x-refresh-key') || url.searchParams.get('key');
+    if (given !== secret) {
+      return new Response(JSON.stringify({ ok: false, error: 'non autorizzato' }), {
+        status: 401,
+        headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+      });
+    }
+  }
   try {
-    const outcome = await refresh(env);
+    const outcome = await sharedRefresh(env);
     return new Response(JSON.stringify({ ok: true, outcome }, null, 2), {
       headers: { "content-type": "application/json", "cache-control": "no-store" },
     });
@@ -177,28 +218,47 @@ async function refresh(env) {
 
   const [vpBytes, tuBytes, alBytes] = results.map((r) => r.value);
 
-  let vp;
-  let tu;
-  let alTimestamp = 0;
+  // PRIMA i soli tre timestamp, POI — solo se e' cambiato qualcosa — i due
+  // parse integrali.
+  //
+  // `parseFeed(x, 'header')` attraversa il buffer ma non entra in nessuna
+  // entita': la condizione `want !== 'header'` in gtfsrt.js le manda tutte
+  // su skipField, che e' un varint e un salto. Prima il confronto stava a
+  // valle dei parse completi, quindi sulla meta' dei giri in cui l'origine
+  // non si era mossa si decodificavano migliaia di VehiclePosition e di
+  // TripUpdate per poi buttarli.
+  let vpTs;
+  let tuTs;
+  let alTimestamp;
   try {
-    vp = parseFeed(vpBytes, 'vehicles');
-    tu = parseFeed(tuBytes, 'updates');
+    vpTs = parseFeed(vpBytes, 'header').timestamp || 0;
+    tuTs = parseFeed(tuBytes, 'header').timestamp || 0;
     alTimestamp = parseFeed(alBytes, 'header').timestamp || 0;
   } catch (e) {
-    console.log('parse fallito, snapshot non toccato:', String(e));
-    return 'parse fallito: ' + String(e);
+    console.log('header illeggibile, snapshot non toccato:', String(e));
+    return 'header illeggibile: ' + String(e);
   }
 
   // L'origine si rigenera ogni ~2 minuti: se niente e' cambiato, niente
   // scrittura — e' la meta' di operazioni di classe A che il piano prevede
-  // di risparmiare.
+  // di risparmiare, e adesso anche la meta' dei parse.
   if (
     prev &&
-    prev.vpTimestamp === (vp.timestamp || 0) &&
-    prev.tuTimestamp === (tu.timestamp || 0) &&
+    prev.vpTimestamp === vpTs &&
+    prev.tuTimestamp === tuTs &&
     prev.alTimestamp === alTimestamp
   ) {
     return 'invariato: timestamp identici, nessuna scrittura';
+  }
+
+  let vp;
+  let tu;
+  try {
+    vp = parseFeed(vpBytes, 'vehicles');
+    tu = parseFeed(tuBytes, 'updates');
+  } catch (e) {
+    console.log('parse fallito, snapshot non toccato:', String(e));
+    return 'parse fallito: ' + String(e);
   }
 
   const snapshot = buildSnapshot({
@@ -206,6 +266,9 @@ async function refresh(env) {
     vp,
     tu,
     alertsBytes: alBytes,
+    // Gia' letto qui sopra: senza questo buildSnapshot rifarebbe il parse
+    // dell'header degli alerts per estrarre lo stesso numero.
+    alTimestamp,
     flags: 0,
   });
   await env.RT.put(SNAPSHOT_KEY, snapshot);
@@ -262,14 +325,21 @@ async function serveSection(request, env, ctx, kind) {
       // avanza, e senza questo si bloccherebbe ogni richiesta su una
       // rilettura che non cambia niente.
       try {
-        await sharedRefresh(env);
-        const again = await env.RT.get(SNAPSHOT_KEY);
-        if (again) {
-          const fresher = new Uint8Array(await again.arrayBuffer());
-          const reread = readHeader(fresher);
-          if (reread) {
-            snapshot = fresher;
-            header = reread;
+        const outcome = await sharedRefresh(env);
+        // Si rilegge SOLO se il giro ha scritto davvero. Sugli esiti
+        // 'invariato' e 'feed non raggiunti' i byte su R2 sono per
+        // definizione identici a quelli gia' in mano: rileggerli erano
+        // ~400 KB buttati proprio nel caso in cui questo ramo scatta piu'
+        // spesso (origine ferma, eta' fra 90 e 120 s).
+        if (typeof outcome === 'string' && outcome.startsWith('scritto')) {
+          const again = await env.RT.get(SNAPSHOT_KEY);
+          if (again) {
+            const fresher = new Uint8Array(await again.arrayBuffer());
+            const reread = readHeader(fresher);
+            if (reread) {
+              snapshot = fresher;
+              header = reread;
+            }
           }
         }
       } catch {
@@ -306,18 +376,40 @@ async function serveSection(request, env, ctx, kind) {
     });
     const age = feedAgeHeader(feedTs);
     if (age !== null) headers.set('x-feed-age', age);
+    // Il timestamp nudo viaggia insieme all'eta': e' quello che permette di
+    // ricalcolarla in uscita anche quando la risposta arriva dalla cache.
+    if (feedTs) headers.set('x-feed-timestamp', String(feedTs));
 
     response = new Response(gz, { headers, encodeBody: 'manual' });
     ctx.waitUntil(cache.put(cacheKey, response.clone()));
   }
 
-  // Richieste condizionali dell'app: il 304 costa zero byte.
+  // L'eta' si ricalcola SEMPRE al momento della risposta. Quella scritta
+  // dentro la voce di cache e' l'eta' di quando la voce e' nata, e fino a
+  // MAX_AGE_SECONDS dopo sarebbe sotto-dichiarata: l'app decide su questo
+  // numero se fidarsi del live (RealtimeClient.STALE_SECONDS), quindi deve
+  // essere vero adesso, non allora.
+  const feedTsOut = Number(response.headers.get('x-feed-timestamp') || 0);
+  const freshAge = feedTsOut ? feedAgeHeader(feedTsOut) : null;
+
+  // Richieste condizionali dell'app: il 304 costa zero byte. Porta comunque
+  // l'eta', che e' esattamente il caso in cui conta di piu': senza, l'app
+  // ripiegava sull'orologio del telefono per calcolarla.
   const inm = request.headers.get('if-none-match');
   const etag = response.headers.get('etag');
   if (inm && etag && inm === etag) {
-    return new Response(null, { status: 304, headers: { etag } });
+    const h = new Headers({ etag });
+    if (freshAge !== null) h.set('x-feed-age', freshAge);
+    return new Response(null, { status: 304, headers: h });
   }
-  return response;
+  if (freshAge === null) return response;
+  const out = new Headers(response.headers);
+  out.set('x-feed-age', freshAge);
+  return new Response(response.body, {
+    status: response.status,
+    headers: out,
+    encodeBody: 'manual',
+  });
 }
 
 async function serveHealth(env, ctx) {

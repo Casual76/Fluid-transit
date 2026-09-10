@@ -11,14 +11,16 @@ misurato in Fase 1, e':
 - **l'origine si rigenera ogni ~2 minuti**: quando i timestamp non cambiano
   il cron NON riscrive lo snapshot (meta' delle scritture R2 risparmiate);
 - **zero parsing sul percorso richiesta**: le richieste servono byte gia'
-  pronti, affettati dallo snapshot e cacheati 45 s sull'edge.
+  pronti, affettati dallo snapshot e cacheati 35 s sull'edge — cinque secondi
+  piu' del poll dell'app, che chiede ogni 30 s: a 45 (e poi a 25) la voce non
+  arrivava mai viva al giro successivo.
 
 ## Architettura
 
 ```
 cron 1/min:  origine (3 feed GTFS-RT) → decoder protobuf statico (gtfsrt.js)
              → snapshot binario compatto (snapshot.js) → R2 rt/latest.bin
-richiesta:   Cache API (45 s) → miss → R2 → slice + gzip → risposta
+richiesta:   Cache API (35 s) → miss → R2 → slice + gzip → risposta
 ```
 
 Gli id del feed viaggiano come **hash FNV-1a a 64 bit, identici a quelli del
@@ -32,7 +34,7 @@ documentato in testa a [`src/snapshot.js`](src/snapshot.js).
 |---|---|---|
 | `/rt/v1/vehicles` | posizioni dei veicoli | mini-header 24 B + record da 40 B |
 | `/rt/v1/updates` | ritardi per corsa | mini-header 24 B + record da 32 B |
-| `/rt/v1/alerts` | il FeedMessage alerts grezzo | protobuf (per Fase 6/8) |
+| `/rt/v1/alerts` | il FeedMessage alerts grezzo | protobuf (Oggi e assistente) |
 | `/rt/v1/health` | stato del proxy in JSON | per Stato dei dati e debug |
 
 Tutte le risposte binarie sono **gzip incondizionato** (`Content-Encoding:

@@ -283,10 +283,46 @@ class BusPathMotion(
     private var lastFixS: Double = startS
     private var lastFixMs: Long = 0L
 
+    /**
+     * Fin dove la simulazione puo' spingersi da sola, in attesa del dato vero.
+     *
+     * E' il tetto che rende **impossibile** l'arretramento, e non e' un numero
+     * scelto a occhio: sta sotto [SNAP_M]. Fra un dato e l'altro passano ~120
+     * secondi e la velocita' e' una stima; se il mezzo e' fermo a un semaforo
+     * e noi lo crediamo in marcia, l'errore cresce finche' supera la soglia
+     * oltre la quale `onFix` non corregge piu' ma riposiziona — e quel
+     * riposizionamento, all'indietro, e' esattamente il "si teletrasportano"
+     * che si vede sulla mappa.
+     *
+     * Con `MAX_LEAD_M < SNAP_M` l'anticipo accumulato non puo' arrivarci: il
+     * mezzo semmai si ferma ad aspettare, e il dato vero lo riprende in avanti.
+     */
+    private var leadLimitS: Double = startS.coerceIn(0.0, path.length) + MAX_LEAD_M
+
     /** Il primo dato non e' una correzione: e' l'unica cosa che sappiamo. */
     private var hasFix = false
 
     val arrived: Boolean get() = s >= path.length - PathIndex.STOP_REACHED_M
+
+    /**
+     * Il moto nasce gia' informato.
+     *
+     * Serve a chi costruisce un [BusPathMotion] a partire da una posizione che
+     * viene comunque da un dato vero — cioe' tutti. Senza, il primo `onFix`
+     * trova un moto "senza storia" e non corregge: RIPOSIZIONA. Se nel
+     * frattempo la simulazione ha fatto strada, quel riposizionamento e'
+     * all'indietro, ed e' un teletrasporto che si vede eccome.
+     *
+     * [fixS] e' dove il dato dice che il mezzo si trova; `s` resta dov'e',
+     * perche' il marker non deve muoversi solo perche' abbiamo cambiato
+     * rappresentazione interna.
+     */
+    fun seed(fixS: Double, nowMs: Long) {
+        hasFix = true
+        lastFixS = fixS.coerceIn(0.0, path.length)
+        lastFixMs = nowMs
+        leadLimitS = s + MAX_LEAD_M
+    }
 
     /**
      * Un dato nuovo dal feed. [fixAgeSec] e' l'eta' del rilevamento GPS alla
@@ -294,7 +330,23 @@ class BusPathMotion(
      * quindi la posizione si porta avanti di quel tanto prima di
      * confrontarla con la nostra.
      */
-    fun onFix(lat: Double, lon: Double, speedMs: Double, fixAgeSec: Int, nowMs: Long) {
+    fun onFix(
+        lat: Double,
+        lon: Double,
+        speedMs: Double,
+        fixAgeSec: Int,
+        nowMs: Long,
+        /**
+         * Il mezzo puo' essere spostato di netto invece che corretto.
+         *
+         * Lo si concede quando nessuno lo stava guardando — fuori dal
+         * riquadro, o non disegnato perche' il dato era troppo vecchio. Il
+         * riassorbimento graduale serve all'occhio, e se non c'e' un occhio
+         * non serve a niente: senza, un mezzo rientrato in scena comparirebbe
+         * dove stava due minuti fa e inseguirebbe il suo vero posto.
+         */
+        snap: Boolean = false,
+    ) {
         val fixS = path.project(lat, lon, hint = s)
         if (speedMs >= 0) feedSpeed = speedMs.coerceIn(0.0, MAX_SPEED)
 
@@ -310,8 +362,15 @@ class BusPathMotion(
             // il mezzo si piantava per sempre. E' il congelamento che il moto
             // sulla strada doveva togliere di mezzo.
             if (dt >= 20.0 && moved > 0.0) {
+                // La velocita' OSSERVATA pesa piu' di quella dichiarata, non
+                // meno. Quella del feed e' istantanea — il valore che il mezzo
+                // aveva nell'attimo del rilevamento — e per estrapolare due
+                // minuti di strada il predittore giusto e' la media dell'ultimo
+                // intervallo, non la fotografia. Un bus fermo a un semaforo che
+                // dichiara 15 m/s, estrapolato per due minuti, finisce due
+                // chilometri piu' avanti di dov'e'.
                 val observed = (moved / dt).coerceIn(0.0, MAX_SPEED)
-                feedSpeed = if (speedMs >= 0) feedSpeed * 0.6 + observed * 0.4 else observed
+                feedSpeed = if (speedMs >= 0) feedSpeed * 0.3 + observed * 0.7 else observed
             }
         }
         lastFixS = fixS
@@ -323,8 +382,10 @@ class BusPathMotion(
             0.0
         }
         val target = (fixS + ahead).coerceIn(0.0, path.length)
+        // Da qui la simulazione puo' correre al massimo per MAX_LEAD_M.
+        leadLimitS = target + MAX_LEAD_M
         val error = target - s
-        if (!hasFix || abs(error) > SNAP_M) {
+        if (!hasFix || snap || abs(error) > SNAP_M) {
             hasFix = true
             // Non e' una correzione, e' un altro posto: mezzo che rientra in
             // servizio, corsa riassegnata, aggancio sbagliato. Si riparte.
@@ -357,7 +418,7 @@ class BusPathMotion(
             // un minuto intero che nessuno ha visto.
             val dt = dtMs.coerceAtMost(COARSE_CAP_MS) / 1000.0
             val cruise = if (feedSpeed > 0.0) feedSpeed else DEFAULT_SPEED
-            s = (s + cruise * dt).coerceIn(0.0, path.length)
+            s = (s + cruise * dt).coerceIn(0.0, min(path.length, leadLimitS))
             pending = 0.0
             overshoot = 0.0
             dwellUntilMs = 0L
@@ -367,7 +428,17 @@ class BusPathMotion(
 
         // Il pezzo di errore che si riassorbe in questo fotogramma.
         if (pending != 0.0) {
-            val step = pending * min(1.0, dtMs.toDouble() / RECONCILE_MS)
+            // Il recupero e' limitato anche nel RITMO, non solo nella durata.
+            // Con la sola durata, un errore di ottocento metri veniva
+            // riassorbito in due secondi e mezzo: sono trecento metri al
+            // secondo, cioe' un teletrasporto in avanti. Adesso si recupera
+            // andando al piu' al doppio dell'andatura, che si legge come un
+            // mezzo che accelera per rimettersi in pari.
+            val cruiseNow = if (feedSpeed > 0.0) feedSpeed else DEFAULT_SPEED
+            val step = min(
+                pending * min(1.0, dtMs.toDouble() / RECONCILE_MS),
+                cruiseNow * CATCHUP_FACTOR * dt,
+            )
             s = (s + step).coerceIn(0.0, path.length)
             pending -= step
             if (abs(pending) < 0.5) pending = 0.0
@@ -422,17 +493,39 @@ class BusPathMotion(
             step -= brake
             if (overshoot < 0.5) overshoot = 0.0
         }
-        s = (s + step).coerceIn(0.0, path.length)
+        // Il tetto. Oltre, il mezzo aspetta: e' l'unica cosa onesta da fare
+        // quando non si sa piu' dov'e', e soprattutto non si torna indietro.
+        s = (s + step).coerceIn(0.0, min(path.length, leadLimitS))
     }
 
     fun sample(out: DoubleArray) = path.sample(s, out)
 
-    private companion object {
+    /** Quanto la simulazione e' corsa in avanti dall'ultimo dato vero. */
+    val leadMeters: Double get() = s - (leadLimitS - MAX_LEAD_M)
+
+    // internal, non private: le due soglie che rendono impossibile
+    // l'arretramento sono una PROPRIETA' del moto, e un test deve poterla
+    // asserire invece di ricopiarne i numeri.
+    internal companion object {
         /** In quanto si riassorbe l'errore quando arriva il dato vero. */
         const val RECONCILE_MS = 2_500.0
 
         /** Oltre questo scarto non e' una correzione: e' un altro posto. */
         const val SNAP_M = 1_200.0
+
+        /**
+         * Quanto la simulazione puo' correre in avanti senza dati nuovi.
+         *
+         * Sta sotto [SNAP_M] di proposito: e' quello che rende impossibile il
+         * riposizionamento all'indietro. Novecento metri sono circa due minuti
+         * a ventidue chilometri l'ora, cioe' il periodo del feed a velocita'
+         * urbana; piu' veloce di cosi' il mezzo si ferma ad aspettare, e al
+         * dato successivo recupera in avanti.
+         */
+        const val MAX_LEAD_M = 900.0
+
+        /** Al massimo il doppio dell'andatura, quando si recupera terreno. */
+        const val CATCHUP_FACTOR = 2.0
 
         /**
          * Quanta parte del passo si cede per smaltire l'anticipo. A 0.6 il

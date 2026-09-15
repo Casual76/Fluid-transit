@@ -785,11 +785,14 @@ class TransitMapController(private val context: Context) {
             .getSourceAs<org.maplibre.android.style.sources.GeoJsonSource>(MapCatalog.BUS_SOURCE)
             ?: return
         source.setGeoJson(
-            busOverlay.features(
-                android.os.SystemClock.elapsedRealtime(),
+            busFeatures(
+                busOverlay.poses(
+                    android.os.SystemClock.elapsedRealtime(),
+                    viewportWithMargin(),
+                ),
                 style,
                 context.resources.displayMetrics.density,
-                viewportWithMargin(),
+                busOverlay.selectedKey,
             ),
         )
     }

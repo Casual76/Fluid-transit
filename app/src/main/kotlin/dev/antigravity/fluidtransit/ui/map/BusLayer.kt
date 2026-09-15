@@ -1,14 +1,7 @@
 package dev.antigravity.fluidtransit.ui.map
 
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.Path
 import dev.antigravity.fluidtransit.routing.BusPathMotion
-import org.maplibre.android.maps.Style
-import org.maplibre.geojson.Feature
-import org.maplibre.geojson.FeatureCollection
-import org.maplibre.geojson.Point
+import dev.antigravity.fluidtransit.routing.PathIndex
 
 /**
  * I bus vivi come li vuole la mappa: cosa disegnare e dove, gia' risolto
@@ -32,6 +25,27 @@ class BusRender(
     val fixAgeSec: Int = -1,
 )
 
+/** Dove disegnare un mezzo, adesso. Il resto lo porta [render]. */
+class BusPose(
+    val render: BusRender,
+    val lat: Double,
+    val lon: Double,
+    /** -1 = direzione ignota: si disegna il pallino invece della freccia. */
+    val bearingDeg: Int,
+)
+
+/**
+ * Da dove arrivano le geometrie dei pattern.
+ *
+ * E' un'interfaccia e non direttamente [PathCache] perche' il moto dei mezzi
+ * si verifica a tavolino: un test consegna le tratte che vuole, senza bundle
+ * e senza decodifica asincrona.
+ */
+fun interface PathSource {
+    /** La geometria del pattern, o null se non c'e' (ancora). */
+    fun get(pattern: Int): PathIndex?
+}
+
 /**
  * Dove sta ogni bus, adesso.
  *
@@ -49,6 +63,11 @@ class BusRender(
  *
  * Senza geometria (mezzi con una linea ma nessuna corsa riconosciuta) resta
  * il ripiego: interpolazione fra i due ultimi dati veri, senza estrapolare.
+ *
+ * Questa classe non sa niente di MapLibre di proposito: produce pose, e chi
+ * disegna le trasforma in feature ([busFeatures]). Serviva per poterla
+ * mettere sotto test — i difetti che restavano erano tutti qui dentro, nel
+ * passaggio fra moto sulla strada e ripiego, e nessuno poteva vederli.
  */
 class BusOverlay {
 
@@ -91,6 +110,16 @@ class BusOverlay {
          * non quello dell'ultimo fotogramma disegnato.
          */
         var lastTickMs: Long = 0L,
+        /**
+         * Qualcuno ha visto questo mezzo da quando e' arrivato l'ultimo dato?
+         *
+         * Se no — fuori dal riquadro, o troppo vecchio per disegnarlo — il
+         * dato successivo puo' rimetterlo al suo posto di netto: il
+         * riassorbimento graduale serve all'occhio, e qui l'occhio non c'era.
+         */
+        var drawnSinceFix: Boolean = false,
+        /** Quanti dati di fila si e' deciso di aspettare invece di arretrare. */
+        var heldFixes: Int = 0,
     ) {
         /** Questo dato dice qualcosa che non sapevamo gia'? */
         fun isNewFix(b: BusRender): Boolean =
@@ -107,15 +136,33 @@ class BusOverlay {
             val t = ((nowMs - startMs).toDouble() / durationMs).coerceIn(0.0, 1.0)
             return (fromLat + (toLat - fromLat) * t) to (fromLon + (toLon - fromLon) * t)
         }
+
+        /** Il ripiego riparte da qui, fermo, invece che da dove stava prima. */
+        fun restGlideAt(lat: Double, lon: Double, nowMs: Long) {
+            fromLat = lat
+            fromLon = lon
+            toLat = lat
+            toLon = lon
+            startMs = nowMs
+            durationMs = 0
+        }
+
+        /** Dove il mezzo e' disegnato in questo istante, comunque si muova. */
+        fun currentPosition(nowMs: Long, scratch: DoubleArray): Pair<Double, Double> {
+            val m = motion
+            if (m == null) return glideAt(nowMs)
+            m.sample(scratch)
+            return scratch[0] to scratch[1]
+        }
     }
 
     private val tracks = LinkedHashMap<Int, Track>()
-    private var lastFrameMs = 0L
+    private val scratch = DoubleArray(3)
 
     var selectedKey: Int? = null
 
     /** La geometria dei pattern. Si aggancia quando il bundle e' pronto. */
-    var paths: PathCache? = null
+    var paths: PathSource? = null
 
     /** Un nuovo snapshot dal feed. */
     fun setTargets(list: List<BusRender>, nowMs: Long) {
@@ -127,7 +174,7 @@ class BusOverlay {
             }
             prev.render = b
             prev.lastSeenMs = nowMs
-            attachMotion(prev, b)
+            attachMotion(prev, b, nowMs)
 
             val motion = prev.motion
             if (motion != null) {
@@ -140,7 +187,20 @@ class BusOverlay {
                 // ce l'ha da sempre (moved < 8); mancava solo qui.
                 if (prev.isNewFix(b)) {
                     prev.rememberFix(b)
-                    motion.onFix(b.lat, b.lon, b.speedMs, b.fixAgeSec, nowMs)
+                    motion.onFix(
+                        b.lat, b.lon, b.speedMs, b.fixAgeSec, nowMs,
+                        snap = !prev.drawnSinceFix,
+                    )
+                    prev.drawnSinceFix = false
+                    // Il debito di tempo si azzera qui, ed e' un difetto che
+                    // si vedeva solo ai bordi dello schermo. Un mezzo fuori
+                    // dal riquadro non viene disegnato e `lastTickMs` non
+                    // avanza, ma il dato vero gli arriva lo stesso: al rientro
+                    // `tick` riceveva tutto il tempo passato e lo spingeva
+                    // avanti di minuti di strada SOPRA una posizione che era
+                    // gia' aggiornata. Il mezzo entrava in scena troppo avanti
+                    // e al dato successivo tornava indietro.
+                    prev.lastTickMs = nowMs
                 }
                 continue
             }
@@ -158,20 +218,14 @@ class BusOverlay {
 
     val isEmpty: Boolean get() = tracks.isEmpty()
 
-    fun features(
-        nowMs: Long,
-        style: Style,
-        density: Float,
-        /**
-         * Il riquadro da disegnare, GIA' allargato dal chiamante:
-         * (minLat, minLon, maxLat, maxLon). null = nessun taglio.
-         */
-        view: DoubleArray? = null,
-    ): FeatureCollection {
-        lastFrameMs = nowMs
-
-        val out = ArrayList<Feature>(tracks.size)
-        val sample = DoubleArray(3)
+    /**
+     * Dove disegnare ogni mezzo adesso.
+     *
+     * [view] e' il riquadro da disegnare, GIA' allargato dal chiamante:
+     * (minLat, minLon, maxLat, maxLon). null = nessun taglio.
+     */
+    fun poses(nowMs: Long, view: DoubleArray? = null): List<BusPose> {
+        val out = ArrayList<BusPose>(tracks.size)
         for (t in tracks.values) {
             if (nowMs - t.lastSeenMs > HIDE_MS) continue
             val b = t.render
@@ -182,8 +236,6 @@ class BusOverlay {
             // senza far avanzare niente — ed e' per questo che il riquadro
             // arriva gia' allargato di qualche chilometro: fra un dato e
             // l'altro passano ~2 minuti, e un mezzo in quel tempo fa strada.
-            // Quando rientra, il tempo accumulato manda tick() sul recupero in
-            // blocco, che e' esattamente il caso per cui quel ramo esiste.
             if (view != null &&
                 (b.lat < view[0] || b.lat > view[2] || b.lon < view[1] || b.lon > view[3])
             ) {
@@ -192,42 +244,32 @@ class BusOverlay {
 
             val dt = if (t.lastTickMs == 0L) 0L else nowMs - t.lastTickMs
             t.lastTickMs = nowMs
+            t.drawnSinceFix = true
             val motion = t.motion
             val lat: Double
             val lon: Double
             val bearing: Int
             if (motion != null) {
                 if (dt > 0) motion.tick(dt, nowMs)
-                motion.sample(sample)
-                lat = sample[0]
-                lon = sample[1]
+                motion.sample(scratch)
+                lat = scratch[0]
+                lon = scratch[1]
                 // Da fermo la tangente e' comunque la direzione di marcia:
                 // e' proprio il caso in cui prima si ricadeva sul pallino.
-                bearing = sample[2].toInt()
+                bearing = scratch[2].toInt()
             } else {
                 val (gLat, gLon) = t.glideAt(nowMs)
                 lat = gLat
                 lon = gLon
                 bearing = if (b.bearingDeg >= 0) b.bearingDeg else t.derivedBearing
             }
-            BusIcons.ensure(style, b.colorRgb, density)
-            val f = Feature.fromGeometry(Point.fromLngLat(lon, lat))
-            f.addStringProperty("sh", if (bearing >= 0) "a" else "d")
-            f.addStringProperty("ci", BusIcons.hex(b.colorRgb))
-            f.addNumberProperty("b", if (bearing >= 0) bearing else 0)
-            f.addStringProperty("cat", b.cat)
-            f.addStringProperty("rh", b.routeHashHex)
-            f.addStringProperty("th", b.tripHashHex)
-            f.addNumberProperty("vk", b.vehKey)
-            f.addBooleanProperty("sel", b.vehKey == selectedKey)
-            out.add(f)
+            out.add(BusPose(render = b, lat = lat, lon = lon, bearingDeg = bearing))
         }
-        return FeatureCollection.fromFeatures(out)
+        return out
     }
 
     fun clear() {
         tracks.clear()
-        lastFrameMs = 0L
     }
 
     // --------------------------------------------------------------- interni
@@ -243,11 +285,12 @@ class BusOverlay {
             durationMs = 0,
             lastSeenMs = nowMs,
         )
-        attachMotion(t, b)
+        attachMotion(t, b, nowMs)
         // Comparire nel posto giusto non e' un teletrasporto: e' l'unica
         // cosa onesta da fare al primo dato.
         t.rememberFix(b)
         t.motion?.onFix(b.lat, b.lon, b.speedMs, b.fixAgeSec, nowMs)
+        t.lastTickMs = nowMs
         return t
     }
 
@@ -256,23 +299,39 @@ class BusOverlay {
      * disponibile: la decodifica e' asincrona, quindi i primi fotogrammi di
      * un mezzo possono ancora essere di ripiego.
      */
-    private fun attachMotion(t: Track, b: BusRender) {
+    private fun attachMotion(t: Track, b: BusRender, nowMs: Long) {
         if (t.motion != null && t.pattern == b.patternIndex) return
-        val cache = paths ?: return
 
         // Il ripiego: nessuna geometria, si scivola fra due dati veri. E'
         // sempre meglio della geometria SBAGLIATA, che manda il mezzo a
         // percorrere una strada che non e' la sua.
+        //
+        // Riparte da DOVE IL MEZZO E' DISEGNATO ADESSO. Prima no: spegneva il
+        // moto sulla strada e lasciava intatti i campi del glide, che erano
+        // fermi a prima che il moto prendesse il comando — potevano avere
+        // minuti, e il marker saltava indietro fin li'. Succedeva ogni volta
+        // che un mezzo cambiava corsa e la geometria nuova non era ancora
+        // decodificata, cioe' a ogni capolinea.
         fun fallback() {
+            // La direzione di marcia la sa il moto sulla strada, ed e' l'unica
+            // cosa che permette al ripiego di distinguere "avanti" da
+            // "indietro" senza una strada sotto. Si porta con se'.
+            t.motion?.let { m ->
+                m.sample(scratch)
+                t.derivedBearing = scratch[2].toInt()
+            }
+            val (lat, lon) = t.currentPosition(nowMs, scratch)
+            t.restGlideAt(lat, lon, nowMs)
             t.motion = null
             t.pattern = b.patternIndex
+            t.heldFixes = 0
         }
 
         if (b.patternIndex < 0) {
-            t.motion = null
-            t.pattern = -1
+            fallback()
             return
         }
+        val cache = paths ?: return
         val path = cache.get(b.patternIndex)
         if (path == null) {
             // La decodifica del pattern e' asincrona. Prima si usciva di qui
@@ -310,11 +369,49 @@ class BusOverlay {
         }
 
         t.pattern = b.patternIndex
-        t.motion = BusPathMotion(
+
+        // Il moto nasce DOVE IL MARKER E' DISEGNATO, non dove dice il dato.
+        //
+        // Sono due punti diversi ogni volta che il ripiego ha tenuto banco
+        // per un po': il marker sta dove lo abbiamo lasciato, il dato dice
+        // dov'era il mezzo. Far nascere il moto sul dato voleva dire spostare
+        // il marker di netto nell'istante in cui la geometria diventava
+        // disponibile — all'indietro, se avevamo estrapolato. Facendolo
+        // nascere dove si trova, il dato diventa subito dopo una correzione
+        // come tutte le altre, che si riassorbe rallentando.
+        //
+        // Se pero' il marker e' finito lontano da questa strada, il posto
+        // buono e' quello del dato: ci si sposta, ed e' il dato ad avere
+        // ragione.
+        val (curLat, curLon) = t.currentPosition(nowMs, scratch)
+        val here = DoubleArray(2)
+        path.projectWithDistance(curLat, curLon, here)
+        val bornS = if (here[1] <= MAX_PATH_OFFSET_M) here[0] else startS
+
+        val motion = BusPathMotion(
             path = path,
-            startS = startS,
+            startS = bornS,
             startSpeed = if (b.speedMs >= 0) b.speedMs else -1.0,
         )
+        // Il moto nasce gia' informato, e non e' un dettaglio.
+        //
+        // Un moto appena costruito non ha storia, e `onFix` in quel caso non
+        // corregge: riposiziona. Quindi il primo dato che arrivava dopo
+        // l'aggancio spostava il mezzo di netto — all'indietro, se nel
+        // frattempo aveva corso. Succedeva a ogni mezzo poco dopo essere
+        // comparso, e a ogni cambio di corsa: la geometria si decodifica in
+        // sottofondo, il moto si aggancia quando e' pronta, e il fix
+        // successivo lo tirava indietro di qualche centinaio di metri.
+        //
+        // `seed` gli dice dove sta il dato senza spostare il marker: da qui in
+        // poi ogni fix e' una correzione come tutte le altre.
+        motion.seed(startS, nowMs)
+        t.motion = motion
+        t.rememberFix(b)
+        // Il moto nasce dove il mezzo e' adesso: il tempo accumulato dal
+        // ripiego precedente non lo riguarda.
+        t.lastTickMs = nowMs
+        t.drawnSinceFix = false
     }
 
     private fun glideToward(prev: Track, b: BusRender, nowMs: Long) {
@@ -326,6 +423,37 @@ class BusOverlay {
             return
         }
         val (curLat, curLon) = prev.glideAt(nowMs)
+
+        // Il dato nuovo sta DIETRO di noi?
+        //
+        // Succede quando il ripiego subentra al moto sulla strada: quello
+        // estrapola, e al momento del cambio il marker e' piu' avanti del suo
+        // ultimo dato vero. Scivolare verso il dato nuovo vuol dire scivolare
+        // ALL'INDIETRO, lentamente e per due minuti — meno di un metro a
+        // fotogramma, quindi impossibile da attribuire a qualcosa guardando la
+        // mappa, ma perfettamente leggibile come "quel bus sta tornando
+        // indietro".
+        val toFix = bearingDegrees(curLat, curLon, b.lat, b.lon)
+        val behind = prev.derivedBearing >= 0 &&
+            angleBetween(prev.derivedBearing.toDouble(), toFix.toDouble()) > 90.0
+        if (behind) {
+            prev.heldFixes++
+            prev.lastMoveMs = nowMs
+            if (prev.heldFixes <= MAX_HELD_FIXES) {
+                // Si resta fermi: il dato vero ci raggiungera'.
+                prev.restGlideAt(curLat, curLon, nowMs)
+                return
+            }
+            // Aspettato abbastanza: se il feed continua a dirci che il mezzo
+            // e' indietro, il mezzo e' indietro e la nostra estrapolazione era
+            // sbagliata. Un riposizionamento netto si legge come una
+            // correzione; un arretramento lento si legge come un bus che torna
+            // al capolinea.
+            prev.restGlideAt(b.lat, b.lon, nowMs)
+            prev.heldFixes = 0
+            return
+        }
+        prev.heldFixes = 0
         prev.fromLat = curLat
         prev.fromLon = curLon
         // Il ritmo lo detta il feed di QUESTO mezzo; al primo movimento si
@@ -346,7 +474,7 @@ class BusOverlay {
         prev.startMs = nowMs
     }
 
-    private companion object {
+    internal companion object {
         /** Il periodo vero con cui l'origine si rigenera: ~2 minuti. */
         const val FEED_PERIOD_MS = 120_000L
         const val MIN_GLIDE_MS = 20_000L
@@ -372,6 +500,16 @@ class BusOverlay {
          */
         const val OPPOSITE_DEG = 120.0
 
+        /**
+         * Quante volte si accetta di stare fermi piuttosto che arretrare.
+         *
+         * Due giri sono ~quattro minuti: abbastanza perche' un mezzo che si
+         * stava solo muovendo piu' piano di quanto credevamo ci raggiunga, e
+         * poco abbastanza da non lasciare un marker inchiodato in mezzo alla
+         * strada se davvero avevamo sbagliato.
+         */
+        const val MAX_HELD_FIXES = 2
+
         /** Differenza fra due rotte, 0..180. */
         fun angleBetween(a: Double, b: Double): Double {
             var d = kotlin.math.abs(a - b) % 360.0
@@ -390,82 +528,5 @@ class BusOverlay {
             val deg = Math.toDegrees(kotlin.math.atan2(y, x))
             return (((deg % 360) + 360) % 360).toInt()
         }
-    }
-}
-
-/**
- * Le icone dei bus, disegnate al volo e registrate nello stile: una freccia
- * di navigazione e un pallino per ogni colore di linea incontrato. La
- * tavolozza vera e' di ~12 tinte, quindi sono poche bitmap piccole — e non
- * serve il giro degli SDF, che sfocano i bordi.
- */
-object BusIcons {
-
-    fun hex(colorRgb: Int): String = "%06x".format(colorRgb and 0xFFFFFF)
-
-    fun arrowName(colorRgb: Int) = "bus-a-${hex(colorRgb)}"
-
-    fun dotName(colorRgb: Int) = "bus-d-${hex(colorRgb)}"
-
-    /**
-     * I colori gia' registrati, PER stile: interrogare style.getImage a ogni
-     * fotogramma sarebbe una chiamata JNI che copia la bitmap — a 8 Hz per
-     * mille bus e' un costo vero. La mappa debole muore con lo stile.
-     */
-    private val registered = java.util.WeakHashMap<Style, HashSet<Int>>()
-
-    fun ensure(style: Style, colorRgb: Int, density: Float) {
-        val colors = registered.getOrPut(style) { HashSet() }
-        if (!colors.add(colorRgb)) return
-        style.addImage(arrowName(colorRgb), arrowBitmap(colorRgb, density))
-        style.addImage(dotName(colorRgb), dotBitmap(colorRgb, density))
-    }
-
-    /** La freccia di marcia: punta in alto, il layer la ruota col bearing. */
-    private fun arrowBitmap(colorRgb: Int, density: Float): Bitmap {
-        val size = (26 * density).toInt().coerceAtLeast(24)
-        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bmp)
-        val w = size.toFloat()
-        val path = Path().apply {
-            moveTo(w * 0.5f, w * 0.06f) // punta
-            lineTo(w * 0.88f, w * 0.88f) // ala destra
-            lineTo(w * 0.5f, w * 0.66f) // incavo
-            lineTo(w * 0.12f, w * 0.88f) // ala sinistra
-            close()
-        }
-        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.FILL
-            color = 0xFF000000.toInt() or (colorRgb and 0xFFFFFF)
-        }
-        val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 2f * density
-            strokeJoin = Paint.Join.ROUND
-            color = 0xFFFFFFFF.toInt()
-        }
-        canvas.drawPath(path, fill)
-        canvas.drawPath(path, stroke)
-        return bmp
-    }
-
-    /** Il ripiego senza direzione: pallino pieno col bordo bianco. */
-    private fun dotBitmap(colorRgb: Int, density: Float): Bitmap {
-        val size = (18 * density).toInt().coerceAtLeast(16)
-        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bmp)
-        val c = size / 2f
-        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.FILL
-            color = 0xFF000000.toInt() or (colorRgb and 0xFFFFFF)
-        }
-        val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 2f * density
-            color = 0xFFFFFFFF.toInt()
-        }
-        canvas.drawCircle(c, c, c - 2.5f * density, fill)
-        canvas.drawCircle(c, c, c - 2.5f * density, stroke)
-        return bmp
     }
 }

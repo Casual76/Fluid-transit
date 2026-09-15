@@ -24,7 +24,7 @@ import kotlinx.coroutines.launch
 class PathCache(
     private val reader: BundleReader,
     private val scope: CoroutineScope,
-) {
+) : PathSource {
     private val ready = ConcurrentHashMap<Int, PathIndex>()
 
     /** I pattern per cui la geometria non esiste: non ci si riprova a ogni tick. */
@@ -33,7 +33,7 @@ class PathCache(
 
     val size: Int get() = ready.size
 
-    fun get(pattern: Int): PathIndex? {
+    override fun get(pattern: Int): PathIndex? {
         if (pattern < 0 || !reader.hasPolylines) return null
         ready[pattern]?.let { return it }
         if (pattern in absent) return null

@@ -1790,6 +1790,11 @@ fun MapScreen(
                                     board = nearbyBoard,
                                     onDismiss = { panel = null },
                                     onRouteTap = ::showRoute,
+                                    onWhyTap = { r, rect ->
+                                        whyRow = r
+                                        whyOrigin = rect
+                                        whyAt = java.time.Instant.now().epochSecond
+                                    },
                                     onStopTap = { stopIndex ->
                                         // Dalla riga si va alla fermata: e' la
                                         // continuazione naturale di "cosa passa

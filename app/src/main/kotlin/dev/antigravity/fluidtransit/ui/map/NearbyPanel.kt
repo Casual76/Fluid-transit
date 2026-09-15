@@ -132,6 +132,11 @@ fun NearbyPanelContent(
     onDismiss: () -> Unit,
     onStopTap: (stopIndex: Int) -> Unit,
     onRouteTap: (routeIndex: Int) -> Unit,
+    /** Il tocco sulla provenienza: "perche' questo numero", come nella scheda fermata. */
+    onWhyTap: (
+        dev.antigravity.fluidtransit.routing.NextDeparture,
+        androidx.compose.ui.geometry.Rect?,
+    ) -> Unit = { _, _ -> },
 ) {
     Row(
         modifier = Modifier
@@ -194,6 +199,7 @@ fun NearbyPanelContent(
                         nowEpoch = board.computedAtEpoch,
                         showStopName = true,
                         onLineTap = { onRouteTap(row.routeIndex) },
+                        onSupportTap = { rect -> onWhyTap(row, rect) },
                         modifier = Modifier.clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,

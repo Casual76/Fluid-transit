@@ -1,6 +1,7 @@
 package dev.antigravity.fluidtransit.data.favorites
 
 import android.content.Context
+import dev.antigravity.fluidtransit.data.store.UserFile
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.json.JSONArray
@@ -76,7 +77,7 @@ class Favorites(context: Context) {
     }.getOrElse { emptyList<Stop>() to emptyList() }
 
     private fun write(stops: List<Stop>, routes: List<Route>) {
-        runCatching {
+        val scritto = runCatching {
             val o = JSONObject()
             o.put("stops", JSONArray().apply {
                 stops.forEach { put(JSONObject().put("h", it.idHashHex).put("n", it.name)) }
@@ -86,9 +87,12 @@ class Favorites(context: Context) {
                     put(JSONObject().put("h", it.idHashHex).put("n", it.shortName).put("c", it.colorRgb))
                 }
             })
-            file.writeText(o.toString())
-        }
-        cache = stops to routes
+            UserFile.writeAtomically(file, o.toString())
+        }.getOrDefault(false)
+        // Se non si e' scritto niente, la copia in memoria non deve dire il
+        // contrario: la stella tornerebbe indietro al riavvio, e nel
+        // frattempo l'app avrebbe fatto finta di aver salvato.
+        if (scritto) cache = stops to routes else cache = null
         version.value++
     }
 }

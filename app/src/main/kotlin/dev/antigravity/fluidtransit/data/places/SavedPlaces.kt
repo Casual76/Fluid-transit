@@ -1,6 +1,7 @@
 package dev.antigravity.fluidtransit.data.places
 
 import android.content.Context
+import dev.antigravity.fluidtransit.data.store.UserFile
 import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
@@ -61,7 +62,7 @@ class SavedPlaces(context: Context) {
                         .put("lon", e.lon),
                 )
             }
-            file.writeText(array.toString())
+            UserFile.writeAtomically(file, array.toString())
         }
     }
 }

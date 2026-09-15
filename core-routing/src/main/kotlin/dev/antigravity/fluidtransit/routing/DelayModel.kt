@@ -80,25 +80,59 @@ class DelayModel {
 
     private val tracks = HashMap<Int, Track>()
 
+    /**
+     * Una mano per volta sulla mappa delle corse.
+     *
+     * Non e' prudenza teorica: chi scrive e chi legge sono thread diversi e
+     * lo sono sempre. Le osservazioni entrano da un collettore
+     * dell'Application, novecento corse in fila a ogni giro di trip-updates,
+     * piu' una potatura e uno svuotamento completo allo scambio notturno del
+     * bundle; le letture arrivano dai tabelloni, che si calcolano sul pool di
+     * sfondo, e dagli strumenti dell'assistente.
+     *
+     * Una `HashMap` letta mentre la si riempie non da' un errore: da'
+     * risposte sbagliate. Durante l'ingrandimento della tabella una chiave
+     * che c'e' puo' risultare assente, e una corsa che il feed sta seguendo
+     * perde il suo ritardo per quel giro — cioe' una riga che dice "orario da
+     * tabella" mentre la riga accanto dice "dal bus", a caso, e diversa a
+     * ogni ricalcolo.
+     *
+     * Trovato leggendo, non guardando: e' esattamente il genere di difetto
+     * che non si riesce a riprodurre apposta e che da fuori si racconta come
+     * "a volte funziona e a volte no".
+     *
+     * Il lucchetto e' grosso di proposito. Le sezioni critiche sono letture
+     * di una mappa e di una coda da cinque elementi: nanosecondi, contro il
+     * costo di rendere concorrente anche ogni `Track`, che ha una coda
+     * mutabile dentro e non basterebbe una `ConcurrentHashMap`.
+     */
+    private val lock = Any()
+
     /** Un giro di trip-updates per una corsa. [nextStopSeq] -1 se ignota. */
     fun observe(tripKey: Int, delaySeconds: Int, nextStopSeq: Int, atEpoch: Long) {
-        tracks.getOrPut(tripKey) { Track() }
-            .add(Sample(delaySeconds, nextStopSeq, atEpoch))
+        synchronized(lock) {
+            tracks.getOrPut(tripKey) { Track() }
+                .add(Sample(delaySeconds, nextStopSeq, atEpoch))
+        }
     }
 
     /** Il ritardo corrente della corsa, quello della testata. Null se non si sa. */
-    fun current(tripKey: Int): Int? = tracks[tripKey]?.newest?.delaySeconds
+    fun current(tripKey: Int): Int? =
+        synchronized(lock) { tracks[tripKey]?.newest?.delaySeconds }
 
     /** La fermata verso cui il bus sta andando, se il feed la dichiara. */
     fun nextStop(tripKey: Int): Int? =
-        tracks[tripKey]?.newest?.seq?.takeIf { it >= 0 }
+        synchronized(lock) { tracks[tripKey]?.newest?.seq?.takeIf { it >= 0 } }
 
     /**
      * Il ritardo da applicare alla fermata in posizione [position] di un
      * pattern che ne ha [stopCount]. Null quando di quella corsa non
      * sappiamo niente.
      */
-    fun at(tripKey: Int, position: Int, stopCount: Int, nowEpoch: Long = 0L): Live? {
+    fun at(tripKey: Int, position: Int, stopCount: Int, nowEpoch: Long = 0L): Live? =
+        synchronized(lock) { atLocked(tripKey, position, stopCount, nowEpoch) }
+
+    private fun atLocked(tripKey: Int, position: Int, stopCount: Int, nowEpoch: Long): Live? {
         val track = tracks[tripKey] ?: return null
         val last = track.newest ?: return null
 
@@ -170,17 +204,19 @@ class DelayModel {
      * appiccicati a indici che ormai indicano altre corse — un ritardo vero,
      * su una linea sbagliata.
      */
-    fun clear() = tracks.clear()
+    fun clear() = synchronized(lock) { tracks.clear() }
 
     /** Housekeeping: le corse di cui non si sente parlare da un pezzo. */
     fun forgetBefore(epoch: Long) {
-        val it = tracks.entries.iterator()
-        while (it.hasNext()) {
-            if (it.next().value.lastSeen < epoch) it.remove()
+        synchronized(lock) {
+            val it = tracks.entries.iterator()
+            while (it.hasNext()) {
+                if (it.next().value.lastSeen < epoch) it.remove()
+            }
         }
     }
 
-    val size: Int get() = tracks.size
+    val size: Int get() = synchronized(lock) { tracks.size }
 
     private companion object {
         /** Quante osservazioni bastano a leggere un andamento senza inseguire il rumore. */

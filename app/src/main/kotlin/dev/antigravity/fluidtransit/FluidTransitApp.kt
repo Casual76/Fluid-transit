@@ -366,10 +366,15 @@ class FluidTransitApp : Application() {
                 // (la navigazione) altrimenti doveva ricostruire l'intero
                 // snapshot risolto — ottocento oggetti e tre mappe — solo per
                 // leggerne un insieme di interi.
-                canceledTrips.value = emptySet()
                 val ready = bundleManager.state.value as? BundleManager.BundleState.Ready
-                val reader = ready?.reader ?: return@collect
-                if (snapshot == null) return@collect
+                val reader = ready?.reader
+                if (reader == null || snapshot == null) {
+                    // Senza orari o senza snapshot non si sa piu' niente di
+                    // cosa sia cancellato: meglio nessuna informazione che
+                    // una vecchia.
+                    canceledTrips.value = emptySet()
+                    return@collect
+                }
                 val at = snapshot.feedTimestamp.takeIf { it > 0 }
                     ?: (System.currentTimeMillis() / 1000)
                 for (d in snapshot.byTripHash.values) {
@@ -383,7 +388,14 @@ class FluidTransitApp : Application() {
                         ?: continue
                     delayModel.observe(trip, d.delaySec, d.nextStopSeq, at)
                 }
-                canceledTrips.value = snapshot.byTripHash.values
+                // Si costruisce e poi si assegna, in un colpo solo. Prima
+                // l'insieme si svuotava all'inizio del giro e si riempiva
+                // alla fine: fra le due cose ci sono novecento risoluzioni
+                // contro il bundle, e per tutta quella finestra — ogni trenta
+                // secondi — nessuna corsa risultava cancellata. Un tabellone
+                // che si ricalcolava li' in mezzo mostrava un bus che non
+                // viene come se venisse.
+                val cancellate = snapshot.byTripHash.values
                     .asSequence()
                     .filter { it.canceled }
                     .mapNotNull { d ->
@@ -395,6 +407,7 @@ class FluidTransitApp : Application() {
                             ).takeIf { it >= 0 }
                     }
                     .toSet()
+                canceledTrips.value = cancellate
                 // Le corse di cui non si sente parlare da mezz'ora sono
                 // finite: la memoria non deve crescere per sempre.
                 delayModel.forgetBefore(at - 30 * 60)

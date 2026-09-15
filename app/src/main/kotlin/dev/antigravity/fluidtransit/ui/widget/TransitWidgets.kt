@@ -93,6 +93,15 @@ class StopWidget : GlanceAppWidget() {
         val stopName = prefs[KEY_STOP_NAME] ?: ""
         val board = loadBoard(app, stopHash)
         val rows = board?.rows
+        // Il nome che vale e' quello degli orari.
+        //
+        // Quello salvato nella configurazione e' un ripiego per quando il
+        // bundle non e' ancora pronto — un avvio freddo, un widget disegnato
+        // prima dell'app — e resta com'era il giorno in cui si e' scelta la
+        // fermata. Misurato su questo telefono: il widget diceva "SODERINI" e
+        // la fermata si chiama "SODERINI TORRINO SANTA ROSA". Stessa cosa,
+        // due nomi, a seconda di dove la guardi.
+        val nome = board?.stopName?.ifEmpty { null } ?: stopName
 
         provideContent {
             val layout = resolveEngineWidgetLayout(LocalSize.current, hasFooter = false)
@@ -100,11 +109,11 @@ class StopWidget : GlanceAppWidget() {
                 palette = palette,
                 layout = layout,
                 onClick = actionStartActivity(
-                    openLink(context, stopHash?.let { Deeplink.stop(it, stopName) }),
+                    openLink(context, stopHash?.let { Deeplink.stop(it, nome) }),
                 ),
             ) {
                 EngineWidgetHeader(
-                    title = stopName.ifEmpty { "Fluid Transit" },
+                    title = nome.ifEmpty { "Fluid Transit" },
                     palette = palette,
                     layout = layout,
                     subtitle = when {

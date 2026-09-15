@@ -96,6 +96,16 @@ android {
         compose = true
         buildConfig = true
     }
+
+    // I test di :app girano sulla JVM, non su un device: coprono il codice
+    // che non tocca Android (il lettore dello snapshot, il match contro il
+    // bundle, la macchina a stati del client realtime). Le poche chiamate al
+    // framework che restano tornano il valore di default invece di lanciare,
+    // cosi' non serve Robolectric per verificare logica che di Android non sa
+    // niente.
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -139,4 +149,12 @@ dependencies {
         implementation(platform("com.google.firebase:firebase-bom:34.19.0"))
         implementation("com.google.firebase:firebase-crashlytics")
     }
+
+    // I test. Le versioni sono quelle dell'engine (engine/versions.gradle),
+    // come tutto il resto qui dentro. MockWebServer e' lo stesso OkHttp gia'
+    // in dipendenza: serve a mettere RealtimeClient davanti a un proxy che
+    // sbaglia, che tace, o che risponde 304, senza toccare la rete vera.
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }

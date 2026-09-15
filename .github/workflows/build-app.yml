@@ -1,0 +1,66 @@
+name: Build app
+
+# Fino a qui l'unico posto in cui girava Gradle era il job notturno del bundle,
+# che compila :bundler e :core-routing e basta: una rottura di compilazione
+# dell'app, o dell'engine dopo un aggiornamento del submodule, si scopriva solo
+# compilando a mano sulla macchina di sviluppo. Questo workflow e' la rete.
+#
+# Il checkout prende il submodule: senza engine/engine-ui la guardia in
+# settings.gradle.kts esclude :app e il build passerebbe senza aver compilato
+# niente di quello che ci interessa.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: build-app-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Controlla che l'engine ci sia davvero
+        run: |
+          test -f engine/engine-ui/build.gradle || {
+            echo "::error::il submodule engine/ non e' stato scaricato: :app non verrebbe nemmeno configurato"
+            exit 1
+          }
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Test JVM e compilazione debug
+        run: ./gradlew --no-daemon :core-routing:test :app:testDebugUnitTest :app:assembleDebug
+
+      # R8 e' attivo in release su codice che usa mmap e JSON navigato a mano,
+      # con un proguard-rules.pro quasi vuoto: se un giorno toglie qualcosa che
+      # serve, vogliamo saperlo qui e non da un crash sul telefono di qualcuno.
+      # La firma non c'e' (keystore.properties non e' nel repo): assembleRelease
+      # produce comunque un APK non firmato, che e' quanto basta a far girare R8.
+      - name: Compilazione release (R8)
+        run: ./gradlew --no-daemon :app:assembleRelease
+
+      - name: Rapporti dei test se qualcosa e' fallito
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapporti-test
+          path: |
+            **/build/reports/tests/
+            **/build/reports/lint-results-*.html
+          retention-days: 7

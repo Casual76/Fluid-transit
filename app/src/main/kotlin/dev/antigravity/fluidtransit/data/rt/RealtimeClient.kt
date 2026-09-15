@@ -29,6 +29,16 @@ import okhttp3.Request
  */
 class RealtimeClient(
     private val proxyAllowed: suspend () -> Boolean,
+    /**
+     * Gli indirizzi non sono costanti ma parametri con un default, per un
+     * motivo solo: la macchina a tre stati qui sotto — tre errori di fila, tre
+     * giri stantii di fila, il blocco di cinque minuti su DIRECT — e' la
+     * logica piu' delicata dell'app e non aveva una sola asserzione. Con gli
+     * indirizzi iniettabili si puo' metterle davanti un proxy che sbaglia,
+     * uno che tace e uno che risponde 304, senza toccare la rete vera.
+     */
+    private val proxyBase: String = PROXY_BASE,
+    private val directVehiclesUrl: String = DIRECT_VEHICLES,
 ) {
     enum class Source { PROXY, DIRECT, SCHEDULE_ONLY }
 
@@ -88,7 +98,7 @@ class RealtimeClient(
 
         if (proxyOk && nowMs >= directHoldUntilMs) {
             try {
-                val fetched = fetchBinary("$PROXY_BASE/vehicles", vehiclesEtag)
+                val fetched = fetchBinary("$proxyBase/vehicles", vehiclesEtag)
                 val age: Long?
                 if (fetched != null) {
                     val parsed = RtCodec.parseVehicles(fetched.bytes)
@@ -131,7 +141,7 @@ class RealtimeClient(
 
         // --- fallback: l'origine, senza intermediari ------------------------
         try {
-            val bytes = fetchRaw(DIRECT_VEHICLES)
+            val bytes = fetchRaw(directVehiclesUrl)
             val parsed = GtfsRtLite.parseVehiclePositions(bytes, Instant.now().epochSecond)
             staleStrikes = 0
             _vehicles.value = parsed
@@ -156,7 +166,7 @@ class RealtimeClient(
         // dall'origine sono 1-2 MB al minuto, non roba da telefono.
         if (_status.value.source != Source.PROXY) return@withContext
         try {
-            val fetched = fetchBinary("$PROXY_BASE/updates", delaysEtag) ?: return@withContext
+            val fetched = fetchBinary("$proxyBase/updates", delaysEtag) ?: return@withContext
             _delays.value = RtCodec.parseDelays(fetched.bytes)
             delaysEtag = fetched.etag
             _status.value = _status.value.let {
@@ -182,7 +192,7 @@ class RealtimeClient(
             // Col condizionale come le altre due sezioni: gli alerts sono la
             // fetta piu' grossa dello snapshot (centinaia di kB di protobuf
             // grezzo) e cambiano di rado. Un 304 qui vale piu' che altrove.
-            val fetched = fetchBinary("$PROXY_BASE/alerts", alertsEtag)
+            val fetched = fetchBinary("$proxyBase/alerts", alertsEtag)
             if (fetched == null) {
                 // Invariati: si rinnova solo la scadenza della cache locale.
                 alertsCacheAt = now
@@ -263,7 +273,7 @@ class RealtimeClient(
 
     companion object {
         const val PROXY_BASE = "https://fluid-transit-rt.fluid-transit.workers.dev/rt/v1"
-        private const val DIRECT_VEHICLES =
+        const val DIRECT_VEHICLES =
             "https://regionetoscana.smartregion.toscana.it/mobility/artifacts/gtfs-rt/vehicle-positions"
         private const val UA = "FluidTransit/1.0 (+https://github.com/Casual76/Fluid-transit)"
 

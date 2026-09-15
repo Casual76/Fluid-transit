@@ -122,8 +122,31 @@ internal fun panelListMax(preferred: Dp, reserve: Dp = AROUND_THE_LIST): Dp {
     // pannello vuoto. Chiedere meno di quello che c'e' e' l'unico modo di
     // mostrare qualcosa.
     val ime = with(density) { WindowInsets.ime.getBottom(density).toDp() }
+    return listMax(preferred, window, ime, reserve)
+}
+
+/**
+ * Il conto, senza Compose intorno.
+ *
+ * Sta fuori dal composable per un motivo solo: qui si puo' interrogare. Le
+ * misure che decidono se un elenco si vede o no — lo schermo, la tastiera,
+ * quello che sta intorno — sono numeri, e i due difetti che questa funzione
+ * ha gia' avuto erano errori di aritmetica, non di Compose: una volta il
+ * minimo che non c'era, una volta la tastiera sottratta due volte.
+ *
+ * **La tastiera si sottrae UNA volta sola, qui.** Chi usa il risultato non
+ * deve aggiungere un `imePadding()` sulla stessa scatola: sarebbe toglierla
+ * di nuovo, dall'interno.
+ */
+internal fun listMax(
+    preferred: Dp,
+    window: Dp,
+    ime: Dp,
+    reserve: Dp,
+    floor: Dp = LIST_FLOOR,
+): Dp {
     val disponibile = maxOf(window - ime, 0.dp)
-    return minOf(preferred, maxOf(disponibile - reserve, minOf(LIST_FLOOR, disponibile)))
+    return minOf(preferred, maxOf(disponibile - reserve, minOf(floor, disponibile)))
 }
 
 /**
@@ -145,7 +168,7 @@ private val AROUND_THE_LIST = 290.dp
 internal val AROUND_THE_SEARCH = 110.dp
 
 /** Sotto questa altezza l'elenco non e' piu' un elenco: si sacrifica altro. */
-private val LIST_FLOOR = 120.dp
+internal val LIST_FLOOR = 120.dp
 
 /**
  * L'unico pannello dal basso della mappa: un pezzo di vetro staccato dai

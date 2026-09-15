@@ -97,6 +97,7 @@ fun MapScreen(
     onTabBarHidden: (Boolean) -> Unit = {},
     intent: MapIntent? = null,
     onIntentConsumed: () -> Unit = {},
+    onOpenDataStatus: () -> Unit = {},
 ) {
     val context = LocalContext.current
     // Lo scuro della mappa segue il tema DELL'APP, non quello di sistema:
@@ -1403,9 +1404,14 @@ fun MapScreen(
             }
 
             // Il live degradato: silenzio finche' funziona, capsula discreta
-            // quando i bus vivi mancano davvero — come deciso.
+            // quando manca davvero qualcosa — come deciso.
+            //
+            // Adesso comprende anche la strada diretta, che prima taceva: li'
+            // i bus si muovono ma i ritardi non si scaricano, quindi OGNI
+            // riga dell'app dice "orario da tabella". Sembrava che i mezzi
+            // fossero tutti puntuali; invece non ne sapevamo niente.
             val liveDegraded = vehiclesActive && !searchOpen && (
-                rtStatus.source == dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.SCHEDULE_ONLY ||
+                rtStatus.source != dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.PROXY ||
                     (rtStatus.feedAgeSeconds ?: 0) >
                     dev.antigravity.fluidtransit.data.rt.RealtimeClient.STALE_SECONDS
                 )
@@ -1415,7 +1421,11 @@ fun MapScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Spacer(Modifier.height(10.dp))
-                    LiveDownCapsule(backdrop = backdrop)
+                    LiveDownCapsule(
+                        backdrop = backdrop,
+                        status = rtStatus,
+                        onOpenDataStatus = onOpenDataStatus,
+                    )
                 }
             }
 

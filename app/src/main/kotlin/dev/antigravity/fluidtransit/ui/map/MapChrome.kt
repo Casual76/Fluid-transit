@@ -171,17 +171,47 @@ fun MapCornerButton(
 
 
 /**
- * La capsula del live degradato: compare SOLO quando i bus vivi mancano
- * davvero (deciso: silenzio finche' funziona). Un tocco la espande con la
- * spiegazione; i tecnicismi restano in Stato dei dati.
+ * Quando il vivo non c'e', e perche'.
+ *
+ * Diceva sempre la stessa frase — "Bus live non disponibili" — qualunque
+ * fosse successo, e finiva con "Dettagli in Impostazioni → Stato dei dati":
+ * istruzioni, dove un tocco avrebbe fatto la stessa cosa. Sono tre guasti
+ * diversi, e uno solo dei tre e' nostro:
+ *
+ *   il feed della Regione e' fermo   noi funzioniamo, non arriva niente
+ *   il nostro proxy non risponde     le posizioni si', i ritardi no
+ *   non risponde nemmeno la Regione  restano gli orari di tabella
+ *
+ * Sapere quale dei tre cambia cosa aspettarsi dai numeri, ed e' la
+ * differenza fra "l'app e' rotta" e "oggi il dato non c'e'".
  */
 @Composable
 fun LiveDownCapsule(
     backdrop: GlassBackdropState,
+    status: dev.antigravity.fluidtransit.data.rt.RealtimeClient.Status,
+    onOpenDataStatus: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember {
         androidx.compose.runtime.mutableStateOf(false)
+    }
+    val minuti = ((status.feedAgeSeconds ?: 0L) / 60).coerceAtLeast(1)
+    val titolo = when {
+        status.source == dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.SCHEDULE_ONLY -> "Nessun dato dal vivo"
+        status.source == dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.DIRECT -> "Ritardi non disponibili"
+        else -> "Il feed della Regione e' fermo"
+    }
+    val spiegazione = when {
+        status.source == dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.SCHEDULE_ONLY ->
+            "Non risponde ne' il nostro proxy ne' la Regione. Valgono gli " +
+                "orari di tabella, e le schede lo dicono riga per riga."
+        status.source == dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.DIRECT ->
+            "Il nostro proxy non risponde: le posizioni dei bus arrivano " +
+                "direttamente dalla Regione, i ritardi no. I minuti che vedi " +
+                "sono quelli di tabella."
+        else ->
+            "Da $minuti min la Regione non pubblica posizioni nuove. Noi le " +
+                "stiamo chiedendo: i bus sulla mappa sono dove erano allora."
     }
     androidx.compose.foundation.layout.Column(
         modifier = modifier
@@ -197,6 +227,7 @@ fun LiveDownCapsule(
                 interactionSource = remember2(),
                 indication = null,
                 role = Role.Button,
+                onClickLabel = if (expanded) "Chiudi" else "Perche'",
                 onClick = { expanded = !expanded },
             )
             .animateContentSize()
@@ -211,18 +242,31 @@ fun LiveDownCapsule(
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                text = "Bus live non disponibili",
+                text = titolo,
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurface,
             )
         }
         if (expanded) {
             Text(
-                text = "Le posizioni non stanno arrivando: per ora valgono gli " +
-                    "orari programmati. Dettagli in Impostazioni → Stato dei dati.",
+                text = spiegazione,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 6.dp),
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Vedi lo stato dei dati",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .clickable(
+                        interactionSource = remember2(),
+                        indication = null,
+                        role = Role.Button,
+                        onClick = onOpenDataStatus,
+                    )
+                    .padding(vertical = 4.dp),
             )
         }
     }

@@ -233,6 +233,7 @@ private fun AppShell(app: FluidTransitApp) {
                                 onTabBarHidden = { mapHidesTabBar = it },
                                 intent = mapIntent,
                                 onIntentConsumed = { mapIntent = null },
+                                onOpenDataStatus = { above = RouteDataStatus },
                             )
                         }
                     }

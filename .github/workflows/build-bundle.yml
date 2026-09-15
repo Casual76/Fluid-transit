@@ -108,12 +108,27 @@ jobs:
           # Se il grafo non e' pronto in tempo si va senza: meglio le tratte
           # GPS di ieri che nessuna pubblicazione — e la revisione
           # dell'overlay resta bassa, cosi' domani si riprova.
+          # La sonda interroga CINQUE angoli della regione, non solo Firenze.
+          #
+          # Il grafo si costruisce per tessere e non e' pronto tutto insieme:
+          # con una sonda sola, su un tratto del centro di Firenze, si
+          # dichiarava "pronto" un grafo che copriva una frazione della
+          # Toscana. Il 15/09/2026 e' costato il 56% di tracce aderite invece
+          # del 95: tutto il sud e la costa erano ancora tessere mancanti.
+          PROBES='43.7696,11.2558,43.7712,11.2486|43.3188,11.3308,43.3204,11.3260|42.7635,11.1128,42.7650,11.1080|44.0367,10.1400,44.0382,10.1352|43.4633,11.8797,43.4648,11.8749'
           VALHALLA_URL=""
           for i in $(seq 1 90); do
-            if curl -s -m 5 -X POST localhost:8002/trace_route \
-                 -d '{"shape":[{"lat":43.7696,"lon":11.2558},{"lat":43.7712,"lon":11.2486}],"costing":"bus"}' \
-                 | grep -q '"trip"'; then
+            allReady=1
+            IFS='|' read -ra P <<< "$PROBES"
+            for probe in "${P[@]}"; do
+              IFS=',' read -r aLat aLon bLat bLon <<< "$probe"
+              curl -s -m 5 -X POST localhost:8002/trace_route \
+                   -d "{\"shape\":[{\"lat\":$aLat,\"lon\":$aLon},{\"lat\":$bLat,\"lon\":$bLon}],\"costing\":\"bus\"}" \
+                   | grep -q '"trip"' || { allReady=0; break; }
+            done
+            if [ "$allReady" = "1" ]; then
               VALHALLA_URL="http://localhost:8002"
+              echo "sonde superate a tutti e cinque gli angoli dopo $((i * 10)) s"
               break
             fi
             sleep 10
@@ -126,6 +141,15 @@ jobs:
               --args="$GITHUB_WORKSPACE/work/gtfs $GITHUB_WORKSPACE/work/gtfs/shapes-matched.txt"
             ls -la work/gtfs/shapes-matched.txt || \
               echo "::warning::sidecar non prodotto: si prosegue con le shape GPS"
+            # La revisione dell'overlay segue la qualita' del matching: se
+            # stanotte e' andata male, non si sovrascrive con una geometria
+            # peggiore l'overlay migliore di ieri.
+            rate=$(cat work/gtfs/match-rate.txt 2>/dev/null || echo 0)
+            echo "tracce aderite: ${rate}%" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$rate" -lt 80 ]; then
+              echo "1" > work/overlay.rev
+              echo "::warning::matching al ${rate}%: l'overlay resta alla revisione bassa"
+            fi
           else
             echo "1" > work/overlay.rev
             echo "::warning::Valhalla non pronto entro 15 min: shape GPS, senza matching"

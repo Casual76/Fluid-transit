@@ -137,13 +137,33 @@ fun main(args: Array<String>) {
     val total = matched + kept
     println("matching: $matched tracce aderite alla strada, $kept rimaste GPS, su $total")
     println("scritto ${out.name}: $points punti, ${out.length() / 1024} KB")
-    if (total > 0 && matched * 100 / total < MIN_MATCHED_PERCENT) {
-        // Sotto questa soglia il grafo e' probabilmente incompleto: meglio
-        // niente sidecar che una geometria peggiore di quella di ieri.
-        System.err.println(
-            "::warning::solo ${matched * 100 / total}% di tracce aderite: sidecar scartato",
-        )
-        out.delete()
+    // Il tasso di successo si dichiara, ma NON si butta via niente.
+    //
+    // Fino al 15/09/2026 sotto l'ottanta per cento il sidecar veniva
+    // cancellato: "meglio niente che una geometria peggiore di quella di
+    // ieri". Il ragionamento non regge, perche' il sidecar contiene TUTTE le
+    // tracce — quelle agganciate riproiettate, le altre identiche
+    // all'originale (`m?.lat ?: s.lat` qui sopra). Una traccia agganciata e'
+    // migliore della sua versione GPS indipendentemente da quante altre
+    // hanno fallito: non c'e' niente da cui proteggersi.
+    //
+    // Quella notte il grafo era pronto solo su una parte della regione:
+    // 5.173 tracce su 9.095 avevano aderito alla strada, e sono state buttate
+    // tutte. I bus di mezza Toscana hanno continuato a tagliare gli isolati
+    // per non far tagliare gli isolati all'altra meta'.
+    //
+    // Il numero resta, perche' dice qualcosa di importante sul grafo: se
+    // scende, il problema e' a monte (copertura OSM, tempo di costruzione,
+    // riquadro di ritaglio) e va guardato li'.
+    if (total > 0) {
+        val percent = matched * 100 / total
+        val line = "tracce aderite alla strada: $percent% ($matched su $total)"
+        if (percent < MIN_MATCHED_PERCENT) {
+            System.err.println("::warning::$line, sotto il $MIN_MATCHED_PERCENT% atteso")
+        } else {
+            println(line)
+        }
+        File(out.parentFile, "match-rate.txt").writeText(percent.toString())
     }
 }
 
@@ -153,7 +173,7 @@ private const val BATCH = 64
 private const val THREADS = 8
 private const val WRITE_TOLERANCE_M = 2.0
 
-/** Sotto questa percentuale di successo il risultato non si pubblica. */
+/** Sotto questa percentuale il grafo e' probabilmente incompleto: si avvisa. */
 private const val MIN_MATCHED_PERCENT = 80
 
 private fun fmt(v: Double): String = String.format(java.util.Locale.ROOT, "%.6f", v)

@@ -794,7 +794,14 @@ fun MapScreen(
     // comparire mezzo minuto dopo. E' la meta' dell'impressione che il live
     // "si accenda solo dopo l'apertura".
     LaunchedEffect(ready?.buildId) {
-        if (ready != null) runCatching { rt.refreshVehicles() }
+        if (ready == null) return@LaunchedEffect
+        runCatching { rt.refreshVehicles() }
+        // E i ritardi, subito: sono l'unica cosa che distingue un tabellone
+        // vero da uno di tabella, e finora partivano solo quando si apriva un
+        // pannello. Chi apriva l'app, toccava una fermata e leggeva il primo
+        // fotogramma vedeva "orario da tabella" per un paio di secondi, cioe'
+        // esattamente il momento in cui si fa l'idea che il live non ci sia.
+        runCatching { rt.refreshDelays() }
     }
 
     // --- i cicli del realtime: vivono col ciclo di vita della schermata ----

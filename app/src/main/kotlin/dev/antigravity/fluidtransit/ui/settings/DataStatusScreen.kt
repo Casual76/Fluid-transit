@@ -133,6 +133,20 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
                         "nell'ultimo aggiornamento. Si scaricano solo con la mappa aperta",
                     meta = "${rtStatus.vehicleCount} · ${rtStatus.delayCount}",
                 )
+                // `liveVersion` non si legge per il suo valore: si legge perche'
+                // cambia a ogni giro di tempo reale assorbito, e senza di lui
+                // questa riga resterebbe ferma al primo numero letto.
+                val liveVersion by app.liveVersion.collectAsStateWithLifecycle()
+                val withVehicle by app.tripsWithVehicle.collectAsStateWithLifecycle()
+                val tracked = remember(liveVersion) { app.delayModel.size }
+                FluidListRow(
+                    title = "Corse seguite adesso",
+                    subtitle = "Quante corse hanno un ritardo in memoria, e quante hanno un " +
+                        "mezzo vivo. E' da queste che escono i minuti veri nei tabelloni: se " +
+                        "la prima e' zero mentre i ritardi scaricati sono tanti, il feed e gli " +
+                        "orari non si stanno agganciando",
+                    meta = "$tracked · ${withVehicle.size} coi mezzi",
+                )
                 FluidListRow(
                     title = "Corse riconosciute",
                     subtitle = "Quanti bus del feed live combaciano con gli orari del bundle. " +

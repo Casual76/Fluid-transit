@@ -226,11 +226,26 @@ object RoutineScheduler {
             minutes <= 1 -> "Esci ora — ${r.label.ifEmpty { r.toName }}"
             else -> "Esci tra $minutes min — ${r.label.ifEmpty { r.toName }}"
         }
+        // Toccarla apre *quel* viaggio. Fino a ieri questa notifica non
+        // aveva contentIntent: toccarla non faceva assolutamente niente, e
+        // quel nulla e' peggio di un errore — sembra che l'app si sia rotta.
+        val open = PendingIntent.getActivity(
+            app, id.toInt(),
+            Intent(app, dev.antigravity.fluidtransit.MainActivity::class.java)
+                .setAction(Intent.ACTION_VIEW)
+                .setData(
+                    android.net.Uri.parse(
+                        dev.antigravity.fluidtransit.ui.nav.Deeplink.journey(id),
+                    ),
+                ),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         val notification = NotificationCompat.Builder(app, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_directions)
             .setContentTitle(title)
             .setContentText(advice)
             .setStyle(NotificationCompat.BigTextStyle().bigText(advice))
+            .setContentIntent(open)
             .setAutoCancel(true)
             .setOnlyAlertOnce(phase == "refine")
             .build()

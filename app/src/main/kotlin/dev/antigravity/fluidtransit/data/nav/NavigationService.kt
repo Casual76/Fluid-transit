@@ -433,9 +433,18 @@ class NavigationService : Service() {
     }
 
     private fun buildNotification(s: NavState?): Notification {
+        // Riapre la navigazione, non "l'app": chi tocca la barra mentre e'
+        // sul bus vuole tornare al viaggio in corso, e se era su Preferiti
+        // prima di bloccare lo schermo ci tornava dentro.
         val open = PendingIntent.getActivity(
             this, 1,
-            Intent(this, MainActivity::class.java),
+            Intent(this, MainActivity::class.java)
+                .setAction(Intent.ACTION_VIEW)
+                .setData(
+                    android.net.Uri.parse(
+                        dev.antigravity.fluidtransit.ui.nav.Deeplink.nav(),
+                    ),
+                ),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val stop = PendingIntent.getService(

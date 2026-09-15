@@ -137,6 +137,20 @@ class FluidTransitApp : Application() {
         >(null)
 
     /**
+     * L'indirizzo con cui l'app e' stata aperta, finche' non lo si e' aperto.
+     *
+     * Sta sull'Application e non sull'Activity per due motivi. Uno: quando
+     * l'app si apre da fredda, il bundle non c'e' ancora e al posto della
+     * shell c'e' la schermata di benvenuto — l'indirizzo deve sopravvivere
+     * a quell'attesa, o toccare una notifica con l'app spenta continuerebbe
+     * a portare alla mappa generica. Due: sopravvive alla rotazione senza
+     * riaprirsi due volte, che e' l'altro modo classico di sbagliarlo.
+     */
+    val pendingLink = kotlinx.coroutines.flow.MutableStateFlow<
+        dev.antigravity.fluidtransit.ui.nav.Deeplink?,
+        >(null)
+
+    /**
      * L'unica fonte delle prossime partenze.
      *
      * Vive qui per la stessa ragione del modello dei ritardi: due schermate

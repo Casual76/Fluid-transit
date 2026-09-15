@@ -1,16 +1,13 @@
 package dev.antigravity.fluidtransit.ui.settings
 
 import android.os.Build
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.antigravity.fluidengine.foundation.AccentMode
@@ -29,17 +26,15 @@ import kotlinx.coroutines.launch
 /**
  * Impostazioni: tema (sistema/chiaro/scuro), dynamic color opzionale, e in
  * fondo — visibile, non dietro un gesto: deciso cosi' — lo stato dei dati.
+ *
+ * Lo stato dei dati era un `if` qui dentro, e quindi esisteva solo per chi
+ * passava da questa schermata: non aveva un nome, non lo poteva aprire un
+ * deep link, e non ci si poteva mandare la capsula "Bus live non
+ * disponibili", che di quello parla. Adesso e' una destinazione della shell
+ * e questa riga si limita a chiederla.
  */
 @Composable
-fun SettingsTab(app: FluidTransitApp) {
-    var showDataStatus by rememberSaveable { mutableStateOf(false) }
-
-    if (showDataStatus) {
-        BackHandler { showDataStatus = false }
-        DataStatusScreen(app, onBack = { showDataStatus = false })
-        return
-    }
-
+fun SettingsTab(app: FluidTransitApp, onOpenDataStatus: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     val settings by app.settingsStore.settings
         .collectAsStateWithLifecycle(initialValue = EngineSettings())
@@ -130,7 +125,7 @@ fun SettingsTab(app: FluidTransitApp) {
                 FluidListRow(
                     title = "Stato dei dati",
                     subtitle = "Quanto sono freschi gli orari, e come sta andando",
-                    onClick = { showDataStatus = true },
+                    onClick = onOpenDataStatus,
                 )
             }
         }

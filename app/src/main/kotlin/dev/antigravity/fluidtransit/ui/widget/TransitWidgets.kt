@@ -1,6 +1,8 @@
 package dev.antigravity.fluidtransit.ui.widget
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.ui.unit.dp
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.glance.GlanceId
@@ -10,7 +12,7 @@ import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.state.getAppWidgetState
-import androidx.glance.action.actionStartActivity
+import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.layout.height
 import androidx.glance.layout.Spacer
 import androidx.glance.GlanceModifier
@@ -30,6 +32,7 @@ import dev.antigravity.fluidtransit.routing.DepartureBoard
 import dev.antigravity.fluidtransit.routing.DepartureText
 import dev.antigravity.fluidtransit.routing.Ftb
 import dev.antigravity.fluidtransit.routing.Times
+import dev.antigravity.fluidtransit.ui.nav.Deeplink
 import dev.antigravity.fluidtransit.ui.theme.TransitBrand
 import java.time.Instant
 import java.time.LocalDate
@@ -37,6 +40,22 @@ import java.time.ZonedDateTime
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
+
+/**
+ * Il tocco su un widget porta dove il widget guarda.
+ *
+ * Prima portava all'app e basta: toccavi "SODERINI · 12 fra 3 minuti" e ti
+ * trovavi la Toscana intera a zoom 7,6, con la fermata da ricercare a mano.
+ * Un widget che non sa aprire la cosa che mostra e' un cartello, non una
+ * scorciatoia.
+ */
+private fun openLink(context: Context, link: String?): Intent =
+    Intent(context, MainActivity::class.java).apply {
+        if (link != null) {
+            action = Intent.ACTION_VIEW
+            data = Uri.parse(link)
+        }
+    }
 
 /**
  * I due widget decisi (entrambi, per volonta' dell'utente): le partenze di
@@ -78,7 +97,9 @@ class StopWidget : GlanceAppWidget() {
             EngineWidgetSurface(
                 palette = palette,
                 layout = layout,
-                onClick = actionStartActivity<MainActivity>(),
+                onClick = actionStartActivity(
+                    openLink(context, stopHash?.let { Deeplink.stop(it, stopName) }),
+                ),
             ) {
                 EngineWidgetHeader(
                     title = stopName.ifEmpty { "Fluid Transit" },
@@ -177,7 +198,9 @@ class RoutineWidget : GlanceAppWidget() {
             EngineWidgetSurface(
                 palette = palette,
                 layout = layout,
-                onClick = actionStartActivity<MainActivity>(),
+                onClick = actionStartActivity(
+                    openLink(context, todayRoutine?.let { Deeplink.journey(it.id) }),
+                ),
             ) {
                 EngineWidgetHeader(
                     title = "La tua routine",

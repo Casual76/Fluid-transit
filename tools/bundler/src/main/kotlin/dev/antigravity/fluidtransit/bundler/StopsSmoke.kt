@@ -125,21 +125,28 @@ fun main(args: Array<String>) {
 
         // Un nome preciso, quando serve guardare un caso visto sul telefono.
         if (args.size > 1) {
-            val wanted = dev.antigravity.fluidtransit.routing.Relevance.normalize(args[1])
+            // Il nome sta negli argomenti rimasti: i nomi delle fermate hanno
+            // gli spazi dentro, e --args di Gradle li spezza comunque.
+            val nome = args.drop(1).joinToString(" ")
+            val wanted = dev.antigravity.fluidtransit.routing.Relevance.normalize(nome)
             val match = (0 until n).filter {
                 dev.antigravity.fluidtransit.routing.Relevance.normalize(r.stopName(it)) == wanted
             }
-            println("fermate chiamate esattamente \"${args[1]}\": ${match.size}")
+            println("fermate chiamate esattamente \"$nome\": ${match.size}")
             for (a in match) {
                 val vicina = match.filter { it != a }.minOfOrNull { b ->
                     BundleReader.haversine(
                         r.stopLat(a), r.stopLon(a), r.stopLat(b), r.stopLon(b),
                     ).toInt()
                 }
+                // L'hash e' l'indirizzo della fermata: e' quello che
+                // finisce in un widget o in un deep link, e sopravvive al
+                // cambio notturno di bundle mentre l'indice no.
                 println(
                     "  [$a] gruppo ${groups.groupOf(a)} " +
                         "(${groups.siblings(a).size} banchine)  " +
-                        "piu' vicina omonima: ${vicina ?: "-"} m",
+                        "piu' vicina omonima: ${vicina ?: "-"} m  " +
+                        "hash ${java.lang.Long.toHexString(r.stopIdHash(a))}",
                 )
             }
             println()

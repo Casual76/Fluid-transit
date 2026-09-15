@@ -410,35 +410,6 @@ fun MapScreen(
         showTrip(ref, focus = null)
     }
 
-    // Le richieste dalle altre schede (Preferiti, Oggi): si consumano
-    // appena bundle e mappa ci sono.
-    LaunchedEffect(intent, ready?.buildId) {
-        val reader = ready?.reader
-        val i = intent
-        if (i == null || reader == null) return@LaunchedEffect
-        when (i) {
-            is MapIntent.Stop -> {
-                controller.exitRouteMode()
-                controller.setSelectedBus(null)
-                val hash = i.idHashHex.toULongOrNull(16)?.toLong()
-                val stop = hash?.let { reader.findStopByIdHash(it) } ?: -1
-                if (stop >= 0) controller.flyTo(reader.stopLat(stop), reader.stopLon(stop), 16.2)
-                panel = Panel.Stop(StopTap(i.idHashHex, i.name))
-            }
-
-            is MapIntent.Route -> {
-                val hash = i.idHashHex.toULongOrNull(16)?.toLong()
-                val idx = hash?.let { reader.findRouteByIdHash(it) } ?: -1
-                if (idx >= 0) showRoute(idx)
-            }
-
-            is MapIntent.Place -> {
-                showPlace(PlaceRef(i.name, "", i.lat, i.lon, i.savedId))
-            }
-        }
-        onIntentConsumed()
-    }
-
     // I dati della scheda linea, calcolati quando serve.
     val currentRouteIndex = when (val p = panel) {
         is Panel.RouteMini -> p.routeIndex
@@ -521,7 +492,18 @@ fun MapScreen(
     }
 
     var journeyOrigin by remember { mutableStateOf<Pair<Double, Double>?>(null) }
-    var journeyFromGps by remember { mutableStateOf(true) }
+
+    /**
+     * Da dove parte il viaggio, detto a parole.
+     *
+     * Erano due soli casi, un booleano: la tua posizione oppure il centro
+     * della mappa. Ma una partenza scelta — dal pianificatore, dall'assistente,
+     * dalla notifica di una routine — non e' ne' l'una ne' l'altro, e finiva
+     * etichettata "Dal centro della mappa (GPS spento)" mentre il calcolo
+     * partiva, correttamente, dal punto scelto. Il numero era giusto e la
+     * frase era falsa, che e' il modo peggiore di sbagliare.
+     */
+    var journeyFrom by remember { mutableStateOf("Dalla tua posizione") }
     var journeyTimeMode by rememberSaveable { mutableStateOf("now") } // now | depart | arrive
     var journeyTimeEpoch by rememberSaveable { mutableStateOf(0L) }
     var showTimeDialog by remember { mutableStateOf(false) }
@@ -540,13 +522,17 @@ fun MapScreen(
         val to = destRef ?: return
         val from = originRef
         if (from != null) {
-            journeyFromGps = false
+            journeyFrom = "Da ${from.name}"
             journeyOrigin = from.lat to from.lon
         } else {
             // Dalla posizione GPS se c'e', dal centro mappa se no — e la
             // differenza si dichiara nel pannello, non si nasconde.
             val loc = controller.lastLocation()
-            journeyFromGps = loc != null
+            journeyFrom = if (loc != null) {
+                "Dalla tua posizione"
+            } else {
+                "Dal centro della mappa (GPS spento)"
+            }
             journeyOrigin = loc ?: controller.cameraCenter()
         }
         panel = Panel.Journeys(to)
@@ -566,6 +552,52 @@ fun MapScreen(
         query = ""
         plannerField = null
         plannerOpen = true
+    }
+
+    // Le richieste da fuori: da un'altra scheda (Preferiti, Oggi) o da fuori
+    // dall'app (un widget, una notifica, un deep link). Si consumano appena
+    // bundle e mappa ci sono — chi arriva da una notifica con l'app spenta
+    // aspetta qui il caricamento degli orari, invece di trovare la mappa
+    // generica e doversi cercare la fermata a mano.
+    LaunchedEffect(intent, ready?.buildId) {
+        val reader = ready?.reader
+        val i = intent
+        if (i == null || reader == null) return@LaunchedEffect
+        when (i) {
+            is MapIntent.Stop -> {
+                controller.exitRouteMode()
+                controller.setSelectedBus(null)
+                val hash = i.idHashHex.toULongOrNull(16)?.toLong()
+                val stop = hash?.let { reader.findStopByIdHash(it) } ?: -1
+                if (stop >= 0) controller.flyTo(reader.stopLat(stop), reader.stopLon(stop), 16.2)
+                panel = Panel.Stop(StopTap(i.idHashHex, i.name))
+            }
+
+            is MapIntent.Route -> {
+                val hash = i.idHashHex.toULongOrNull(16)?.toLong()
+                val idx = hash?.let { reader.findRouteByIdHash(it) } ?: -1
+                if (idx >= 0) showRoute(idx)
+            }
+
+            is MapIntent.Place -> {
+                showPlace(PlaceRef(i.name, "", i.lat, i.lon, i.savedId))
+            }
+
+            is MapIntent.Journey -> {
+                originRef = if (i.fromLat != null && i.fromLon != null) {
+                    // La routine tiene le coordinate della partenza ma non il
+                    // suo nome: meglio dire cos'e' che inventarle un posto.
+                    PlaceRef("partenza abituale", "", i.fromLat, i.fromLon)
+                } else {
+                    null
+                }
+                destRef = PlaceRef(i.toName, "", i.toLat, i.toLon)
+                journeyTimeMode = "now"
+                plannerOpen = true
+                runPlanner()
+            }
+        }
+        onIntentConsumed()
     }
 
     // Le azioni dell'assistente le esegue la mappa, perche' e' l'unica che
@@ -1787,11 +1819,7 @@ fun MapScreen(
                                 JourneysContent(
                                     toName = state.to.name,
                                     journeys = journeys,
-                                    fromLabel = if (journeyFromGps) {
-                                        "Dalla tua posizione"
-                                    } else {
-                                        "Dal centro della mappa (GPS spento)"
-                                    },
+                                    fromLabel = journeyFrom,
                                     timeLabel = when (journeyTimeMode) {
                                         "depart" -> "Parti alle ${hhmm(journeyTimeEpoch)}"
                                         "arrive" -> "Arrivi entro ${hhmm(journeyTimeEpoch)}"

@@ -44,10 +44,11 @@ class RealtimeClientTest {
         origin.shutdown()
     }
 
-    private fun client(proxyAllowed: Boolean = true) = RealtimeClient(
+    private fun client(proxyAllowed: Boolean = true, online: Boolean = true) = RealtimeClient(
         proxyAllowed = { proxyAllowed },
         proxyBase = proxy.url("/rt/v1").toString().trimEnd('/'),
         directVehiclesUrl = origin.url("/vehicle-positions").toString(),
+        online = { online },
     )
 
     // ------------------------------------------------------- la strada buona
@@ -382,6 +383,56 @@ class RealtimeClientTest {
     }
 
     // ---------------------------------------------------------- le risposte
+
+    // --------------------------------------------------- senza rete
+
+    @Test
+    fun `senza rete non si scende sull'origine e non si accusa il proxy`() = runTest {
+        // Tre giri falliti in metropolitana non sono tre guasti del proxy.
+        // Prima lo erano: al terzo si scendeva su DIRECT — andando a bussare
+        // all'origine, che sta dietro la stessa rete che non c'e' — e ci si
+        // restava cinque minuti.
+        proxy.shutdown()
+        origin.enqueue(feedResponse(vehicles = 2))
+
+        val rt = client(online = false)
+        repeat(3) { rt.refreshVehicles() }
+
+        assertEquals(RealtimeClient.Source.SCHEDULE_ONLY, rt.status.value.source)
+        assertEquals(0, origin.requestCount)
+    }
+
+    @Test
+    fun `quando la rete torna si riprova subito dal proxy`() = runTest {
+        // E' la meta' che conta. Il blocco di cinque minuti serve a non
+        // rimbalzare fra proxy e origine quando il proxy e' davvero rotto; se
+        // se lo prende per colpa di una galleria, chi esce dalla galleria
+        // passa altri cinque minuti senza ritardi.
+        var inRete = false
+        val rt = RealtimeClient(
+            proxyAllowed = { true },
+            proxyBase = proxy.url("/rt/v1").toString().trimEnd('/'),
+            directVehiclesUrl = origin.url("/vehicle-positions").toString(),
+            online = { inRete },
+        )
+
+        // Tre giri a vuoto mentre il telefono e' scollegato: il proxy non
+        // risponde perche' non lo raggiunge nessuno.
+        proxy.enqueue(MockResponse().setResponseCode(503))
+        proxy.enqueue(MockResponse().setResponseCode(503))
+        proxy.enqueue(MockResponse().setResponseCode(503))
+        repeat(3) { rt.refreshVehicles() }
+        assertEquals(RealtimeClient.Source.SCHEDULE_ONLY, rt.status.value.source)
+
+        // La rete torna, e il giro successivo e' gia' di nuovo sul proxy.
+        inRete = true
+        proxy.enqueue(snapshotResponse(vehicleCount = 5, feedAge = 15))
+        rt.refreshVehicles()
+
+        assertEquals(RealtimeClient.Source.PROXY, rt.status.value.source)
+        assertEquals(5, rt.status.value.vehicleCount)
+        assertEquals(0, origin.requestCount)
+    }
 
     // ------------------------------------------------- due giri insieme
 

@@ -348,6 +348,7 @@ fun MapScreen(
     val rtVehicles by rt.vehicles.collectAsStateWithLifecycle()
     val rtDelays by rt.delays.collectAsStateWithLifecycle()
     val rtStatus by rt.status.collectAsStateWithLifecycle()
+    val online by app.online.collectAsStateWithLifecycle()
 
     // Lo snapshot risolto contro il bundle: hash → indici → colori. Fuori
     // dal main, a ogni poll.
@@ -1436,6 +1437,7 @@ fun MapScreen(
                         backdrop = backdrop,
                         status = rtStatus,
                         onOpenDataStatus = onOpenDataStatus,
+                        offline = !online,
                     )
                 }
             }

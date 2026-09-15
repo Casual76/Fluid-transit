@@ -74,6 +74,7 @@ class FluidTransitApp : Application() {
     val realtime by lazy {
         dev.antigravity.fluidtransit.data.rt.RealtimeClient(
             proxyAllowed = { remoteConfig.current().isEnabled(Flags.RtProxy) },
+            online = { online.value },
         )
     }
 
@@ -113,6 +114,17 @@ class FluidTransitApp : Application() {
      * dati nuovi siano dentro.
      */
     val liveVersion = kotlinx.coroutines.flow.MutableStateFlow(0)
+
+    /**
+     * C'e' rete?
+     *
+     * Serve per dire la verita' quando il vivo non c'e'. L'app diceva "non
+     * risponde ne' il nostro proxy ne' la Regione" anche quando il telefono
+     * era semplicemente scollegato: una persona in metropolitana leggeva che
+     * i nostri server sono giu' e concludeva che l'app e' rotta, invece di
+     * guardare la barra in alto.
+     */
+    val online = kotlinx.coroutines.flow.MutableStateFlow(true)
 
     /**
      * Le previsioni per fermata gia' risolte contro il bundle.
@@ -291,6 +303,27 @@ class FluidTransitApp : Application() {
         // bundle nuovo. Senza, un processo vivo per giorni continua a servire
         // gli orari del giorno in cui l'app e' stata aperta.
         //
+        // La rete, guardata una volta sola per tutta l'app.
+        runCatching {
+            val cm = getSystemService(android.net.ConnectivityManager::class.java)
+            online.value = cm.activeNetwork != null
+            cm.registerDefaultNetworkCallback(
+                object : android.net.ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: android.net.Network) {
+                        online.value = true
+                    }
+
+                    override fun onLost(network: android.net.Network) {
+                        online.value = false
+                    }
+
+                    override fun onUnavailable() {
+                        online.value = false
+                    }
+                },
+            )
+        }
+
         // Si conta quante activity sono davanti invece di guardare la
         // singola: una rotazione ne distrugge una e ne crea un'altra, e senza
         // il conteggio sembrerebbe un ritorno dallo sfondo ogni volta che si

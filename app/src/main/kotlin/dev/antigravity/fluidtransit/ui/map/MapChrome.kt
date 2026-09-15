@@ -191,17 +191,33 @@ fun LiveDownCapsule(
     status: dev.antigravity.fluidtransit.data.rt.RealtimeClient.Status,
     onOpenDataStatus: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Il telefono e' scollegato.
+     *
+     * E' il quarto caso, ed e' l'unico che non e' un guasto di nessuno. Senza
+     * distinguerlo l'app diceva "non risponde ne' il nostro proxy ne' la
+     * Regione" anche a chi era in metropolitana: leggeva che i nostri server
+     * sono giu' e concludeva che l'app e' rotta, invece di guardare la barra
+     * in alto. Dare la colpa a se' stessi quando la colpa non c'e' e' un modo
+     * lento di far perdere fiducia.
+     */
+    offline: Boolean = false,
 ) {
     var expanded by remember {
         androidx.compose.runtime.mutableStateOf(false)
     }
     val minuti = ((status.feedAgeSeconds ?: 0L) / 60).coerceAtLeast(1)
     val titolo = when {
+        offline -> "Il telefono non e' in rete"
         status.source == dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.SCHEDULE_ONLY -> "Nessun dato dal vivo"
         status.source == dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.DIRECT -> "Ritardi non disponibili"
         else -> "Il feed della Regione e' fermo"
     }
     val spiegazione = when {
+        offline ->
+            "Senza connessione non arrivano ne' le posizioni dei bus ne' i " +
+                "ritardi. Gli orari di tabella ci sono lo stesso, perche' " +
+                "sono sul telefono, e le schede lo dicono riga per riga."
         status.source == dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.SCHEDULE_ONLY ->
             "Non risponde ne' il nostro proxy ne' la Regione. Valgono gli " +
                 "orari di tabella, e le schede lo dicono riga per riga."

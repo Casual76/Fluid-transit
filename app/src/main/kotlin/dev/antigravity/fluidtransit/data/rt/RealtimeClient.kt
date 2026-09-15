@@ -41,6 +41,18 @@ class RealtimeClient(
      */
     private val proxyBase: String = PROXY_BASE,
     private val directVehiclesUrl: String = DIRECT_VEHICLES,
+    /**
+     * C'e' rete?
+     *
+     * Un giro fallito col telefono scollegato non dice niente sul proxy.
+     * Senza questa domanda, tre giri falliti in metropolitana contavano come
+     * tre guasti del proxy: si scendeva su DIRECT con cinque minuti di
+     * blocco, e quando la rete tornava l'app passava altri cinque minuti
+     * senza ritardi dicendo "il nostro proxy non risponde" — che era falso, e
+     * dare la colpa a se' stessi quando la colpa non c'e' e' un modo lento di
+     * far perdere fiducia.
+     */
+    private val online: () -> Boolean = { true },
 ) {
     enum class Source { PROXY, DIRECT, SCHEDULE_ONLY }
 
@@ -319,6 +331,12 @@ class RealtimeClient(
 
     /** true se e' ora di provare l'origine diretta, false se si riprova col proxy. */
     private fun registerProxyFailure(message: String): Boolean {
+        if (!online()) {
+            // Niente rete: non e' una prova contro il proxy, e nemmeno vale
+            // la pena provare l'origine, che sta dietro la stessa rete.
+            publish(Source.SCHEDULE_ONLY, feedAge(_vehicles.value?.feedTimestamp), message)
+            return false
+        }
         proxyFailures++
         lastProxyError = message
         val giveUp = proxyFailures >= 3

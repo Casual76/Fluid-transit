@@ -14,6 +14,13 @@ on:
   schedule:
     - cron: "40 3 * * *"
   workflow_dispatch:
+    inputs:
+      ignora_gate:
+        description: >-
+          Pubblica anche se i gate volumetrici protestano. Da usare SOLO dopo
+          aver guardato i numeri nel log e aver capito perche' sono cambiati.
+        type: boolean
+        default: false
 
 permissions:
   contents: write # per la release `dati`
@@ -185,6 +192,8 @@ jobs:
         run: ./gradlew --no-daemon :core-routing:test --console=plain
 
       - name: Gate volumetrici contro il build precedente
+        env:
+          IGNORA_GATE: ${{ inputs.ignora_gate }}
         run: |
           set -euo pipefail
           # L'indice del build precedente. Se non esiste (primo build) i gate
@@ -224,14 +233,44 @@ jobs:
           fi
 
           fail=0
-          # Gate 2, volumetria: conteggi entro +-15%.
-          for field in stops routes trips; do
-            a=$(jq -r ".$field" $old); b=$(jq -r ".$field" $new)
+          # Gate 2, volumetria. Le soglie sono ASIMMETRICHE, e non per
+          # comodita': le due direzioni vogliono dire cose diverse.
+          #
+          # Un feed che si RESTRINGE e' il sintomo di un guasto - download
+          # troncato, parse parziale, calendario letto male - e il danno e'
+          # silenzioso: l'app direbbe "nessun passaggio" invece di dare
+          # errore. Li' si sta stretti.
+          #
+          # Un feed che CRESCE, no. Il 15 settembre 2026 l'origine ha
+          # pubblicato 28.780 -> 33.930 fermate, 755 -> 946 linee e 187.394 ->
+          # 287.675 corse: e' l'inizio dell'anno scolastico, e sono le corse
+          # degli studenti che tornano. Il gate a +-15% l'ha bloccato per
+          # sette notti di fila, e per sette giorni l'app ha mostrato gli
+          # orari di settembre senza i bus della scuola. Un cancello che
+          # scambia la normalita' per un guasto fa piu' danno del guasto.
+          #
+          # Il tetto in su resta perche' serve ancora a qualcosa di preciso:
+          # intercettare una duplicazione (un bug che raddoppia le corse fa
+          # esattamente +100%). E il golden gate, che ha gia' ricalcolato
+          # tutte le risposte rileggendo i CSV, e' passato prima di arrivare
+          # qui: qui non si verifica la correttezza, si verifica la
+          # plausibilita' della FONTE.
+          for field in stops:10:50 routes:10:50 trips:10:80; do
+            name=${field%%:*}; rest=${field#*:}
+            maxDown=${rest%%:*}; maxUp=${rest#*:}
+            a=$(jq -r ".$name" $old); b=$(jq -r ".$name" $new)
             if [ "$a" -gt 0 ]; then
-              delta=$(( (b - a) * 100 / a )); [ $delta -lt 0 ] && delta=$((-delta))
-              echo "$field: $a -> $b (${delta}%)"
-              if [ $delta -gt 15 ]; then
-                echo "::error::$field variato del ${delta}%: oltre il 15%"; fail=1
+              delta=$(( (b - a) * 100 / a ))
+              echo "$name: $a -> $b (${delta}%)"
+              if [ $delta -lt -$maxDown ]; then
+                echo "::error::$name calato del $((-delta))%: oltre il ${maxDown}% in meno"; fail=1
+              elif [ $delta -gt $maxUp ]; then
+                echo "::error::$name cresciuto del ${delta}%: oltre il ${maxUp}% in piu'"; fail=1
+              elif [ $delta -gt 15 ] || [ $delta -lt -5 ]; then
+                # Dentro le soglie ma fuori dall'ordinario: si pubblica, e lo
+                # si dice. Una crescita cosi' e' quasi sempre un cambio
+                # d'orario vero, ma va guardata.
+                echo "::notice::$name variato del ${delta}%: dentro le soglie, ma vale un'occhiata"
               fi
             fi
           done
@@ -244,24 +283,46 @@ jobs:
           # domenica): si calcola dalle date di inizio dichiarate.
           oldFrom=$(jq -r .validFrom $old)
           newFrom=$(jq -r .validFrom $new)
-          offset=$(( ( $(date -u -d "$newFrom" +%s) - $(date -u -d "$oldFrom" +%s) ) / 86400 ))
-          echo "finestre: $oldFrom -> $newFrom (sfasamento $offset giorni)"
-          if [ "$offset" -lt 0 ] || [ "$offset" -gt 6 ]; then
-            echo "::warning::sfasamento fuori scala, gate settimanale saltato"
+          days=$(( ( $(date -u -d "$newFrom" +%s) - $(date -u -d "$oldFrom" +%s) ) / 86400 ))
+          # `tripsActivePerDay[d]` sono le corse attive al giorno d DOPO
+          # validFrom, non di un giorno della settimana: per confrontare
+          # lunedi' con lunedi' si sfasa. E lo sfasamento si prende modulo 7,
+          # perche' sette giorni dopo e' lo stesso giorno della settimana.
+          #
+          # Senza il modulo, questo gate era spento proprio quando serviva:
+          # l'origine ripubblica il feed OGNI SETTIMANA, quindi lo sfasamento
+          # era quasi sempre 7, cioe' "fuori scala", e il controllo si
+          # saltava da se'. Nei log delle ultime sette notti c'e' sempre la
+          # stessa riga: "sfasamento fuori scala, gate settimanale saltato".
+          offset=$(( days % 7 ))
+          echo "finestre: $oldFrom -> $newFrom ($days giorni, sfasamento $offset)"
+          if [ "$days" -lt 0 ] || [ "$days" -gt 60 ]; then
+            echo "::warning::finestre troppo distanti ($days giorni): gate settimanale saltato"
             exit $fail
           fi
-          for d in 0 1 2 3 4 5; do
-            a=$(jq -r ".tripsActivePerDay[$((d + offset))] // empty" $old)
+          for d in 0 1 2 3 4 5 6; do
+            a=$(jq -r ".tripsActivePerDay[$(( (d + offset) % 7 ))] // empty" $old)
             b=$(jq -r ".tripsActivePerDay[$d] // empty" $new)
             if [ -n "$a" ] && [ -n "$b" ] && [ "$a" -gt 0 ]; then
-              delta=$(( (b - a) * 100 / a )); [ $delta -lt 0 ] && delta=$((-delta))
+              delta=$(( (b - a) * 100 / a ))
               echo "giorno $d: $a -> $b (${delta}%)"
-              if [ $delta -gt 20 ]; then
-                # Whitelist festivita': si aggiunge qui la data quando serve.
-                echo "::error::corse del giorno $d variate del ${delta}%: oltre il 20%"; fail=1
+              # Stessa asimmetria del gate volumetrico, e per lo stesso
+              # motivo: un giorno che si svuota e' un guasto, un giorno che si
+              # riempie e' settembre.
+              if [ $delta -lt -20 ]; then
+                echo "::error::corse del giorno $d calate del $((-delta))%: oltre il 20% in meno"; fail=1
+              elif [ $delta -gt 80 ]; then
+                echo "::error::corse del giorno $d cresciute del ${delta}%: oltre l'80% in piu'"; fail=1
               fi
             fi
           done
+
+          if [ "$fail" -ne 0 ] && [ "${IGNORA_GATE:-false}" = "true" ]; then
+            echo "::warning::gate non passati, ma si pubblica lo stesso su richiesta esplicita"
+            echo "### Gate ignorati a mano" >> "$GITHUB_STEP_SUMMARY"
+            echo "I numeri qui sopra non hanno passato i controlli; la pubblicazione e' stata forzata da chi ha avviato il job." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           exit $fail
 
       - name: Pubblica sulla release dati

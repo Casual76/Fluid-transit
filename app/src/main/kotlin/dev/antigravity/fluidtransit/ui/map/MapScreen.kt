@@ -75,6 +75,15 @@ private const val STALE_HIDE_SECONDS = 180L
  */
 private const val MAP_WINS_METERS = 20_000.0
 
+/**
+ * Sotto questa distanza partenza e arrivo sono lo stesso posto.
+ *
+ * Sessanta metri: la larghezza di un incrocio. Chi deve fare sessanta metri
+ * li fa a piedi senza chiederlo a un'app, e un viaggio da qui a qui e' la
+ * risposta giusta a una domanda che nessuno ha fatto.
+ */
+private const val SAME_PLACE_M = 60.0
+
 @androidx.compose.runtime.Composable
 @kotlin.OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 fun MapScreen(
@@ -768,7 +777,16 @@ fun MapScreen(
     var journeysFailed by remember { mutableStateOf(false) }
     val journeys by produceState<List<UiJourney>?>(
         initialValue = null,
-        journeysTarget, journeyTimeMode, journeyTimeEpoch, ready?.buildId,
+        // La PARTENZA fra le chiavi, che e' dove mancava.
+        //
+        // Il calcolo la leggeva ma non ci si riavviava sopra: si cambiava la
+        // riga "Da" nel pianificatore, l'intestazione diceva il posto nuovo —
+        // quella si aggiorna da un'altra parte — e sotto restavano i viaggi
+        // calcolati dal posto vecchio. Anche il tasto che scambia partenza e
+        // arrivo non cambiava niente. Un pianificatore che risponde alla
+        // domanda di prima e sembra aver risposto a quella nuova e' il modo
+        // piu' diretto di far perdere fiducia a chi lo usa.
+        journeysTarget, journeyOrigin, journeyTimeMode, journeyTimeEpoch, ready?.buildId,
     ) {
         val reader = ready?.reader
         val to = journeysTarget
@@ -1871,6 +1889,11 @@ fun MapScreen(
                                     toName = state.to.name,
                                     journeys = journeys,
                                     failed = journeysFailed,
+                                    samePlace = journeyOrigin?.let { (lat, lon) ->
+                                        dev.antigravity.fluidtransit.routing.BundleReader
+                                            .haversine(lat, lon, state.to.lat, state.to.lon) <
+                                            SAME_PLACE_M
+                                    } ?: false,
                                     fromLabel = journeyFrom,
                                     timeLabel = when (journeyTimeMode) {
                                         "depart" -> "Parti alle ${hhmm(journeyTimeEpoch)}"

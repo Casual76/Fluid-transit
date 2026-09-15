@@ -140,6 +140,8 @@ fun JourneysContent(
     journeys: List<UiJourney>?,
     /** Il calcolo non e' riuscito: diverso da "non c'e' nessun viaggio". */
     failed: Boolean = false,
+    /** Partenza e arrivo sono lo stesso posto: non c'e' niente da calcolare. */
+    samePlace: Boolean = false,
     fromLabel: String,
     timeLabel: String,
     backdrop: GlassBackdropState,
@@ -217,6 +219,25 @@ fun JourneysContent(
                 title = "Non sono riuscito a calcolare il viaggio",
                 detail = "Non e' che non ci sia: e' che il calcolo si e' " +
                     "interrotto. Riprova fra un momento.",
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+        }
+
+        // "Zero minuti, solo a piedi" e' vero e non serve a niente.
+        //
+        // Col GPS spento la partenza e' il centro della mappa, e dopo una
+        // ricerca il centro della mappa E' il posto cercato: quindi ogni
+        // "Portami qui" finiva in un viaggio da qui a qui, "00:55 -> 00:55,
+        // 0 min". Nessuno sbaglio nel calcolo — il calcolo ha risposto
+        // esattamente alla domanda sbagliata.
+        samePlace -> {
+            FluidEmptyState(
+                title = "Sei gia' li'",
+                detail = "Partenza e arrivo sono lo stesso posto. Se non e' " +
+                    "quello che volevi, scegli da dove parti: senza GPS la " +
+                    "partenza e' il centro della mappa, che dopo una ricerca " +
+                    "e' proprio il posto trovato.",
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
             Spacer(Modifier.height(12.dp))

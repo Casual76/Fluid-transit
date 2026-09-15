@@ -55,7 +55,25 @@ class BundleReader(file: File, private val verifyCrcOnFirstUse: Boolean = true) 
 
     // Indicizzate per id di sezione: l'array evita un lookup di HashMap per
     // ogni accesso a un campo, che con RAPTOR sarebbero milioni per query.
-    private val slices = arrayOfNulls<ByteBuffer>(MAX_SECTION_ID + 1)
+    /**
+     * Le sezioni gia' affettate, pubblicate in modo sicuro.
+     *
+     * Era un array normale. Il lettore lo usano insieme il thread della UI,
+     * il pool di sfondo che calcola i tabelloni, il collettore dei ritardi e
+     * gli strumenti dell'assistente: due che chiedono la stessa sezione per
+     * la prima volta ne costruiscono due fette, e quello e' innocuo — sono
+     * identiche. Quello che non e' innocuo e' la pubblicazione: un array
+     * normale non garantisce che chi legge il riferimento veda anche i campi
+     * dell'oggetto scritti prima, e i campi di un `ByteBuffer` (posizione,
+     * limite, indirizzo) non sono finali. Sui processori dei telefoni, che
+     * riordinano piu' di un PC, il secondo thread puo' vedere una fetta con
+     * limite zero: byte a caso, o un'eccezione, su un dato che sul disco e'
+     * perfetto.
+     *
+     * Con un `AtomicReferenceArray` la scrittura e la lettura del
+     * riferimento fanno da barriera, e chi legge vede la fetta intera.
+     */
+    private val slices = java.util.concurrent.atomic.AtomicReferenceArray<ByteBuffer>(MAX_SECTION_ID + 1)
 
     @Volatile
     private var closed = false
@@ -110,7 +128,7 @@ class BundleReader(file: File, private val verifyCrcOnFirstUse: Boolean = true) 
      * Alla prima materializzazione verifica il CRC32 dichiarato nell'header.
      */
     private fun sec(id: Int): ByteBuffer {
-        slices[id]?.let { return it }
+        slices.get(id)?.let { return it }
         check(!closed) { "lettore chiuso" }
         val s = sections[id] ?: error("sezione ${Ftb.SECTION_NAMES[id] ?: id} assente dal bundle")
         val slice = map.duplicate().apply {
@@ -125,7 +143,7 @@ class BundleReader(file: File, private val verifyCrcOnFirstUse: Boolean = true) 
                 "sezione ${Ftb.SECTION_NAMES[id] ?: id} corrotta (CRC atteso ${s.crc}, letto $actual)"
             }
         }
-        slices[id] = slice
+        slices.set(id, slice)
         return slice
     }
 
@@ -720,7 +738,7 @@ class BundleReader(file: File, private val verifyCrcOnFirstUse: Boolean = true) 
     override fun close() {
         if (closed) return
         closed = true
-        java.util.Arrays.fill(slices, null)
+        for (i in 0 until slices.length()) slices.set(i, null)
         unmapQuietly(map)
     }
 

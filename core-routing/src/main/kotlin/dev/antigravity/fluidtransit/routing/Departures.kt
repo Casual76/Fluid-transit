@@ -1,0 +1,244 @@
+package dev.antigravity.fluidtransit.routing
+
+import java.time.Instant
+
+/**
+ * Le prossime partenze da una fermata, in UN modello solo.
+ *
+ * Prima di questo file lo stesso calcolo stava scritto in sei posti — la
+ * scheda fermata, la scheda Oggi, i Preferiti, il widget, la navigazione, il
+ * ponte dell'assistente — ognuno con la sua idea di cosa mostrare, il suo
+ * battito e le sue parole. La stessa fermata, aperta da due strade diverse,
+ * poteva dire "3 min" da una parte e "5 min" dall'altra nello stesso istante,
+ * e nessuno dei due era sbagliato: erano stati calcolati a quindici secondi di
+ * distanza, con regole diverse su quali corse contare.
+ *
+ * Non era un difetto di una schermata: era la ragione per cui l'app sembrava
+ * approssimativa anche quando i dati erano giusti.
+ *
+ * Qui c'e' il dato. La grammatica sta in [DepartureText], la riga disegnata
+ * sta nell'app, e tutti e tre vengono da qui.
+ */
+
+/**
+ * Quanto ci si puo' fidare dell'orario, e da dove viene.
+ *
+ * L'ordine non e' casuale: va dal piu' certo al meno certo, e la UI puo'
+ * confrontarli. `DECLARED` esiste gia' anche se oggi nessuno lo produce: lo
+ * produrra' il lettore delle previsioni per fermata, e definire il vocabolario
+ * adesso vuol dire che quel giorno cambia una sola funzione.
+ */
+enum class Certainty {
+    /** La fermata e' alle spalle del mezzo: quel ritardo non la riguarda piu'. */
+    SERVED,
+
+    /** Il feed dichiara una previsione per QUESTA fermata. */
+    DECLARED,
+
+    /**
+     * Il feed dichiara una previsione per una fermata precedente, e la regola
+     * di GTFS-RT la porta fin qui: vale finche' non ce n'e' un'altra.
+     */
+    PROPAGATED,
+
+    /** Nessuna previsione copre questa fermata: il numero e' una stima nostra. */
+    ESTIMATED,
+}
+
+/** Cosa il tempo reale sa di una corsa. L'implementazione sta nell'app. */
+interface LiveTimes {
+
+    class At(val delaySeconds: Int, val certainty: Certainty)
+
+    /**
+     * Il ritardo da applicare alla fermata in posizione [position] di un
+     * pattern che ne ha [stopCount]. Null quando di quella corsa non si sa
+     * niente, o quando quello che si sapeva e' troppo vecchio.
+     */
+    fun at(tripIndex: Int, position: Int, stopCount: Int, nowEpoch: Long): At?
+
+    /** Il feed dichiara questa corsa cancellata. */
+    fun canceled(tripIndex: Int): Boolean = false
+
+    /** Il feed dichiara che questa fermata viene saltata. */
+    fun skipped(tripIndex: Int, position: Int): Boolean = false
+
+    /**
+     * Il feed sta seguendo questa corsa.
+     *
+     * Diverso da "ha un ritardo": una corsa monitorata e puntuale ha ritardo
+     * zero, ed e' un'informazione migliore di nessuna informazione.
+     */
+    fun monitored(tripIndex: Int): Boolean = false
+}
+
+/** Una partenza, con tutto quello che serve a mostrarla. */
+class NextDeparture(
+    val tripIndex: Int,
+    val patternIndex: Int,
+    val routeIndex: Int,
+    val stopIndex: Int,
+    val positionInPattern: Int,
+    /** L'orario di tabella. */
+    val scheduledEpoch: Long,
+    /** Il ritardo applicato, in secondi. Null = nessun dato dal vivo. */
+    val delaySeconds: Int?,
+    val certainty: Certainty?,
+    val canceled: Boolean,
+    val skipped: Boolean,
+    val monitored: Boolean,
+    val line: String,
+    val destination: String,
+    val colorRgb: Int,
+    val stopName: String,
+) {
+    /** L'orario a cui il mezzo passa davvero, per quanto ne sappiamo. */
+    val effectiveEpoch: Long get() = scheduledEpoch + (delaySeconds ?: 0)
+
+    /** C'e' un numero che viene dal vivo, comunque sia stato ottenuto. */
+    val live: Boolean get() = delaySeconds != null
+
+    /** Il numero viene dal feed, non da una stima nostra. */
+    val fromFeed: Boolean
+        get() = certainty == Certainty.DECLARED || certainty == Certainty.PROPAGATED
+}
+
+/**
+ * Il tabellone di una fermata in un istante preciso.
+ *
+ * [computedAtEpoch] non e' decorativo: e' l'istante rispetto al quale sono
+ * stati calcolati i minuti, e due schermate che mostrano lo stesso tabellone
+ * mostrano per forza lo stesso numero perche' partono dallo stesso istante.
+ */
+class DepartureBoard(
+    val stopIndex: Int,
+    val stopName: String,
+    val computedAtEpoch: Long,
+    val rows: List<NextDeparture>,
+) {
+    companion object {
+        fun empty(stopIndex: Int, stopName: String, nowEpoch: Long) =
+            DepartureBoard(stopIndex, stopName, nowEpoch, emptyList())
+    }
+}
+
+object Departures {
+
+    /**
+     * Il tabellone di una fermata.
+     *
+     * Le corse gia' passate secondo il tempo reale non si mostrano: una corsa
+     * il cui ritardo la porta indietro nel tempo non e' "imminente", e' finita.
+     * Le cancellate invece si mostrano, dichiarate: sapere che il bus non
+     * viene e' piu' utile che non vedere niente e continuare ad aspettarlo.
+     */
+    fun build(
+        reader: BundleReader,
+        stopIndex: Int,
+        now: Instant,
+        limit: Int = 10,
+        horizonSeconds: Int = 2 * 3600,
+        live: LiveTimes? = null,
+    ): DepartureBoard {
+        val nowEpoch = now.epochSecond
+        val name = reader.stopName(stopIndex)
+        // Si chiede qualche corsa in piu' del necessario: alcune spariranno
+        // perche' saltate o gia' passate, e il tabellone deve restare pieno.
+        // Si interroga qualche secondo indietro: il lettore taglia tutto
+        // cio' che e' gia' partito, e senza questo margine una corsa spariva
+        // dal tabellone nell'istante esatto in cui il suo orario passava --
+        // proprio mentre la persona era alla fermata ad aspettarla.
+        val raw = reader.nextDepartures(
+            stop = stopIndex,
+            now = now.minusSeconds(GRACE_SECONDS.toLong()),
+            limit = limit + EXTRA,
+            horizonSeconds = horizonSeconds + GRACE_SECONDS,
+        )
+
+        val rows = ArrayList<NextDeparture>(raw.size)
+        for (d in raw) {
+            val stopCount = reader.patternStopCount(d.patternIndex)
+            val at = live?.at(d.tripIndex, d.positionInPattern, stopCount, nowEpoch)
+            // Un ritardo riferito a una fermata che il mezzo ha gia' passato
+            // non dice niente su quando passera' QUI: si mostra l'orario di
+            // tabella, che e' l'unica cosa onesta che resta.
+            val usable = at?.takeIf { it.certainty != Certainty.SERVED }
+            val skipped = live?.skipped(d.tripIndex, d.positionInPattern) ?: false
+            if (skipped) continue
+
+            val row = NextDeparture(
+                tripIndex = d.tripIndex,
+                patternIndex = d.patternIndex,
+                routeIndex = d.routeIndex,
+                stopIndex = stopIndex,
+                positionInPattern = d.positionInPattern,
+                scheduledEpoch = d.instant.epochSecond,
+                delaySeconds = usable?.delaySeconds,
+                certainty = usable?.certainty,
+                canceled = live?.canceled(d.tripIndex) ?: false,
+                skipped = false,
+                monitored = live?.monitored(d.tripIndex) ?: false,
+                line = reader.routeShortName(d.routeIndex)
+                    .ifEmpty { reader.routeLongName(d.routeIndex) },
+                destination = reader.patternDestination(d.patternIndex),
+                colorRgb = reader.routeDisplayColor(d.routeIndex),
+                stopName = name,
+            )
+            // Passata: il ritardo l'ha portata indietro nel tempo.
+            if (!row.canceled && row.effectiveEpoch < nowEpoch - GRACE_SECONDS) continue
+            rows.add(row)
+        }
+
+        // L'ordine e' quello dell'orario EFFETTIVO: un bus in ritardo passa
+        // dopo uno puntuale che parte dopo di lui, e il tabellone deve dirlo.
+        rows.sortBy { it.effectiveEpoch }
+        return DepartureBoard(
+            stopIndex = stopIndex,
+            stopName = name,
+            computedAtEpoch = nowEpoch,
+            rows = if (rows.size > limit) rows.subList(0, limit).toList() else rows,
+        )
+    }
+
+    /**
+     * Il tabellone di piu' fermate insieme, in ordine di orario.
+     *
+     * E' quello che serve a "cosa passa vicino a me" e alla scheda Oggi: la
+     * domanda non e' "cosa passa da ognuna di queste fermate", e' "cosa passa,
+     * qui intorno". Elencarle raggruppate per fermata dava 3 min, 40 min,
+     * 5 min, e non si capiva.
+     */
+    fun merged(
+        reader: BundleReader,
+        stops: List<Int>,
+        now: Instant,
+        limit: Int = 10,
+        horizonSeconds: Int = 2 * 3600,
+        live: LiveTimes? = null,
+    ): DepartureBoard {
+        val nowEpoch = now.epochSecond
+        val all = ArrayList<NextDeparture>()
+        for (s in stops) {
+            all.addAll(build(reader, s, now, limit, horizonSeconds, live).rows)
+        }
+        all.sortBy { it.effectiveEpoch }
+        return DepartureBoard(
+            stopIndex = -1,
+            stopName = "",
+            computedAtEpoch = nowEpoch,
+            rows = if (all.size > limit) all.subList(0, limit).toList() else all,
+        )
+    }
+
+    /**
+     * Quanto si puo' sbagliare in difetto prima di dare una corsa per passata.
+     *
+     * Mezzo minuto: il tempo di un arrotondamento e di un giro di poll. Senza,
+     * una corsa spariva dal tabellone un istante prima che il bus arrivasse
+     * davvero alla fermata — proprio mentre la persona lo stava aspettando.
+     */
+    private const val GRACE_SECONDS = 30
+
+    /** Quante corse in piu' chiedere, per compensare quelle che si scartano. */
+    private const val EXTRA = 4
+}

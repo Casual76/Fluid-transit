@@ -6,7 +6,7 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
 /**
- * Scrivere un file dell'utente senza poterlo perdere.
+ * Scrivere un file piccolo senza poterlo perdere a meta'.
  *
  * I quattro archivi dell'utente — le stelle, le routine, i posti salvati, le
  * ricerche recenti — si salvavano con un `writeText`, che prima **tronca** il
@@ -28,7 +28,7 @@ import java.nio.file.StandardCopyOption
  * destinazione mentre il contenuto e' ancora in memoria, e si otterrebbe un
  * file nuovo e vuoto — che e' esattamente il danno da cui si sta scappando.
  */
-internal object UserFile {
+internal object Durable {
 
     /**
      * Scrive [text] in [file], o lascia [file] esattamente com'era.
@@ -36,7 +36,7 @@ internal object UserFile {
      * Torna false se non c'e' riuscita: chi chiama non deve dire all'utente
      * che ha salvato.
      */
-    fun writeAtomically(file: File, text: String): Boolean {
+    fun write(file: File, text: String): Boolean {
         val part = File(file.parentFile, file.name + PART_SUFFIX)
         return try {
             file.parentFile?.mkdirs()

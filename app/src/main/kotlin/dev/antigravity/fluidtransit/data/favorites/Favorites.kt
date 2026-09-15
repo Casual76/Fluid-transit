@@ -1,7 +1,7 @@
 package dev.antigravity.fluidtransit.data.favorites
 
 import android.content.Context
-import dev.antigravity.fluidtransit.data.store.UserFile
+import dev.antigravity.fluidtransit.data.store.Durable
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.json.JSONArray
@@ -87,7 +87,7 @@ class Favorites(context: Context) {
                     put(JSONObject().put("h", it.idHashHex).put("n", it.shortName).put("c", it.colorRgb))
                 }
             })
-            UserFile.writeAtomically(file, o.toString())
+            Durable.write(file, o.toString())
         }.getOrDefault(false)
         // Se non si e' scritto niente, la copia in memoria non deve dire il
         // contrario: la stella tornerebbe indietro al riavvio, e nel

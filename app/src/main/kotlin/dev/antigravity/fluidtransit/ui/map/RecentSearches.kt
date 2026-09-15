@@ -1,7 +1,7 @@
 package dev.antigravity.fluidtransit.ui.map
 
 import android.content.Context
-import dev.antigravity.fluidtransit.data.store.UserFile
+import dev.antigravity.fluidtransit.data.store.Durable
 import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
@@ -59,7 +59,7 @@ class RecentSearches(context: Context) {
                         .put("lon", e.lon),
                 )
             }
-            UserFile.writeAtomically(file, array.toString())
+            Durable.write(file, array.toString())
         }
     }
 

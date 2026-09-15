@@ -3,6 +3,7 @@ package dev.antigravity.fluidtransit.data.bundle
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
+import dev.antigravity.fluidtransit.data.store.Durable
 import dev.antigravity.fluidtransit.routing.BundleReader
 import java.io.File
 import java.io.FileOutputStream
@@ -247,7 +248,11 @@ class BundleManager(
 
     private fun writeMeta(index: BundleIndex) {
         runCatching {
-            meta.writeText(
+            // Se questa si tronca a meta', `readMetaOverlay` non legge piu'
+            // niente e la mappa resta senza le linee fino allo scambio della
+            // notte dopo: la scheda vale la stessa cura del bundle.
+            Durable.write(
+                meta,
                 JSONObject()
                     .put("buildId", index.buildId)
                     .put("overlayUrl", index.overlayUrl ?: JSONObject.NULL)

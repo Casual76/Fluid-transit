@@ -20,7 +20,7 @@ import org.junit.Test
  * Su file veri e non su finzioni: quello che si sta verificando e' proprio il
  * comportamento del filesystem.
  */
-class UserFileTest {
+class DurableTest {
 
     private val tmp = ArrayList<File>()
 
@@ -30,21 +30,21 @@ class UserFileTest {
     @After
     fun pulisci() {
         tmp.forEach { it.delete() }
-        tmp.forEach { File(it.parentFile, it.name + UserFile.PART_SUFFIX).delete() }
+        tmp.forEach { File(it.parentFile, it.name + Durable.PART_SUFFIX).delete() }
     }
 
     @Test
     fun `quello che si scrive si rilegge`() {
         val f = file("stelle")
-        assertTrue(UserFile.writeAtomically(f, """{"stops":[]}"""))
+        assertTrue(Durable.write(f, """{"stops":[]}"""))
         assertEquals("""{"stops":[]}""", f.readText())
     }
 
     @Test
     fun `riscrivere sostituisce, non aggiunge in coda`() {
         val f = file("stelle")
-        UserFile.writeAtomically(f, "un contenuto piuttosto lungo, di sicuro piu' del prossimo")
-        UserFile.writeAtomically(f, "corto")
+        Durable.write(f, "un contenuto piuttosto lungo, di sicuro piu' del prossimo")
+        Durable.write(f, "corto")
         assertEquals("corto", f.readText())
     }
 
@@ -54,15 +54,15 @@ class UserFileTest {
         // `JSONObject`, che su byte non UTF-8 solleva invece di arrangiarsi.
         val f = file("stelle")
         val testo = """{"n":"Città, però — é è ì ò ù"}"""
-        UserFile.writeAtomically(f, testo)
+        Durable.write(f, testo)
         assertEquals(testo, f.readText())
     }
 
     @Test
     fun `il file di lavoro non resta in giro`() {
         val f = file("stelle")
-        UserFile.writeAtomically(f, "qualcosa")
-        val part = File(f.parentFile, f.name + UserFile.PART_SUFFIX)
+        Durable.write(f, "qualcosa")
+        val part = File(f.parentFile, f.name + Durable.PART_SUFFIX)
         assertFalse("il file di lavoro e' rimasto sul disco", part.exists())
     }
 
@@ -72,10 +72,10 @@ class UserFileTest {
         // di prima devono essere ancora li'. Il caso si costruisce puntando a
         // un percorso che non puo' esistere — un file dentro un file.
         val vero = file("stelle")
-        UserFile.writeAtomically(vero, """{"stops":["a","b"]}""")
+        Durable.write(vero, """{"stops":["a","b"]}""")
 
         val impossibile = File(vero, "dentro-un-file.json")
-        assertFalse(UserFile.writeAtomically(impossibile, "niente"))
+        assertFalse(Durable.write(impossibile, "niente"))
 
         assertEquals("""{"stops":["a","b"]}""", vero.readText())
     }
@@ -86,12 +86,12 @@ class UserFileTest {
         // disco e' un `.part` incompleto. Non e' un salvataggio: il file vero
         // non deve averne notizia, e la scrittura successiva se lo riprende.
         val f = file("stelle")
-        UserFile.writeAtomically(f, "buono")
-        val part = File(f.parentFile, f.name + UserFile.PART_SUFFIX)
+        Durable.write(f, "buono")
+        val part = File(f.parentFile, f.name + Durable.PART_SUFFIX)
         part.writeText("{ meta' di un json")
 
         assertEquals("buono", f.readText())
-        assertTrue(UserFile.writeAtomically(f, "nuovo"))
+        assertTrue(Durable.write(f, "nuovo"))
         assertEquals("nuovo", f.readText())
         assertFalse(part.exists())
     }
@@ -100,7 +100,7 @@ class UserFileTest {
     fun `un file che non c'era si crea`() {
         val f = file("stelle")
         assertTrue(f.delete())
-        assertTrue(UserFile.writeAtomically(f, "primo"))
+        assertTrue(Durable.write(f, "primo"))
         assertEquals("primo", f.readText())
     }
 
@@ -112,7 +112,7 @@ class UserFileTest {
         val base = File.createTempFile("archivio", "").also { tmp.add(it) }
         assertTrue(base.delete())
         val f = File(File(base, "sotto"), "stelle.json")
-        assertTrue(UserFile.writeAtomically(f, "primo"))
+        assertTrue(Durable.write(f, "primo"))
         assertEquals("primo", f.readText())
         f.delete()
         f.parentFile.delete()
@@ -124,8 +124,8 @@ class UserFileTest {
         // Togliere l'ultima stella salva una lista vuota: deve arrivare a
         // destinazione, altrimenti la stella tolta tornerebbe al riavvio.
         val f = file("stelle")
-        UserFile.writeAtomically(f, """{"stops":["a"]}""")
-        assertTrue(UserFile.writeAtomically(f, """{"stops":[]}"""))
+        Durable.write(f, """{"stops":["a"]}""")
+        assertTrue(Durable.write(f, """{"stops":[]}"""))
         assertEquals("""{"stops":[]}""", f.readText())
     }
 }

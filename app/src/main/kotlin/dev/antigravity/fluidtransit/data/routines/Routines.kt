@@ -1,7 +1,7 @@
 package dev.antigravity.fluidtransit.data.routines
 
 import android.content.Context
-import dev.antigravity.fluidtransit.data.store.UserFile
+import dev.antigravity.fluidtransit.data.store.Durable
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.json.JSONArray
@@ -91,7 +91,7 @@ class Routines(context: Context) {
                         .put("adviceText", r.lastAdviceText),
                 )
             }
-            UserFile.writeAtomically(file, a.toString())
+            Durable.write(file, a.toString())
         }
         version.value++
     }

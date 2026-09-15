@@ -3,6 +3,7 @@ package dev.antigravity.fluidtransit.data.places
 import android.content.Context
 import android.net.ConnectivityManager
 import dev.antigravity.fluidtransit.data.bundle.BundleManager
+import dev.antigravity.fluidtransit.data.store.Durable
 import dev.antigravity.fluidtransit.routing.PlacesReader
 import dev.antigravity.fluidtransit.routing.PlacesSearch
 import java.io.File
@@ -97,7 +98,9 @@ class PlacesManager(
                 file.delete()
                 part.renameTo(file)
             }
-            meta.writeText(JSONObject().put("sha256", actual).toString())
+            // Troncata, questa scheda vale come assente, e l'app si
+            // riscarica undici megabyte di luoghi che ha gia'.
+            Durable.write(meta, JSONObject().put("sha256", actual).toString())
             open(actual)
         }.onFailure {
             if (_state.value is State.Downloading) _state.value = State.Missing

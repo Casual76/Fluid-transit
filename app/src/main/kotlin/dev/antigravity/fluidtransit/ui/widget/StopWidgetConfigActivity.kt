@@ -49,8 +49,9 @@ class StopWidgetConfigActivity : ComponentActivity() {
                 // Il nome che vale e' quello degli orari, qui come nelle
                 // schede e nel widget: quello salvato accanto alla stella e'
                 // un ripiego, e resta com'era il giorno in cui si e' messa.
+                val bundle by app.bundleManager.state.collectAsStateWithLifecycle()
                 val reader = (
-                    app.bundleManager.state.value
+                    bundle
                         as? dev.antigravity.fluidtransit.data.bundle.BundleManager.BundleState.Ready
                     )?.reader
                 fun nomeDi(stop: dev.antigravity.fluidtransit.data.favorites.Favorites.Stop): String =

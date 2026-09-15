@@ -11,16 +11,6 @@ Una riga esce da qui solo quando è risolta, o quando si è deciso e scritto
 
 ## Si vede
 
-**Il tocco su "perche' questo numero" non ha un segno che lo annunci.** Chi non
-prova non lo trova. Un punto interrogativo su ogni riga sarebbe rumore su
-righe che sono già dense; serve un'idea migliore. — visto il 15/09/2026
-
-**La camera della mappa riparte da capo cambiando scheda.** La mappa è un
-`AndroidView` che il `when` della shell smonta quando si va su Oggi; al ritorno
-lo stato salvabile c'è, ma la superficie MapLibre si ricrea. Si vede come un
-salto della camera. Costoso da risolvere bene: vorrebbe dire tenere la mappa
-sempre composta e mettere le altre schede sopra. — visto il 15/09/2026
-
 **In orizzontale, con la tastiera aperta, la ricerca ha spazio per una riga.**
 Era per meno di una riga: la tastiera veniva sottratta due volte, una
 dall'altezza massima dell'elenco e una come spaziatura interna alla stessa
@@ -34,10 +24,16 @@ della ricerca un pannello intero invece di una tendina sotto la barra.
 — riprovato il 16/09/2026
 
 **La camera della mappa NON riparte da capo cambiando scheda.** Era scritto
-qui come difetto; riprovato, e' falso: si apre una fermata, si va su Oggi, si
-torna, e la mappa e' dov'era, allo stesso zoom. Lo stato salvabile fa il suo
-lavoro. Riga tolta dalla lista e tenuta qui per non riaprire l'indagine.
-— verificato il 15/09/2026
+qui come difetto; riprovato due volte, e' falso: si apre una fermata, si va su
+Oggi, si torna, e la mappa e' dov'era, allo stesso zoom, col pannello ancora
+aperto. Lo stato salvabile fa il suo lavoro. Tenuto qui per non riaprire
+l'indagine. — verificato il 15 e il 16/09/2026
+
+**Il tocco su "perche' questo numero" adesso si annuncia.** La provenienza e'
+sottolineata dove si puo' aprire, che e' il modo in cui da sempre si dice
+"questo si tocca", e in Oggi — dove la riga e' una riga di lista senza un
+testo da sottolineare — la porta e' il menu della tenuta premuta. Tenuto qui
+perche' la riga di prima diceva il contrario. — chiuso il 16/09/2026
 
 **Il widget della fermata dopo la configurazione: non si riproduce piu', ma
 la prova non e' quella giusta.** Riprovato il 16/09 lanciando la schermata di

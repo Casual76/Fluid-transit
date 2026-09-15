@@ -88,6 +88,15 @@ const LAZY_REFRESH_AFTER_SECONDS = 55;
  */
 const BLOCKING_REFRESH_AFTER_SECONDS = 90;
 
+/**
+ * Ogni quanto /rt/v1/refresh puo' far lavorare davvero.
+ *
+ * Venti secondi sono sotto il periodo del keepalive e ben sotto i due minuti
+ * con cui l'origine si rigenera: chi ha diritto di chiamarlo non se ne
+ * accorge, chi volesse usarlo come pompa non ottiene niente.
+ */
+const REFRESH_MIN_INTERVAL_SECONDS = 20;
+
 /** Il refresh in corso, condiviso: le richieste in parallelo non ne fanno tre. */
 let refreshInFlight = null;
 
@@ -202,6 +211,26 @@ async function serveRefresh(request, env) {
       });
     }
   }
+
+  // Finche' il segreto non c'e', almeno non si puo' usare come pompa.
+  //
+  // `sharedRefresh` unisce le chiamate CONCORRENTI, non quelle in fila: senza
+  // questo, chiunque conoscesse l'URL — che sta in chiaro in un workflow
+  // pubblico — poteva ordinare un giro completo (tre fetch dall'origine, due
+  // parse integrali, quattro scritture su R2) ogni paio di secondi, per
+  // sempre. Sotto i venti secondi si risponde con l'esito di prima, che e'
+  // esattamente quello che avrebbe prodotto un giro nuovo: l'origine si
+  // rigenera ogni due minuti.
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (!refreshInFlight && nowSec - lastRefreshAt < REFRESH_MIN_INTERVAL_SECONDS) {
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        outcome: `troppo presto: ultimo giro ${nowSec - lastRefreshAt} s fa`,
+      }, null, 2),
+      { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } },
+    );
+  }
   try {
     const outcome = await sharedRefresh(env);
     return new Response(JSON.stringify({ ok: true, outcome }, null, 2), {
@@ -296,6 +325,16 @@ async function refresh(env) {
     // Gia' letto qui sopra: senza questo buildSnapshot rifarebbe il parse
     // dell'header degli alerts per estrarre lo stesso numero.
     alTimestamp,
+    // Sempre zero, e non e' una dimenticanza.
+    //
+    // I bit sono documentati come "questo feed mancava", ma qui non possono
+    // accendersi: se anche uno solo dei tre feed non risponde si esce sopra
+    // senza scrivere, e si tiene lo snapshot precedente INTERO. E' la scelta
+    // giusta — meglio tre dati di un minuto fa, coerenti fra loro, che uno
+    // snapshot mezzo vuoto — e vuol dire che uno snapshot scritto ha sempre
+    // tutti e tre i feed. Il campo resta perche' il formato e' congelato per
+    // la 1.1.0 installata, e perche' il giorno in cui si decidesse di
+    // scrivere snapshot parziali serve gia'.
     flags: 0,
   });
   // Le previsioni per fermata stanno FUORI da rt/latest.bin: hanno record di

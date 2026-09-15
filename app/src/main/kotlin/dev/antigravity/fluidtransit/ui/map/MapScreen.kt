@@ -938,14 +938,24 @@ fun MapScreen(
     // Bus: solo quando lo zoom li rende visibili (o una scheda corsa e'
     // aperta). Il ritmo lo decide lo stato del client: 30 s dal proxy,
     // 3 min in diretta. Il tick a ~8 Hz fa scivolare i marker.
-    val vehiclesActive = ready != null &&
-        (
-            cameraZoom >= MapCatalog.BUS_MIN_ZOOM - 0.6 ||
-                panel is Panel.TripMini || panel is Panel.TripFull ||
-                // In modalita' linea i bus della tratta si vedono da
-                // qualunque zoom: il polling deve accompagnarli.
-                panel is Panel.RouteMini || panel is Panel.RouteFull
-            )
+    //
+    // Derivato e non letto dritto: `cameraZoom` cambia a ogni pizzicata, e
+    // leggerlo qui dentro voleva dire ricomporre una schermata da duemila
+    // righe ogni volta che la mappa si ferma. Quello che interessa e' il
+    // BOOLEANO, che cambia una volta ogni tanto; derivedStateOf lascia
+    // passare solo quello.
+    val vehiclesActive by remember {
+        androidx.compose.runtime.derivedStateOf {
+            ready != null &&
+                (
+                    cameraZoom >= MapCatalog.BUS_MIN_ZOOM - 0.6 ||
+                        panel is Panel.TripMini || panel is Panel.TripFull ||
+                        // In modalita' linea i bus della tratta si vedono da
+                        // qualunque zoom: il polling deve accompagnarli.
+                        panel is Panel.RouteMini || panel is Panel.RouteFull
+                    )
+        }
+    }
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     LaunchedEffect(vehiclesActive) {
         if (!vehiclesActive) return@LaunchedEffect
@@ -999,7 +1009,10 @@ fun MapScreen(
     // quel gradino ogni pixel di trascinamento avrebbe creato un tabellone
     // nuovo, con la sua cache e il suo giro di calcolo.
     var nearbyAnchor by remember { mutableStateOf<Pair<Double, Double>?>(null) }
-    LaunchedEffect(cameraZoom, follow, ready?.buildId) {
+    // Senza `cameraZoom` fra le chiavi: il giro rilegge la posizione da solo
+    // a ogni iterazione, e tenerlo li' faceva ripartire il ciclo — e quindi
+    // ricalcolare l'ancora — a ogni pizzicata.
+    LaunchedEffect(follow, ready?.buildId) {
         while (true) {
             val here = controller.lastLocation() ?: controller.cameraCenter()
             val old = nearbyAnchor
@@ -1192,6 +1205,16 @@ fun MapScreen(
             savedCamera.value = it
             cameraZoom = it[2]
         }
+        // Letta SENZA osservarla.
+        //
+        // Serve una volta sola, per dire alla mappa da dove partire. Ma un
+        // `DoubleArray` nuovo a ogni fermata della camera non e' mai uguale
+        // al precedente, quindi ogni pan — anche senza cambiare zoom —
+        // ricomponeva tutto quello che l'aveva letta, cioe' questa schermata
+        // intera. Leggerla fuori dall'osservazione la rende quello che e':
+        // un valore iniziale, non uno stato.
+        val cameraDiPartenza = androidx.compose.runtime.snapshots.Snapshot
+            .withoutReadObservation { savedCamera.value }
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -1200,7 +1223,7 @@ fun MapScreen(
             TransitMap(
                 controller = controller,
                 modifier = Modifier.fillMaxSize(),
-                initialCamera = savedCamera.value,
+                initialCamera = cameraDiPartenza,
             )
         }
 

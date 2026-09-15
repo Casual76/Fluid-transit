@@ -23,6 +23,19 @@ class Favorites(context: Context) {
     private val file = File(context.filesDir, "favorites.json")
     val version = MutableStateFlow(0)
 
+    /**
+     * L'ultimo contenuto letto dal disco.
+     *
+     * Ogni `stops()`, `routes()` e `isStopFavorite()` apriva il file e ne
+     * rifaceva il parse JSON — sul thread della UI, dentro le righe di una
+     * lista. Una scheda Oggi con sei fermate stellate lo faceva una decina di
+     * volte per composizione, per un contenuto che cambia solo quando sei tu
+     * a toccare una stella. Il file resta la verita'; questa e' la sua copia,
+     * e si butta a ogni scrittura.
+     */
+    @Volatile
+    private var cache: Pair<List<Stop>, List<Route>>? = null
+
     fun stops(): List<Stop> = load().first
     fun routes(): List<Route> = load().second
 
@@ -41,7 +54,10 @@ class Favorites(context: Context) {
         write(s, if (without.size == r.size) r + Route(idHashHex, shortName, colorRgb) else without)
     }
 
-    private fun load(): Pair<List<Stop>, List<Route>> = runCatching {
+    private fun load(): Pair<List<Stop>, List<Route>> =
+        cache ?: readFromDisk().also { cache = it }
+
+    private fun readFromDisk(): Pair<List<Stop>, List<Route>> = runCatching {
         if (!file.isFile) return emptyList<Stop>() to emptyList()
         val o = JSONObject(file.readText())
         val stops = o.optJSONArray("stops")?.let { a ->
@@ -72,6 +88,7 @@ class Favorites(context: Context) {
             })
             file.writeText(o.toString())
         }
+        cache = stops to routes
         version.value++
     }
 }

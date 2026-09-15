@@ -1,0 +1,9 @@
+{
+  "name": "fluid-transit-rt",
+  "private": true,
+  "type": "module",
+  "description": "Proxy realtime GTFS-RT. Nessuna dipendenza a runtime: il decoder protobuf e il formato binario sono scritti a mano in src/. Questo file esiste per due righe: dichiarare che i sorgenti sono moduli ES (lo erano gia', ma senza dichiararlo node li leggeva come CommonJS) e dare un comando ai test.",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\""
+  }
+}

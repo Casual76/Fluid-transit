@@ -75,21 +75,6 @@ private const val STALE_HIDE_SECONDS = 180L
  */
 private const val MAP_WINS_METERS = 20_000.0
 
-/** Quanto lontano si guarda per "qui intorno": dieci minuti a piedi scarsi. */
-private const val NEARBY_RADIUS_M = 700.0
-
-/** Quante fermate al massimo, prima di espanderle nelle loro banchine. */
-private const val NEARBY_STOPS = 8
-
-/**
- * Di quanto ci si deve spostare perche' "qui intorno" cambi.
- *
- * Senza questo gradino, ogni pixel di trascinamento della mappa avrebbe
- * prodotto un elenco di fermate diverso, e quindi un tabellone nuovo da
- * calcolare e da tenere in cache.
- */
-private const val NEARBY_ANCHOR_MOVE_M = 200.0
-
 @androidx.compose.runtime.Composable
 @kotlin.OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 fun MapScreen(
@@ -999,50 +984,16 @@ fun MapScreen(
         controller.setBuses(if (fresh) resolved?.buses ?: emptyList() else emptyList())
     }
 
-    // --- cosa passa qui intorno -------------------------------------------
-    //
-    // Il punto di riferimento si muove con la mappa, ma l'elenco delle fermate
-    // NO: si ricalcola solo quando ci si e' spostati di duecento metri. Senza
-    // quel gradino ogni pixel di trascinamento avrebbe creato un tabellone
-    // nuovo, con la sua cache e il suo giro di calcolo.
-    var nearbyAnchor by remember { mutableStateOf<Pair<Double, Double>?>(null) }
-    // Senza `cameraZoom` fra le chiavi: il giro rilegge la posizione da solo
-    // a ogni iterazione, e tenerlo li' faceva ripartire il ciclo — e quindi
-    // ricalcolare l'ancora — a ogni pizzicata.
-    LaunchedEffect(follow, ready?.buildId) {
-        while (true) {
-            val here = controller.lastLocation() ?: controller.cameraCenter()
-            val old = nearbyAnchor
-            if (here != null && (
-                    old == null ||
-                        dev.antigravity.fluidtransit.routing.BundleReader.haversine(
-                            old.first, old.second, here.first, here.second,
-                        ) > NEARBY_ANCHOR_MOVE_M
-                    )
-            ) {
-                nearbyAnchor = here
-            }
-            kotlinx.coroutines.delay(2_000)
-        }
-    }
-    val nearbyStops = remember(nearbyAnchor, ready?.buildId, stopGroups) {
-        val reader = ready?.reader
-        val anchor = nearbyAnchor
-        if (reader == null || anchor == null) {
-            emptyList()
-        } else {
-            // Le banchine del gruppo entrano tutte: una fermata e' una
-            // fermata, e le due direzioni si distinguono dalla destinazione.
-            reader.stopsNear(anchor.first, anchor.second, NEARBY_RADIUS_M)
-                .take(NEARBY_STOPS)
-                .flatMap { s -> stopGroups?.siblings(s)?.toList() ?: listOf(s) }
-                .distinct()
-                .sorted()
-        }
-    }
-    val nearbyBoard by remember(nearbyStops) {
-        app.departureBoards.merged(nearbyStops, limit = 12)
-    }.collectAsStateWithLifecycle()
+    // Cosa passa qui intorno. Il come sta in NearbyPanel.kt, insieme al
+    // pannello che lo mostra: la schermata chiede il tabellone e basta.
+    val nearbyBoard = rememberNearbyBoard(
+        app = app,
+        reader = ready?.reader,
+        buildId = ready?.buildId,
+        stopGroups = stopGroups,
+        follow = follow,
+        here = { controller.lastLocation() ?: controller.cameraCenter() },
+    )
 
     // Le ricerche recenti e i suggerimenti del pannello.
     val recentStore = remember { RecentSearches(context) }
@@ -1250,118 +1201,30 @@ fun MapScreen(
                     controller.clearPlaceMarker()
                 }
             }
-            // Fermate e linee (indice in memoria) + lo stadio RAPIDO dei
-            // luoghi (POI, vie, localita'), fuori dal main.
-            // Da dove si pesa la vicinanza, come deciso: normalmente da dove
-            // sei; ma se hai portato la mappa lontano da li', comanda quello
-            // che stai guardando — cercare "via roma" mentre si esplora
-            // Siena deve dare le vie senesi.
-            fun searchReference(): Pair<Double, Double>? {
-                val here = controller.lastLocation()
-                val looking = controller.cameraCenter()
-                if (here == null) return looking
-                if (looking == null) return here
-                val away = dev.antigravity.fluidtransit.routing.BundleReader
-                    .haversine(here.first, here.second, looking.first, looking.second)
-                return if (away > MAP_WINS_METERS) looking else here
-            }
-
-            val placesReady = placesState as? dev.antigravity.fluidtransit.data.places.PlacesManager.State.Ready
-            val queryResults by produceState(
-                initialValue = emptyList<Suggestion>(),
-                query, searchIndex, placesReady,
-            ) {
-                if (query.length < 2) {
-                    value = emptyList()
-                    return@produceState
-                }
-                // Scrivere e' un gesto continuo: si aspetta la fine della
-                // parola invece di riscandire l'indice a ogni lettera.
-                kotlinx.coroutines.delay(160)
-                val ref = searchReference()
-                value = withContext(Dispatchers.Default) {
-                    val rLat = ref?.first ?: Double.NaN
-                    val rLon = ref?.second ?: Double.NaN
-                    val transit = searchIndex?.search(query, 25, rLat, rLon).orEmpty().map { hit ->
-                        when (hit) {
-                            is SearchIndex.Hit.Stop -> Suggestion(
-                                kind = "stop",
-                                key = ready?.reader
-                                    ?.let { java.lang.Long.toHexString(it.stopIdHash(hit.stopIndex)) }
-                                    ?: "",
-                                title = hit.title,
-                                subtitle = "Fermata",
-                                colorRgb = 0,
-                                lat = hit.lat,
-                                lon = hit.lon,
-                                score = hit.score,
-                            )
-
-                            is SearchIndex.Hit.Route -> Suggestion(
-                                kind = "route",
-                                key = ready?.reader
-                                    ?.let { java.lang.Long.toHexString(it.routeIdHash(hit.routeIndex)) }
-                                    ?: "",
-                                title = hit.title,
-                                subtitle = hit.destination,
-                                colorRgb = hit.colorRgb,
-                                lat = hit.lat,
-                                lon = hit.lon,
-                                score = hit.score,
-                            )
-                        }
+            // I risultati della ricerca. Il come sta in SearchResults.kt.
+            val risultati = rememberSearchResults(
+                query = query,
+                searchIndex = searchIndex,
+                places = placesState,
+                reader = ready?.reader,
+                reference = {
+                    // Da dove si pesa la vicinanza, come deciso: normalmente
+                    // da dove sei; ma se hai portato la mappa lontano da li',
+                    // comanda quello che stai guardando — cercare "via roma"
+                    // mentre si esplora Siena deve dare le vie senesi.
+                    val here = controller.lastLocation()
+                    val looking = controller.cameraCenter()
+                    when {
+                        here == null -> looking
+                        looking == null -> here
+                        dev.antigravity.fluidtransit.routing.BundleReader.haversine(
+                            here.first, here.second, looking.first, looking.second,
+                        ) > MAP_WINS_METERS -> looking
+                        else -> here
                     }
-                    val places = placesReady?.search?.fast(query, 14, rLat, rLon).orEmpty().map { h ->
-                        Suggestion(
-                            kind = "place",
-                            key = "%.5f,%.5f".format(h.lat, h.lon),
-                            title = h.name,
-                            subtitle = h.context.ifEmpty { "Luogo" },
-                            colorRgb = 0,
-                            lat = h.lat,
-                            lon = h.lon,
-                            score = h.score,
-                        )
-                    }
-                    // Una lista sola, ordinata per quanto c'entra: se scrivi
-                    // "esselunga" viene su il supermercato, se scrivi "6"
-                    // viene su la linea. L'icona di ogni riga dice cos'e'.
-                    (transit + places).sortedByDescending { it.score }
-                }
-            }
+                },
+            )
 
-            // Lo stadio LENTO: i civici. Parte dopo, con calma, e i suoi
-            // risultati si AGGIUNGONO a quelli gia' mostrati — deciso cosi'.
-            val civiciResults by produceState(
-                initialValue = emptyList<Suggestion>(),
-                query, placesReady,
-            ) {
-                value = emptyList()
-                if (placesReady == null || query.length < 5 || !query.any { it.isDigit() }) {
-                    return@produceState
-                }
-                kotlinx.coroutines.delay(350)
-                val ref = searchReference()
-                value = withContext(Dispatchers.Default) {
-                    placesReady.search.civici(
-                        query,
-                        6,
-                        ref?.first ?: Double.NaN,
-                        ref?.second ?: Double.NaN,
-                    ).map { h ->
-                        Suggestion(
-                            kind = "civic",
-                            key = "%.5f,%.5f".format(h.lat, h.lon),
-                            title = h.name,
-                            subtitle = h.context.ifEmpty { "Indirizzo" },
-                            colorRgb = 0,
-                            lat = h.lat,
-                            lon = h.lon,
-                            score = h.score,
-                        )
-                    }
-                }
-            }
             if (plannerOpen && !searchOpen) {
                 PlannerGlass(
                     backdrop = backdrop,
@@ -1415,7 +1278,7 @@ fun MapScreen(
                 query = query,
                 // I civici arrivano dopo, ma entrano nella stessa lista e si
                 // ordinano insieme agli altri: stessa scala di pertinenza.
-                results = (queryResults + civiciResults).sortedByDescending { it.score },
+                results = risultati,
                 saved = savedSuggestions,
                 // Tutto tranne le linee, che hanno la loro fila.
                 //

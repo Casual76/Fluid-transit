@@ -38,6 +38,9 @@ import dev.antigravity.fluidtransit.routing.DepartureBoard
 import dev.antigravity.fluidtransit.routing.DepartureText
 import dev.antigravity.fluidtransit.ui.common.DepartureRowUi
 import dev.antigravity.fluidtransit.ui.common.toneColor
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.setValue
 
 /**
  * Cosa passa qui intorno, senza cercare niente.
@@ -210,3 +213,89 @@ fun NearbyPanelContent(
         }
     }
 }
+
+/**
+ * Il tabellone di cosa passa qui intorno.
+ *
+ * Stava dentro MapScreen, che e' il file piu' toccato del repo: qui sta
+ * accanto al pannello che lo mostra, dove chi cambia una delle due cose vede
+ * anche l'altra.
+ *
+ * Il punto di riferimento si muove con la mappa, ma l'elenco delle fermate
+ * NO: si ricalcola solo quando ci si e' spostati di duecento metri. Senza quel
+ * gradino ogni pixel di trascinamento avrebbe creato un tabellone nuovo, con
+ * la sua cache e il suo giro di calcolo.
+ */
+@Composable
+fun rememberNearbyBoard(
+    app: dev.antigravity.fluidtransit.FluidTransitApp,
+    reader: dev.antigravity.fluidtransit.routing.BundleReader?,
+    buildId: Long?,
+    stopGroups: dev.antigravity.fluidtransit.routing.StopGroups?,
+    /** Serve solo come chiave: cambiando modo di inseguimento si ricomincia. */
+    follow: Any?,
+    here: () -> Pair<Double, Double>?,
+): DepartureBoard {
+    var anchor by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf<Pair<Double, Double>?>(null)
+    }
+    // Senza lo zoom fra le chiavi: il giro rilegge la posizione da solo a ogni
+    // iterazione, e tenerlo li' faceva ripartire il ciclo — e quindi
+    // ricalcolare l'ancora — a ogni pizzicata.
+    androidx.compose.runtime.LaunchedEffect(follow, buildId) {
+        while (true) {
+            val adesso = here()
+            val prima = anchor
+            if (adesso != null && (
+                    prima == null ||
+                        dev.antigravity.fluidtransit.routing.BundleReader.haversine(
+                            prima.first, prima.second, adesso.first, adesso.second,
+                        ) > NEARBY_ANCHOR_MOVE_M
+                    )
+            ) {
+                anchor = adesso
+            }
+            kotlinx.coroutines.delay(ANCHOR_POLL_MS)
+        }
+    }
+
+    val stops = androidx.compose.runtime.remember(anchor, buildId, stopGroups) {
+        val a = anchor
+        if (reader == null || a == null) {
+            emptyList()
+        } else {
+            // Le banchine del gruppo entrano tutte: una fermata e' una
+            // fermata, e le due direzioni si distinguono dalla destinazione.
+            reader.stopsNear(a.first, a.second, NEARBY_RADIUS_M)
+                .take(NEARBY_STOPS)
+                .flatMap { s -> stopGroups?.siblings(s)?.toList() ?: listOf(s) }
+                .distinct()
+                .sorted()
+        }
+    }
+    val board by androidx.compose.runtime.remember(stops) {
+        app.departureBoards.merged(stops, limit = NEARBY_LIMIT)
+    }.collectAsStateWithLifecycle()
+    return board
+}
+
+/** Quanto lontano si guarda per "qui intorno": dieci minuti a piedi scarsi. */
+private const val NEARBY_RADIUS_M = 700.0
+
+/** Quante fermate al massimo, prima di espanderle nelle loro banchine. */
+private const val NEARBY_STOPS = 8
+
+/** Quante righe: abbastanza per vedere anche la seconda occasione di ogni linea. */
+private const val NEARBY_LIMIT = 12
+
+/**
+ * Di quanto ci si deve spostare perche' "qui intorno" cambi.
+ *
+ * Senza questo gradino, ogni pixel di trascinamento della mappa avrebbe
+ * prodotto un elenco di fermate diverso, e quindi un tabellone nuovo da
+ * calcolare e da tenere in cache.
+ */
+private const val NEARBY_ANCHOR_MOVE_M = 200.0
+
+/** Ogni quanto si guarda se ci si e' spostati. */
+private const val ANCHOR_POLL_MS = 2_000L

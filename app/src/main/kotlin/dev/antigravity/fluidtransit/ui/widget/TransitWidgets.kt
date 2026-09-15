@@ -40,6 +40,8 @@ import java.time.ZonedDateTime
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 /**
  * Il tocco su un widget porta dove il widget guarda.
@@ -163,17 +165,48 @@ class StopWidget : GlanceAppWidget() {
      */
     private suspend fun loadBoard(app: FluidTransitApp, stopHashHex: String?): DepartureBoard? {
         if (stopHashHex == null) return null
-        val ready = withTimeoutOrNull(6_000) {
+        val ready = withTimeoutOrNull(BUNDLE_WAIT_MS) {
             app.bundleManager.state.filterIsInstance<BundleManager.BundleState.Ready>().first()
         } ?: return null
         val hash = stopHashHex.toULongOrNull(16)?.toLong() ?: return null
         val stop = ready.reader.findStopByIdHash(hash)
         if (stop < 0) return null
+
         // I ritardi, che il widget prima non guardava affatto: mostrava gli
         // orari di tabella come se fossero certi, e per mezz'ora di fila.
-        runCatching { withTimeoutOrNull(4_000) { app.realtime.refreshDelays() } }
-        runCatching { withTimeoutOrNull(4_000) { app.realtime.refreshPredictions() } }
+        //
+        // In parallelo, e con poco tempo. Questo codice gira anche dentro il
+        // `goAsync` di una ricevente, che il sistema si aspetta finisca in
+        // una decina di secondi: in fila, sei secondi di attesa del bundle
+        // piu' quattro piu' quattro fanno quattordici, e un disegno che non
+        // arriva in tempo lascia sulla home la schermata di prima. E' il
+        // sospetto piu' probabile dietro al widget che restava a "Tocca per
+        // configurare" dopo la configurazione.
+        //
+        // Se la rete non risponde in tempo si mostrano gli orari di tabella,
+        // dicendolo: e' il comportamento giusto, non una rinuncia.
+        runCatching {
+            withTimeoutOrNull(REALTIME_WAIT_MS) {
+                coroutineScope {
+                    launch { runCatching { app.realtime.refreshDelays() } }
+                    launch { runCatching { app.realtime.refreshPredictions() } }
+                }
+            }
+        }
         return app.departureBoards.snapshot(listOf(stop), limit = 5)
+    }
+
+    private companion object {
+        /** Quanto si aspetta il bundle: aprirlo e' una mmap, non un download. */
+        const val BUNDLE_WAIT_MS = 5_000L
+
+        /**
+         * Quanto si aspettano i ritardi.
+         *
+         * Il totale con l'attesa del bundle deve stare sotto la decina di
+         * secondi che il sistema concede a una ricevente.
+         */
+        const val REALTIME_WAIT_MS = 3_000L
     }
 }
 

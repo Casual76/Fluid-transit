@@ -572,6 +572,24 @@ async function serveSection(request, env, ctx, kind) {
   const out = new Headers(response.headers);
   if (freshAge !== null) out.set('x-feed-age', freshAge);
   if (snapshotAge !== null) out.set('x-snapshot-age', snapshotAge);
+
+  // Il corpo e' SEMPRE gzip: lo dichiariamo sempre, anche quando la risposta
+  // viene dalla cache.
+  //
+  // Misurato il 15/09 con sei richieste di fila: alla prima (MISS) la risposta
+  // aveva `content-encoding: gzip` e il corpo compresso; dalla seconda in poi
+  // (HIT) il corpo era ancora compresso — stessi 5.339 byte, stesso magic
+  // 1f8b — ma l'intestazione NON c'era piu'. Il client riceveva quindi byte
+  // gzip senza sapere di doverli scompattare, il lettore trovava "magic
+  // sbagliato", e dopo tre giri l'app scendeva sulla strada diretta
+  // perdendo TUTTI i ritardi. Da qui il "a volte i minuti sono veri e a volte
+  // no": dipendeva da un cache HIT.
+  //
+  // La causa e' `encodeBody: 'manual'` piu' la Cache API, che rileggendo la
+  // voce considera il corpo gia' decodificato e toglie l'intestazione. Noi
+  // sappiamo che non e' vero, perche' il gzip lo facciamo noi in `gzipBytes`.
+  out.set('content-encoding', 'gzip');
+
   return new Response(response.body, {
     status: response.status,
     headers: out,

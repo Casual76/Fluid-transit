@@ -88,6 +88,32 @@ class RealtimeClientTest {
         assertEquals("W/\"abc\"", proxy.takeRequest().getHeader("If-None-Match"))
     }
 
+    @Test
+    fun `byte compressi senza intestazione si scompattano lo stesso`() {
+        // Misurato il 15/09 sul proxy vero: su un cache HIT di Cloudflare il
+        // corpo arrivava ancora compresso ma SENZA `content-encoding`, quindi
+        // OkHttp non lo scompattava e il lettore trovava "magic sbagliato".
+        // Tre giri cosi' e l'app scendeva sulla strada diretta perdendo tutti
+        // i ritardi — a intermittenza, perche' dipendeva dal cache HIT.
+        val corpo = section(kind = 1, recordSize = 40, count = 4)
+        val compresso = java.io.ByteArrayOutputStream().also { out ->
+            java.util.zip.GZIPOutputStream(out).use { it.write(corpo) }
+        }.toByteArray()
+        proxy.enqueue(
+            MockResponse()
+                .setBody(Buffer().write(compresso))
+                .setHeader("Content-Type", "application/octet-stream")
+                .setHeader("X-Feed-Age", "20"),
+        )
+
+        val rt = client()
+        runTest { rt.refreshVehicles() }
+
+        assertEquals(RealtimeClient.Source.PROXY, rt.status.value.source)
+        assertEquals(4, rt.vehicles.value?.list?.size)
+        assertEquals(0, origin.requestCount)
+    }
+
     // ------------------------------------------------------ quando si guasta
 
     @Test

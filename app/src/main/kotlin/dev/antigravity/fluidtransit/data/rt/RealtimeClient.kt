@@ -360,12 +360,35 @@ class RealtimeClient(
         http.newCall(req.build()).execute().use { res ->
             if (res.code != 304 && !res.isSuccessful) throw IOException("HTTP ${res.code}")
             return Fetched(
-                bytes = if (res.code == 304) null else res.body!!.bytes(),
+                bytes = if (res.code == 304) null else gunzipIfNeeded(res.body!!.bytes()),
                 etag = res.header("ETag") ?: etag,
                 serverFeedAge = res.header("X-Feed-Age")?.toLongOrNull(),
                 snapshotAge = res.header("X-Snapshot-Age")?.toLongOrNull(),
             )
         }
+    }
+
+    /**
+     * Byte compressi che nessuno ha dichiarato tali.
+     *
+     * OkHttp scompatta da solo quando l'intestazione lo dice. Ma il 15/09,
+     * misurato: il nostro proxy su un cache HIT di Cloudflare serviva il corpo
+     * ancora compresso SENZA `content-encoding`. Il lettore trovava "magic
+     * sbagliato", tre giri cosi' e l'app scendeva sulla strada diretta
+     * perdendo tutti i ritardi — a intermittenza, perche' dipendeva dal cache
+     * HIT. Era una delle facce di "a volte i minuti sono veri e a volte no".
+     *
+     * Il proxy adesso dichiara sempre la codifica. Questo resta lo stesso: il
+     * magic di gzip sono due byte, guardarli costa niente, e un'app che si
+     * rompe perche' un intermediario ha sbagliato un'intestazione e' un'app
+     * fragile. Chi sta in mezzo fra noi e il telefono non e' solo il nostro
+     * proxy.
+     */
+    private fun gunzipIfNeeded(raw: ByteArray): ByteArray {
+        if (raw.size < 2 || raw[0] != 0x1f.toByte() || raw[1] != 0x8b.toByte()) return raw
+        return runCatching {
+            java.util.zip.GZIPInputStream(raw.inputStream()).use { it.readBytes() }
+        }.getOrElse { raw }
     }
 
     private fun fetchRaw(url: String): ByteArray {

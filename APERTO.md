@@ -21,15 +21,17 @@ lo stato salvabile c'è, ma la superficie MapLibre si ricrea. Si vede come un
 salto della camera. Costoso da risolvere bene: vorrebbe dire tenere la mappa
 sempre composta e mettere le altre schede sopra. — visto il 15/09/2026
 
-**In orizzontale, con la tastiera aperta, la ricerca non ha dove mettere i
-risultati.** Misurato: schermo 411 dp, tastiera 265, restano 146 — e la sola
-barra di ricerca con la barra di stato e i margini ne prende 84. Restano meno
-di sessanta punti, cioe' meno di una riga. Non e' un difetto di calcolo:
-l'elenco adesso chiede esattamente quello che c'e' (la tastiera viene
-sottratta), e quello che c'e' non basta. La strada vera e' lasciare che la
-tastiera vada a schermo intero in orizzontale, com'e' il comportamento
-normale di Android quando l'app non lo impedisce. In verticale, con e senza
-tastiera, non cambia niente. — misurato il 15/09/2026
+**In orizzontale, con la tastiera aperta, la ricerca ha spazio per una riga.**
+Era per meno di una riga: la tastiera veniva sottratta due volte, una
+dall'altezza massima dell'elenco e una come spaziatura interna alla stessa
+scatola (vedi il commit del 16/09). Tolto il doppione, in verticale l'elenco
+e' passato da due righe e mezzo a otto, e in orizzontale da niente a una.
+Resta poco: schermo 411 dp, tastiera 265, e la barra di ricerca con la barra
+di stato e i margini prende il resto. La strada vera e' sempre quella —
+lasciare che la tastiera vada a schermo intero in orizzontale, com'e' il
+comportamento normale di Android quando l'app non lo impedisce — oppure fare
+della ricerca un pannello intero invece di una tendina sotto la barra.
+— riprovato il 16/09/2026
 
 **La camera della mappa NON riparte da capo cambiando scheda.** Era scritto
 qui come difetto; riprovato, e' falso: si apre una fermata, si va su Oggi, si

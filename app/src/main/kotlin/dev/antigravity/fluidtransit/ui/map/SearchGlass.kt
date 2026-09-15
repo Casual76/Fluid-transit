@@ -241,8 +241,19 @@ fun SearchGlass(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
+                    // La tastiera si sottrae UNA volta sola.
+                    //
+                    // `panelListMax` la toglie gia' dall'altezza disponibile:
+                    // l'elenco parte sotto la barra di ricerca e puo' arrivare
+                    // fin dove comincia la tastiera. Sotto c'era anche un
+                    // `imePadding()`, che la toglieva una seconda volta — ma
+                    // dall'INTERNO della stessa scatola. Misurato su questo
+                    // telefono: 800 dp di schermo meno 265 di tastiera meno
+                    // 110 di riserva fanno 425 dp di elenco, e i 265 di
+                    // spaziatura interna ne lasciavano visibili 160. Due
+                    // righe e mezza, con sotto un pannello di vetro vuoto
+                    // alto quanto la tastiera.
                     .heightIn(max = panelListMax(480.dp, reserve = AROUND_THE_SEARCH))
-                    .imePadding()
                     .padding(bottom = 10.dp),
             ) {
                 if (query.length >= 2) {

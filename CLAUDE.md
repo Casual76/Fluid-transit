@@ -128,12 +128,23 @@ La data conta, perche' il feed cambia.
 | punti di previsione per fermata | ~3.300, 30 kB (15 kB gz) | 15/09/2026 |
 | ogni quanto si rigenera l'origine | ~120 s | 03/09/2026 |
 | tratte agganciate alla strada (Valhalla) | 76% (era 56%) | 12/09/2026 |
+| avvio a freddo fino alla mappa (debug, emulatore) | ~3,6 s | 16/09/2026 |
+| avvio a freddo fino a Oggi (stessa build) | ~1,85 s | 16/09/2026 |
+| pattern che toccano due volte la stessa fermata | 215 su 8.331 | 16/09/2026 |
+| fermate entro 700 m dal Duomo di Firenze | 44 | 16/09/2026 |
 
 Due conseguenze che si dimenticano:
 
 **Zero `parent_station`** e' il motivo per cui `StopGroups` deduce le banchine
 da nome + distanza invece di leggere un campo. Non e' una scelta estetica: il
 campo non c'e'.
+
+**La mappa costa un secondo e tre quarti dell'avvio.** La differenza fra i due
+avvii qui sopra e' tutta MapLibre: creare la superficie in `textureMode` —
+serve al vetro — e caricare lo stile. Misurato su una build di debug e su un
+emulatore, quindi il numero vero su un telefono e' piu' basso; quello che
+conta e' la proporzione. Lo stile arriva da `tiles.openfreemap.org` e vive
+nella cache HTTP: a freddo con la cache vuota, quel pezzo dipende dalla rete.
 
 **Il `vehicle.id` c'e' sempre**, quindi il ripiego di `vehicleKey` sul
 `tripHash` non scatta mai su questo feed, e il timore che un mezzo cambi

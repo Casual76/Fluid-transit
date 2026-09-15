@@ -297,12 +297,6 @@ class FluidTransitApp : Application() {
         // Un giro di controllo all'avvio, in sottofondo: se c'e' una versione
         // nuova lo dice la capsula sulla mappa, come deciso.
         updates.check()
-        // Le routine: canale di notifica pronto e sveglie riarmate (dopo un
-        // aggiornamento dell'app le sveglie vecchie non esistono piu').
-        // Quando l'app torna davanti, si ricontrolla se stanotte e' uscito un
-        // bundle nuovo. Senza, un processo vivo per giorni continua a servire
-        // gli orari del giorno in cui l'app e' stata aperta.
-        //
         // La rete, guardata una volta sola per tutta l'app.
         runCatching {
             val cm = getSystemService(android.net.ConnectivityManager::class.java)
@@ -324,6 +318,10 @@ class FluidTransitApp : Application() {
             )
         }
 
+        // Quando l'app torna davanti, si ricontrolla se stanotte e' uscito un
+        // bundle nuovo. Senza, un processo vivo per giorni continua a servire
+        // gli orari del giorno in cui l'app e' stata aperta.
+        //
         // Si conta quante activity sono davanti invece di guardare la
         // singola: una rotazione ne distrugge una e ne crea un'altra, e senza
         // il conteggio sembrerebbe un ritorno dallo sfondo ogni volta che si
@@ -354,6 +352,8 @@ class FluidTransitApp : Application() {
             },
         )
 
+        // Le routine: canale di notifica pronto e sveglie riarmate (dopo un
+        // aggiornamento dell'app le sveglie vecchie non esistono piu').
         dev.antigravity.fluidtransit.data.routines.RoutineScheduler.ensureChannel(this)
         applicationScope.launch {
             dev.antigravity.fluidtransit.data.routines.RoutineScheduler.rescheduleAll(this@FluidTransitApp)

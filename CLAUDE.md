@@ -102,6 +102,33 @@ eccezione dell'altro errore, che indica il posto sbagliato.
 memoria: 40 richieste su 64 erano riletture degli stessi 525 byte. Il rimedio
 sta in `MapHttp.kt`, che serve i primi 16 kB dalla memoria.
 
+## Numeri misurati, non stimati
+
+Servono prima di progettare, e sono costati tempo: qui per non rimisurarli.
+La data conta, perche' il feed cambia.
+
+| cosa | quanto | quando |
+|---|---|---|
+| `parent_station` nelle fermate | **0%** | 15/09/2026 |
+| fermate che condividono il nome con un'altra | 53% del totale | 15/09/2026 |
+| di quelle, entro 100 m fra loro | 87% | 15/09/2026 |
+| veicoli vivi col `vehicle.id` | **100%** (556 su 556) | 15/09/2026 |
+| corse col ritardo dichiarato, la sera | 262 | 15/09/2026 |
+| punti di previsione per fermata | ~3.300, 30 kB (15 kB gz) | 15/09/2026 |
+| ogni quanto si rigenera l'origine | ~120 s | 03/09/2026 |
+| tratte agganciate alla strada (Valhalla) | 76% (era 56%) | 12/09/2026 |
+
+Due conseguenze che si dimenticano:
+
+**Zero `parent_station`** e' il motivo per cui `StopGroups` deduce le banchine
+da nome + distanza invece di leggere un campo. Non e' una scelta estetica: il
+campo non c'e'.
+
+**Il `vehicle.id` c'e' sempre**, quindi il ripiego di `vehicleKey` sul
+`tripHash` non scatta mai su questo feed, e il timore che un mezzo cambi
+identita' al cambio corsa — che avrebbe l'aspetto di un teletrasporto — non si
+verifica. Se un giorno il feed cambiasse, si vedrebbe da qui.
+
 ## Compilare e verificare
 
 ```bash
@@ -147,6 +174,13 @@ puntati.
 Per la UI valgono le regole del Fluid Engine (`engine/skill/fluid-engine/`):
 `ContinuousCornerShape` e mai `RoundedCornerShape`, niente `fontSize` a mano,
 palette generata da un solo accento, ruoli sempre in coppia.
+
+## La lista di quello che resta aperto
+
+`APERTO.md` alla radice. Ogni riga e' qualcosa di **osservato** e non chiuso,
+con la data; e le cose che si e' deciso di NON fare, col perche' e con la
+misura che ha deciso. Si legge prima di ricominciare a lavorare, e si aggiorna
+quando una riga si chiude.
 
 ## Dove guardare quando qualcosa non torna
 

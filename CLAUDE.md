@@ -93,6 +93,17 @@ di ieri appiccicato allo stesso indice finisce su un'altra corsa. Per questo
 `DelayModel.clear()` a ogni cambio di `buildId`, e per questo i preferiti
 salvano hash e non indici.
 
+**La Cache API toglie `content-encoding` a una risposta `encodeBody:
+'manual'`.** Il Worker comprime da se' e dichiara `content-encoding: gzip`;
+rileggendo la voce dalla cache, il runtime considera il corpo gia' decodificato
+e l'intestazione sparisce — ma il corpo e' ancora compresso. Misurato il
+15/09: prima richiesta (MISS) con intestazione, tutte le successive (HIT)
+senza, corpo identico. Il telefono trovava "magic sbagliato", lo contava come
+errore del proxy, e dopo tre giri scendeva sulla strada diretta perdendo tutti
+i ritardi — a intermittenza, perche' dipendeva dal cache HIT. Per questo
+`serveSection` adesso **riscrive sempre** l'intestazione, e per questo l'app
+scompatta comunque quando vede il magic di gzip.
+
 **MapLibre va inizializzato in un ordine solo.** `MapLibre.getInstance(context,
 null, WellKnownTileServer.MapLibre)` a tre argomenti, e
 `HttpRequestUtil.setOkHttpClient` **dopo**. Invertendoli si ottiene la stessa

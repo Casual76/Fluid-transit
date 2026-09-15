@@ -23,6 +23,7 @@ import dev.antigravity.fluidengine.ui.theme.FluidListGroup
 import dev.antigravity.fluidengine.ui.theme.FluidListRow
 import dev.antigravity.fluidengine.ui.theme.FluidSectionTitle
 import dev.antigravity.fluidtransit.FluidTransitApp
+import dev.antigravity.fluidtransit.routing.DepartureText
 import dev.antigravity.fluidtransit.ui.map.MapIntent
 
 /**
@@ -44,62 +45,26 @@ fun FavoritesTab(
     // I prossimi passaggi delle fermate stellate. Chi mette la stella a una
     // fermata si aspetta di vederci gli orari: fino alla Fase 8 qui c'era
     // scritto solo "Prossimi passaggi sulla mappa", cioe' un rimando.
+    //
+    // E fino alla Fase 9 c'era un calcolo tutto suo, con un battito da trenta
+    // secondi che pero' non chiedeva mai i ritardi al proxy: ricalcolava
+    // all'infinito sugli stessi dati fermi. Adesso e' lo stesso tabellone di
+    // tutte le altre schermate, quindi gli stessi numeri nello stesso istante.
     val bundleState by app.bundleManager.state.collectAsStateWithLifecycle()
     val reader = (bundleState as? dev.antigravity.fluidtransit.data.bundle.BundleManager.BundleState.Ready)
         ?.reader
-    var tick by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(0) }
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        while (true) {
-            kotlinx.coroutines.delay(30_000)
-            tick++
+    val stopIndexes = remember(favVersion, localTick, reader) {
+        val r = reader ?: return@remember emptyList<Int>()
+        stops.mapNotNull { s ->
+            s.idHashHex.toULongOrNull(16)?.toLong()
+                ?.let { r.findStopByIdHash(it) }
+                ?.takeIf { it >= 0 }
         }
     }
-    val nextByStop by androidx.compose.runtime.produceState(
-        initialValue = emptyMap<String, String>(),
-        favVersion, reader, tick,
-    ) {
-        val r = reader
-        if (r == null) {
-            value = emptyMap()
-            return@produceState
-        }
-        val list = stops
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-            val now = java.time.Instant.now()
-            list.associate { s ->
-                val hash = s.idHashHex.toULongOrNull(16)?.toLong()
-                val idx = hash?.let { r.findStopByIdHash(it) } ?: -1
-                if (idx < 0) return@associate s.idHashHex to ""
-                var anyLive = false
-                val text = r.nextDepartures(idx, now, limit = 2, horizonSeconds = 2 * 3600)
-                    .joinToString(" · ") { d ->
-                        val live = app.delayModel.at(
-                            d.tripIndex,
-                            d.positionInPattern,
-                            r.patternStopCount(d.patternIndex),
-                            java.time.Instant.now().epochSecond,
-                        )
-                            // Le fermate gia' servite le filtrano tutte le
-                            // altre schermate: qui mancava, e la stessa
-                            // fermata mostrava minuti diversi fra Preferiti
-                            // e la sua scheda.
-                            ?.takeIf { it.confidence != dev.antigravity.fluidtransit.routing.DelayModel.Confidence.SERVED }
-                        if (live != null) anyLive = true
-                        val eff = d.instant.epochSecond + (live?.delaySeconds ?: 0)
-                        val line = r.routeShortName(d.routeIndex)
-                            .ifEmpty { r.routeLongName(d.routeIndex) }
-                        "$line ${dev.antigravity.fluidtransit.routing.Times.minutesLabel(now.epochSecond, eff)}"
-                    }
-                // Il dato teorico si dichiara: il verde del live qui non
-                // c'e', quindi la parola deve fare il suo mestiere.
-                s.idHashHex to when {
-                    text.isEmpty() -> ""
-                    anyLive -> text
-                    else -> "$text · previsti"
-                }
-            }
-        }
+    val boards = stopIndexes.map { idx ->
+        idx to app.departureBoards.board(idx, limit = 2).collectAsStateWithLifecycle()
     }
+    val byStop = boards.associate { (idx, state) -> idx to state.value }
 
     FluidScreen(title = "Preferiti") {
         if (places.isEmpty() && stops.isEmpty() && routes.isEmpty()) {
@@ -152,12 +117,22 @@ fun FavoritesTab(
             item { FluidSectionTitle(eyebrow = "Fermate", title = "Le tue fermate") }
             item {
                 FluidListGroup {
-                    for (s in stops) {
+                    for ((i, s) in stops.withIndex()) {
+                        val board = stopIndexes.getOrNull(i)?.let { byStop[it] }
                         FluidListRow(
                             title = s.name,
-                            subtitle = nextByStop[s.idHashHex]
-                                ?.takeIf { it.isNotEmpty() }
-                                ?: "Nessun passaggio nelle prossime due ore",
+                            // Tre stati distinti, e prima ce n'erano due: la
+                            // riga partiva da "Nessun passaggio" e lo diceva
+                            // per il primo fotogramma anche quando il bus
+                            // stava arrivando. Dire una cosa falsa mentre si
+                            // carica e' peggio che non dire niente.
+                            subtitle = when {
+                                board == null || board.computedAtEpoch == 0L -> "Leggo gli orari…"
+                                board.rows.isEmpty() -> "Nessun passaggio nelle prossime due ore"
+                                else -> board.rows.joinToString(" · ") {
+                                    DepartureText.compact(it, board.computedAtEpoch)
+                                } + " · " + DepartureText.boardSource(board)
+                            },
                             leading = {
                                 Icon(
                                     imageVector = Icons.Rounded.Star,

@@ -26,6 +26,8 @@ import dev.antigravity.fluidtransit.FluidTransitApp
 import dev.antigravity.fluidtransit.MainActivity
 import dev.antigravity.fluidtransit.data.bundle.BundleManager
 import dev.antigravity.fluidtransit.routing.DelayModel
+import dev.antigravity.fluidtransit.routing.DepartureBoard
+import dev.antigravity.fluidtransit.routing.DepartureText
 import dev.antigravity.fluidtransit.routing.Ftb
 import dev.antigravity.fluidtransit.routing.Times
 import dev.antigravity.fluidtransit.ui.theme.TransitBrand
@@ -60,14 +62,6 @@ class StopWidget : GlanceAppWidget() {
     override val sizeMode: SizeMode = SizeMode.Exact
     override val stateDefinition = PreferencesGlanceStateDefinition
 
-    class Row(
-        val line: String,
-        val destination: String,
-        val nowEpoch: Long,
-        val effectiveEpoch: Long,
-        val live: Boolean,
-    )
-
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val app = context.applicationContext as FluidTransitApp
         val settings = app.settingsStore.current()
@@ -76,7 +70,8 @@ class StopWidget : GlanceAppWidget() {
         val prefs = getAppWidgetState(context, PreferencesGlanceStateDefinition, id)
         val stopHash = prefs[KEY_STOP_HASH]
         val stopName = prefs[KEY_STOP_NAME] ?: ""
-        val rows = loadDepartures(app, stopHash)
+        val board = loadBoard(app, stopHash)
+        val rows = board?.rows
 
         provideContent {
             val layout = resolveEngineWidgetLayout(LocalSize.current, hasFooter = false)
@@ -94,8 +89,9 @@ class StopWidget : GlanceAppWidget() {
                         rows == null -> "Orari in arrivo…"
                         // Un widget dice sempre di quando sono i suoi numeri:
                         // e' l'unico posto dove l'utente non puo' chiedere.
-                        rows.any { it.live } -> "Prossimi passaggi · dal bus"
-                        else -> "Prossimi passaggi · orario previsto"
+                        // Un widget dice sempre di quando sono i suoi
+                        // numeri con le stesse parole del resto dell'app.
+                        else -> "Prossimi passaggi · " + DepartureText.boardSource(board)
                     },
                 )
                 Spacer(GlanceModifier.height(if (layout.compact) 6.dp else 8.dp))
@@ -118,12 +114,14 @@ class StopWidget : GlanceAppWidget() {
                         else -> {
                             rows.take(layout.rowLimit).forEachIndexed { i, r ->
                                 if (i > 0) EngineWidgetHairline(palette, layout)
+                                val phrase = DepartureText.phrase(r, board.computedAtEpoch)
                                 EngineWidgetRow(
                                     title = "${r.line} → ${r.destination}",
+                                    subtitle = phrase.support,
                                     palette = palette,
                                     layout = layout,
                                     tone = palette.primaryTone,
-                                    trailing = Times.minutesLabel(r.nowEpoch, r.effectiveEpoch),
+                                    trailing = phrase.headline,
                                 )
                             }
                         }
@@ -133,34 +131,27 @@ class StopWidget : GlanceAppWidget() {
         }
     }
 
-    private suspend fun loadDepartures(app: FluidTransitApp, stopHashHex: String?): List<Row>? {
+    /**
+     * Il tabellone della fermata del widget.
+     *
+     * Un widget non puo' iscriversi a un flusso — vive il tempo di
+     * disegnarsi — quindi chiede uno scatto. Ma lo chiede alla stessa fonte
+     * di tutte le schermate, con le stesse regole e le stesse parole: era
+     * l'unica superficie che mostrava i minuti nudi, senza dire da dove
+     * venissero se non nel titolo.
+     */
+    private suspend fun loadBoard(app: FluidTransitApp, stopHashHex: String?): DepartureBoard? {
         if (stopHashHex == null) return null
         val ready = withTimeoutOrNull(6_000) {
             app.bundleManager.state.filterIsInstance<BundleManager.BundleState.Ready>().first()
         } ?: return null
-        val reader = ready.reader
-        val hash = stopHashHex.toULongOrNull(16)?.toLong() ?: return emptyList()
-        val stop = reader.findStopByIdHash(hash)
-        if (stop < 0) return emptyList()
+        val hash = stopHashHex.toULongOrNull(16)?.toLong() ?: return null
+        val stop = ready.reader.findStopByIdHash(hash)
+        if (stop < 0) return null
         // I ritardi, che il widget prima non guardava affatto: mostrava gli
         // orari di tabella come se fossero certi, e per mezz'ora di fila.
         runCatching { withTimeoutOrNull(4_000) { app.realtime.refreshDelays() } }
-        val now = Instant.now()
-        return reader.nextDepartures(stop, now, limit = 5, horizonSeconds = 2 * 3600).map { d ->
-            val live = app.delayModel.at(
-                d.tripIndex,
-                d.positionInPattern,
-                reader.patternStopCount(d.patternIndex),
-                java.time.Instant.now().epochSecond,
-            )?.takeIf { it.confidence != DelayModel.Confidence.SERVED }
-            Row(
-                line = reader.routeShortName(d.routeIndex).ifEmpty { reader.routeLongName(d.routeIndex) },
-                destination = reader.patternDestination(d.patternIndex),
-                nowEpoch = now.epochSecond,
-                effectiveEpoch = d.instant.epochSecond + (live?.delaySeconds ?: 0),
-                live = live != null,
-            )
-        }
+        return app.departureBoards.snapshot(listOf(stop), limit = 5)
     }
 }
 

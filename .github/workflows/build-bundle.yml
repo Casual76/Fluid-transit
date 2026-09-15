@@ -155,9 +155,15 @@ jobs:
               --args="$GITHUB_WORKSPACE/work/gtfs $GITHUB_WORKSPACE/work/gtfs/shapes-matched.txt"
             ls -la work/gtfs/shapes-matched.txt || \
               echo "::warning::sidecar non prodotto: si prosegue con le shape GPS"
-            # La revisione dell'overlay segue la qualita' del matching: se
-            # stanotte e' andata male, non si sovrascrive con una geometria
-            # peggiore l'overlay migliore di ieri.
+            # La revisione dell'overlay segue la qualita' del matching.
+            #
+            # Attenzione a cosa protegge davvero: la revisione conta solo nel
+            # ramo "tutto identico a ieri", dove decide se vale la pena
+            # ripubblicare a orari invariati. Quando il feed cambia -- cioe'
+            # quasi ogni notte -- si pubblica comunque tutto, e un matching
+            # scarso finisce nell'overlay. E' accettabile perche' l'overlay di
+            # una notte storta ma con gli orari giusti vale piu' di uno bello
+            # e vecchio, ma non e' la garanzia che sembra.
             rate=$(cat work/gtfs/match-rate.txt 2>/dev/null || echo 0)
             echo "tracce aderite: ${rate}%" >> "$GITHUB_STEP_SUMMARY"
             if [ "$rate" -lt 80 ]; then

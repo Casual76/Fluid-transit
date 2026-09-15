@@ -1481,6 +1481,7 @@ fun MapScreen(
                                     app.favorites.isStopFavorite(state.tap.idHashHex)
                                 }
                                 StopPanelContent(
+                                    app = app,
                                     reader = reader,
                                     stopIdHashHex = state.tap.idHashHex,
                                     fallbackName = state.tap.name,
@@ -1503,10 +1504,6 @@ fun MapScreen(
                                     onToggleFavorite = {
                                         app.favorites.toggleStop(state.tap.idHashHex, state.tap.name)
                                     },
-                                    delays = app.delayModel,
-                                    delaysStamp = rtDelays?.generatedAt ?: 0L,
-                                    canceledTrips = resolved?.canceledTrips ?: emptySet(),
-                                    liveVehicleTrips = resolved?.vehicleByTrip?.keys ?: emptySet(),
                                     onFlyToBus = { tripIdx ->
                                         val meta = resolved?.vehicleByTrip?.get(tripIdx)
                                             ?.let { vk -> resolved?.busMetaByKey?.get(vk) }

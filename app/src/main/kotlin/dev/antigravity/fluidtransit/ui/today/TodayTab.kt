@@ -32,7 +32,7 @@ import dev.antigravity.fluidtransit.ui.map.MapIntent
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZonedDateTime
-import dev.antigravity.fluidtransit.routing.DelayModel
+import dev.antigravity.fluidtransit.routing.DepartureText
 import dev.antigravity.fluidtransit.routing.Ftb
 import dev.antigravity.fluidtransit.routing.Times
 import kotlinx.coroutines.Dispatchers
@@ -57,87 +57,26 @@ fun TodayTab(
     val favStops = remember(favVersion) { app.favorites.stops() }
     val favRoutes = remember(favVersion) { app.favorites.routes() }
 
-    // Il live anche qui: finche' la scheda e' davanti, un giro di ritardi
-    // ogni 30 secondi — gli stessi flussi della mappa, nessun doppione.
-    val lifecycleOwner = LocalLifecycleOwner.current
-    LaunchedEffect(ready?.buildId) {
-        if (ready == null) return@LaunchedEffect
-        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            app.realtime.refreshVehicles()
-            while (true) {
-                app.realtime.refreshDelays()
-                delay(30_000)
-            }
-        }
-    }
-    val rtDelays by app.realtime.delays.collectAsStateWithLifecycle()
-
-    class DepRow(
-        val stopName: String,
-        val stopHash: String,
-        val line: String,
-        val colorRgb: Int,
-        val destination: String,
-        val effectiveEpoch: Long,
-        val scheduledEpoch: Long,
-        val nowEpoch: Long,
-        val observed: Boolean,
-        val live: Boolean,
-    )
-
-    // Il battito. Prima le chiavi erano (bundle, preferiti, ritardi): con il
-    // realtime in "solo orari" i ritardi restano null per sempre e la lista
-    // si congelava a tempo indeterminato.
-    var tick by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(0) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(20_000)
-            tick++
+    // Le fermate stellate, tradotte in indici del bundle. Gli hash sono
+    // l'identita' stabile fra un bundle e l'altro; gli indici no, e infatti
+    // si ricavano ogni volta che il bundle cambia.
+    val stopIndexes = remember(favVersion, ready?.buildId) {
+        val reader = ready?.reader ?: return@remember emptyList()
+        favStops.mapNotNull { fav ->
+            fav.idHashHex.toULongOrNull(16)?.toLong()
+                ?.let { reader.findStopByIdHash(it) }
+                ?.takeIf { it >= 0 }
         }
     }
 
-    val departures by produceState<List<DepRow>?>(
-        initialValue = null,
-        ready?.buildId, favVersion, rtDelays, tick,
-    ) {
-        val reader = ready?.reader
-        if (reader == null || favStops.isEmpty()) {
-            value = emptyList()
-            return@produceState
-        }
-        value = withContext(Dispatchers.Default) {
-            val now = Instant.now()
-            favStops.take(5).flatMap { fav ->
-                val hash = fav.idHashHex.toULongOrNull(16)?.toLong()
-                    ?: return@flatMap emptyList<DepRow>()
-                val stop = reader.findStopByIdHash(hash)
-                if (stop < 0) return@flatMap emptyList<DepRow>()
-                reader.nextDepartures(stop, now, limit = 3, horizonSeconds = 2 * 3600).map { d ->
-                    val live = app.delayModel.at(
-                        d.tripIndex,
-                        d.positionInPattern,
-                        reader.patternStopCount(d.patternIndex),
-                        java.time.Instant.now().epochSecond,
-                    )?.takeIf { it.confidence != DelayModel.Confidence.SERVED }
-                    DepRow(
-                        stopName = reader.stopName(stop),
-                        stopHash = fav.idHashHex,
-                        line = reader.routeShortName(d.routeIndex)
-                            .ifEmpty { reader.routeLongName(d.routeIndex) },
-                        colorRgb = reader.routeDisplayColor(d.routeIndex),
-                        destination = reader.patternDestination(d.patternIndex),
-                        effectiveEpoch = d.instant.epochSecond + (live?.delaySeconds ?: 0),
-                        scheduledEpoch = d.instant.epochSecond,
-                        nowEpoch = now.epochSecond,
-                        observed = live?.confidence == DelayModel.Confidence.OBSERVED,
-                        live = live != null,
-                    )
-                }
-                // In ordine di orario, non raggruppate per fermata: prima la
-                // lista alternava 3 min, 40 min, 5 min, e non si capiva.
-            }.sortedBy { it.effectiveEpoch }
-        }
-    }
+    // Il tabellone e' quello di tutta l'app: stesso calcolo, stesso battito,
+    // stessi numeri della scheda fermata e dei Preferiti. Prima qui c'era un
+    // calcolo suo con un battito da venti secondi, e la stessa fermata poteva
+    // dire un minuto diverso da una scheda all'altra.
+    val board by remember(stopIndexes) {
+        app.departureBoards.merged(stopIndexes, limit = 8)
+    }.collectAsStateWithLifecycle()
+    val departures = board.rows
 
     // Gli avvisi delle TUE linee (piu' quelli di rete, che riguardano tutti).
     val alerts by produceState(
@@ -168,30 +107,29 @@ fun TodayTab(
             }
         }
 
-        val deps = departures
+        val reader = ready?.reader
         if (favStops.isNotEmpty()) {
             item { FluidSectionTitle(eyebrow = "Adesso", title = "Dalle tue fermate") }
             item {
                 FluidListGroup {
-                    if (deps == null) {
+                    if (board.computedAtEpoch == 0L) {
+                        // Zero vuol dire che il primo calcolo non c'e' ancora
+                        // stato: e' diverso da "non passa niente", e dirlo
+                        // sbagliato e' il difetto che i Preferiti avevano.
                         FluidListRow(title = "Un attimo…", subtitle = "Leggo gli orari")
-                    } else if (deps.isEmpty()) {
+                    } else if (departures.isEmpty()) {
                         FluidListRow(
                             title = "Nessun passaggio a breve",
                             subtitle = "Dalle tue fermate non parte niente nelle prossime due ore",
                         )
                     } else {
-                        for (d in deps) {
+                        for (d in departures) {
+                            val phrase = DepartureText.phrase(d, board.computedAtEpoch)
                             FluidListRow(
                                 eyebrow = d.stopName,
                                 title = "${d.line} → ${d.destination}",
-                                subtitle = if (d.live) {
-                                    val kind = if (d.observed) "dal bus" else "stimato"
-                                    "${Times.hhmm(d.effectiveEpoch)} · $kind"
-                                } else {
-                                    "previsto ${Times.hhmm(d.scheduledEpoch)}"
-                                },
-                                meta = Times.minutesLabel(d.nowEpoch, d.effectiveEpoch),
+                                subtitle = phrase.support,
+                                meta = phrase.headline,
                                 leading = {
                                     Box(
                                         modifier = Modifier
@@ -202,7 +140,14 @@ fun TodayTab(
                                             ),
                                     )
                                 },
-                                onClick = { onOpenOnMap(MapIntent.Stop(d.stopHash, d.stopName)) },
+                                onClick = {
+                                    onOpenOnMap(
+                                        MapIntent.Stop(
+                                            java.lang.Long.toHexString(reader?.stopIdHash(d.stopIndex) ?: 0L),
+                                            d.stopName,
+                                        ),
+                                    )
+                                },
                             )
                         }
                     }

@@ -93,6 +93,38 @@ class FluidTransitApp : Application() {
      */
     val canceledTrips = kotlinx.coroutines.flow.MutableStateFlow<Set<Int>>(emptySet())
 
+    /**
+     * Le corse per cui c'e' un mezzo vivo nel feed.
+     *
+     * Serve a distinguere "seguita e puntuale" da "non ne sappiamo niente",
+     * che a schermo sono due frasi diverse. Prima lo sapeva solo la mappa, che
+     * lo depositava nel ponte dell'assistente: chi non apriva la mappa non lo
+     * sapeva mai.
+     */
+    val tripsWithVehicle = kotlinx.coroutines.flow.MutableStateFlow<Set<Int>>(emptySet())
+
+    /**
+     * Cambia a ogni giro di tempo reale gia' assorbito.
+     *
+     * E' il segnale su cui i tabelloni si ricalcolano. Non ci si puo'
+     * agganciare direttamente a `realtime.delays` perche' il modello dei
+     * ritardi lo alimenta un collettore, e due collettori sullo stesso flusso
+     * non hanno un ordine garantito: si ricalcolerebbe a volte prima che i
+     * dati nuovi siano dentro.
+     */
+    val liveVersion = kotlinx.coroutines.flow.MutableStateFlow(0)
+
+    /**
+     * L'unica fonte delle prossime partenze.
+     *
+     * Vive qui per la stessa ragione del modello dei ritardi: due schermate
+     * che guardano la stessa fermata devono vedere lo stesso identico numero,
+     * e l'unico modo di garantirlo e' che sia lo stesso identico flusso.
+     */
+    val departureBoards by lazy {
+        dev.antigravity.fluidtransit.data.departures.DepartureBoards(this)
+    }
+
 
     /**
      * L'assistente. Vive qui, nello scope dell'Application, perche' una
@@ -287,6 +319,35 @@ class FluidTransitApp : Application() {
                 // Le corse di cui non si sente parlare da mezz'ora sono
                 // finite: la memoria non deve crescere per sempre.
                 delayModel.forgetBefore(at - 30 * 60)
+                // Per ultimo, quando tutto e' dentro: e' il segnale su cui i
+                // tabelloni si ricalcolano.
+                liveVersion.value += 1
+            }
+        }
+
+        // I mezzi vivi, risolti in indici di corsa. Stessa ragione del
+        // collettore qui sopra: deve succedere una volta sola e senza che
+        // dipenda da quale schermata e' aperta.
+        applicationScope.launch {
+            realtime.vehicles.collect { snapshot ->
+                val ready = bundleManager.state.value as? BundleManager.BundleState.Ready
+                val reader = ready?.reader
+                if (snapshot == null || reader == null) {
+                    tripsWithVehicle.value = emptySet()
+                    return@collect
+                }
+                tripsWithVehicle.value = snapshot.list
+                    .asSequence()
+                    .mapNotNull { v ->
+                        reader.findTripByIdHash(v.tripHash).takeIf { it >= 0 }
+                            ?: reader.findTripByRouteAndDeparture(
+                                v.routeHash,
+                                v.direction,
+                                v.startTimeSec,
+                            ).takeIf { it >= 0 }
+                    }
+                    .toSet()
+                liveVersion.value += 1
             }
         }
         // Il manifest remoto, se la copia in cache e' vecchia. Non blocca

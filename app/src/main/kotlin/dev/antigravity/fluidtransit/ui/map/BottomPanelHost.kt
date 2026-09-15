@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
@@ -110,11 +112,18 @@ internal val PanelMaxWidth = 520.dp
  * ha una sua altezza fissa, che non si rimpicciolisce con lo schermo.
  */
 @Composable
-internal fun panelListMax(preferred: Dp): Dp {
-    val window = with(LocalDensity.current) {
-        LocalWindowInfo.current.containerSize.height.toDp()
-    }
-    return minOf(preferred, maxOf(window - AROUND_THE_LIST, LIST_FLOOR))
+internal fun panelListMax(preferred: Dp, reserve: Dp = AROUND_THE_LIST): Dp {
+    val density = LocalDensity.current
+    val window = with(density) { LocalWindowInfo.current.containerSize.height.toDp() }
+    // La tastiera mangia lo schermo come qualunque altra cosa.
+    //
+    // Senza sottrarla, in orizzontale con la tastiera aperta l'elenco della
+    // ricerca chiedeva 121 dp di un'area che ne aveva sessanta: risultato,
+    // pannello vuoto. Chiedere meno di quello che c'e' e' l'unico modo di
+    // mostrare qualcosa.
+    val ime = with(density) { WindowInsets.ime.getBottom(density).toDp() }
+    val disponibile = maxOf(window - ime, 0.dp)
+    return minOf(preferred, maxOf(disponibile - reserve, minOf(LIST_FLOOR, disponibile)))
 }
 
 /**
@@ -125,6 +134,15 @@ internal fun panelListMax(preferred: Dp): Dp {
  * vetro 24, la tab bar col suo scarto 86, la barra di stato 24.
  */
 private val AROUND_THE_LIST = 290.dp
+
+/**
+ * La riserva della barra di ricerca.
+ *
+ * Molto piu' piccola perche' sotto l'elenco non c'e' niente: quando la
+ * ricerca e' aperta la tab bar non si vede e il piede non esiste. Sopra ci
+ * sono solo la barra di stato, la capsula e i suoi margini.
+ */
+internal val AROUND_THE_SEARCH = 110.dp
 
 /** Sotto questa altezza l'elenco non e' piu' un elenco: si sacrifica altro. */
 private val LIST_FLOOR = 120.dp

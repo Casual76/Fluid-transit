@@ -21,8 +21,21 @@ lo stato salvabile c'è, ma la superficie MapLibre si ricrea. Si vede come un
 salto della camera. Costoso da risolvere bene: vorrebbe dire tenere la mappa
 sempre composta e mettere le altre schede sopra. — visto il 15/09/2026
 
-**In orizzontale la ricerca aperta occupa tutta l'altezza.** I pannelli sono
-stati sistemati; la barra di ricerca aperta no. — visto il 15/09/2026
+**In orizzontale, con la tastiera aperta, la ricerca non ha dove mettere i
+risultati.** Misurato: schermo 411 dp, tastiera 265, restano 146 — e la sola
+barra di ricerca con la barra di stato e i margini ne prende 84. Restano meno
+di sessanta punti, cioe' meno di una riga. Non e' un difetto di calcolo:
+l'elenco adesso chiede esattamente quello che c'e' (la tastiera viene
+sottratta), e quello che c'e' non basta. La strada vera e' lasciare che la
+tastiera vada a schermo intero in orizzontale, com'e' il comportamento
+normale di Android quando l'app non lo impedisce. In verticale, con e senza
+tastiera, non cambia niente. — misurato il 15/09/2026
+
+**La camera della mappa NON riparte da capo cambiando scheda.** Era scritto
+qui come difetto; riprovato, e' falso: si apre una fermata, si va su Oggi, si
+torna, e la mappa e' dov'era, allo stesso zoom. Lo stato salvabile fa il suo
+lavoro. Riga tolta dalla lista e tenuta qui per non riaprire l'indagine.
+— verificato il 15/09/2026
 
 **Il widget della fermata non si ridisegna subito dopo la configurazione.**
 Scegli la fermata, torni alla home, e il widget continua a dire "Tocca per

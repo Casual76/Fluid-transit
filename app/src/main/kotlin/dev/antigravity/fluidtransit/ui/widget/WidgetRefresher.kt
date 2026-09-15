@@ -49,6 +49,27 @@ object WidgetRefresher {
         alarms.set(AlarmManager.RTC, at, pending(context))
     }
 
+    /**
+     * Una sveglia fra poco, invece che fra minuti.
+     *
+     * Serve dopo la configurazione di un widget. Chi ha appena scelto la
+     * fermata torna al lanciatore e il processo dell'app resta senza attivita'
+     * ne' servizi: Android lo puo' chiudere subito, e una coroutine con un
+     * ritardo dentro l'applicationScope non arriva mai a scattare. Una sveglia
+     * invece sopravvive al processo, e la sua ricevente ha gia' il goAsync che
+     * tiene in piedi il giro fino al disegno.
+     *
+     * Rimpiazza la sveglia programmata: la ricevente ne programma un'altra
+     * appena finito, quindi non si perde niente.
+     */
+    fun refreshSoon(context: Context, afterMs: Long = SOON_MS) {
+        val alarms = context.getSystemService(AlarmManager::class.java) ?: return
+        alarms.set(AlarmManager.RTC, System.currentTimeMillis() + afterMs, pending(context))
+    }
+
+    /** Abbastanza perche' il lanciatore abbia finito di agganciare il widget. */
+    private const val SOON_MS = 2_000L
+
     fun cancel(context: Context) {
         context.getSystemService(AlarmManager::class.java)?.cancel(pending(context))
     }

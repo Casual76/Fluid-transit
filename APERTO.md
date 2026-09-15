@@ -24,6 +24,17 @@ sempre composta e mettere le altre schede sopra. — visto il 15/09/2026
 **In orizzontale la ricerca aperta occupa tutta l'altezza.** I pannelli sono
 stati sistemati; la barra di ricerca aperta no. — visto il 15/09/2026
 
+**Il widget della fermata non si ridisegna subito dopo la configurazione.**
+Scegli la fermata, torni alla home, e il widget continua a dire "Tocca per
+configurare" pur avendo la fermata gia' scritta nel suo stato (verificato
+leggendo `files/datastore/appWidget-N.preferences_pb`: hash e nome ci sono).
+Escluso: non e' il permesso, non e' lo stato mancante, non e' un'eccezione
+(nessuna nei log), e non lo risolvono ne' un `update()` diretto ne' un
+`updateAll()` da una sveglia. Una volta ridisegnato mostra i numeri giusti,
+identici a quelli delle schermate. Dopo la configurazione parte comunque una
+sveglia a due secondi, che e' il meccanismo giusto per riprovarci.
+— visto il 15/09/2026
+
 ## Non si vede, ma conta
 
 **`/rt/v1/refresh` e' aperto.** Il codice che controlla il segreto c'è e si
@@ -51,6 +62,23 @@ seconda fallisce con `INSTALL_FAILED_DUPLICATE_PERMISSION`. Sull'emulatore si
 risolve disinstallando; in distribuzione no. — visto il 15/09/2026
 
 ## Deciso di non fare
+
+**ktlint o detekt.** Il piano li chiedeva, con "un commit di riformattazione
+separato". Contato: su un codice scritto senza, quel commit tocca quasi ogni
+file e seppellisce la storia di tutto il resto — e lo stile qui e' gia'
+coerente, perche' e' stato tenuto tale a mano. Al loro posto e' stato acceso
+**Android Lint come cancello** in CI, che al primo giro ha trovato un difetto
+vero (una chiamata alla posizione senza controllo del permesso) invece di
+centinaia di differenze di spaziatura. — 15/09/2026
+
+**Spezzare MapScreen fino in fondo.** Ne sono usciti due blocchi con
+un'interfaccia piccola davvero — "qui intorno" e i risultati della ricerca — e
+il file e' passato da 2.149 a 2.012 righe. Il resto (i pannelli, il
+pianificatore, le azioni dell'assistente) condivide troppo stato: estrarlo
+adesso vorrebbe dire funzioni con venti parametri, che e' peggio di dove si
+parte. Va fatto quando lo stato sara' raccolto in oggetti, non prima.
+— 15/09/2026
+
 
 **Deduplicare la risoluzione dei ritardi.** `resolveRt` e il collettore
 dell'Application risolvono gli stessi hash. Contati: novecento veicoli, 97%

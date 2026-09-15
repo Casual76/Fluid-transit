@@ -18,6 +18,7 @@ import dev.antigravity.fluidengine.ui.theme.FluidTheme
 import dev.antigravity.fluidtransit.FluidTransitApp
 import dev.antigravity.fluidtransit.ui.theme.TransitBrand
 import kotlinx.coroutines.launch
+import androidx.glance.appwidget.updateAll
 
 /**
  * La configurazione del widget fermata: scegli una delle tue fermate
@@ -85,6 +86,24 @@ class StopWidgetConfigActivity : ComponentActivity() {
                 RESULT_OK,
                 Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId),
             )
+
+            // E ancora, un attimo dopo, con una sveglia.
+            //
+            // L'aggiornamento qui sopra da solo non basta: misurato
+            // sull'emulatore, il widget puo' restare a "Tocca per configurare"
+            // pur avendo la fermata gia' scritta nel suo stato. Il lanciatore
+            // finisce di agganciarlo DOPO che questa Activity ha chiuso.
+            //
+            // Una sveglia e non una coroutine con un ritardo: chiuso questo
+            // schermo il processo resta senza attivita' ne' servizi, e Android
+            // lo puo' chiudere prima che il ritardo scada. Una sveglia
+            // sopravvive al processo, e la sua ricevente ha gia' il goAsync
+            // che tiene in piedi il giro fino al disegno.
+            //
+            // Onesta': non ho potuto verificare che questo CHIUDA il problema,
+            // solo che e' il meccanismo giusto per provarci. Il difetto resta
+            // scritto in APERTO.md con quello che e' stato escluso.
+            WidgetRefresher.refreshSoon(applicationContext)
             finish()
         }
     }

@@ -185,6 +185,15 @@ private fun AlertCard(
             // toglie proprio il pezzo che serve. Quindi: sei righe, e chi
             // vuole legge il resto.
             var aperto by remember(alert) { mutableStateOf(false) }
+            // "Leggi tutto" compare se il testo e' stato DAVVERO tagliato.
+            //
+            // Prima la porta si apriva sopra i 240 caratteri, ma il taglio e'
+            // a sei righe: due misure diverse per la stessa cosa. Un avviso
+            // di duecento caratteri che su uno schermo stretto occupa sette
+            // righe finiva con i puntini e nessun modo di aprirlo — visto
+            // sull'emulatore, "Fermata spostata per lavori" tagliato a
+            // meta' di "a causa di lav...".
+            var troncato by remember(alert) { mutableStateOf(false) }
             Spacer(Modifier.height(6.dp))
             Text(
                 text = alert.description,
@@ -192,8 +201,9 @@ private fun AlertCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = if (aperto) Int.MAX_VALUE else 6,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                onTextLayout = { if (!aperto) troncato = it.hasVisualOverflow },
             )
-            if (alert.description.length > 240) {
+            if (troncato || aperto) {
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = if (aperto) "Mostra meno" else "Leggi tutto",

@@ -58,6 +58,14 @@ object AlertText {
             giorni == 0L -> "oggi alle $ora"
             giorni == 1L -> "domani alle $ora"
             giorni in 2..6 -> "${nomeGiorno(t)} alle $ora"
+            // L'anno solo quando non e' questo.
+            //
+            // "Fino a 28 febbraio" letto a settembre puo' voler dire il
+            // febbraio appena passato o quello che viene, e i due sensi sono
+            // opposti: uno vuol dire "e' finita", l'altro "dura ancora cinque
+            // mesi". Gli avvisi di deviazione per lavori scavalcano l'anno
+            // regolarmente.
+            t.year != now.year -> "${t.dayOfMonth} ${nomeMese(t)} ${t.year}"
             else -> "${t.dayOfMonth} ${nomeMese(t)}"
         }
     }

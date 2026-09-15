@@ -90,4 +90,25 @@ class AlertTextTest {
         assertTrue(!AlertText.active(giorni(1), giorni(2), now), "non e' ancora cominciato")
         assertTrue(!AlertText.active(giorni(-2), giorni(-1), now), "e' gia' finito")
     }
+    @Test
+    fun `una data di un altro anno porta l'anno`() {
+        // "Fino a 28 febbraio" letto a settembre puo' voler dire il febbraio
+        // appena passato o quello che viene, e i due sensi sono opposti: uno
+        // dice "e' finita", l'altro "dura ancora cinque mesi". Gli avvisi per
+        // lavori scavalcano l'anno regolarmente — quello visto sul telefono
+        // dura dal 14 ottobre 2025 al 28 febbraio.
+        val febbraioProssimo =
+            ZonedDateTime.of(2027, 2, 28, 23, 59, 0, 0, Ftb.ROME).toEpochSecond()
+        assertEquals(
+            "Fino a 28 febbraio 2027",
+            AlertText.period(0, febbraioProssimo, now),
+        )
+    }
+
+    @Test
+    fun `una data di quest'anno resta senza anno`() {
+        val dicembre = ZonedDateTime.of(2026, 12, 24, 12, 0, 0, 0, Ftb.ROME).toEpochSecond()
+        assertEquals("Fino a 24 dicembre", AlertText.period(0, dicembre, now))
+    }
+
 }

@@ -19,6 +19,9 @@ import { feed, tripUpdateEntity } from './proto.js';
 
 const NOW = 1_700_000_000;
 
+/** I 32 bit bassi dell'hash: e' cosi' che viaggiano le ancore. */
+const id32 = (id) => Number(BigInt.asUintN(32, fnv64(id)));
+
 function build(entities) {
   const tu = parseFeed(feed({ timestamp: NOW - 25, entities }), 'updates');
   return buildPredictions({ generatedAt: NOW, tu });
@@ -35,14 +38,17 @@ function read(bytes) {
     const first = view.getUint32(o + 20, true);
     const count = view.getUint16(o + 24, true);
     const points = [];
+    // I ritardi viaggiano come differenze: si risommano scorrendo, che e'
+    // esattamente quello che fara' l'app.
+    let running = 0;
     for (let k = 0; k < count; k++) {
       const po = pointsOff + (first + k) * PRED_POINT_RECORD;
+      running += view.getInt16(po + 2, true);
       points.push({
-        stopIdHash: view.getBigInt64(po, true),
-        seq: view.getUint16(po + 8, true),
-        delay: view.getInt16(po + 10, true),
-        rel: view.getUint8(po + 12),
-        from: view.getUint8(po + 13),
+        seq: view.getUint16(po, true),
+        delay: running,
+        rel: view.getUint8(po + 4),
+        from: view.getUint8(po + 5),
       });
     }
     trips.push({
@@ -52,6 +58,8 @@ function read(bytes) {
       status: view.getUint8(o + 26),
       direction: view.getUint8(o + 27),
       tripDelay: view.getInt16(o + 28, true),
+      firstStopId32: view.getUint32(o + 32, true),
+      lastStopId32: view.getUint32(o + 36, true),
       points,
     });
   }
@@ -235,9 +243,11 @@ describe('punti di previsione', () => {
       tripId: 'c1', stops: [{ seq: 12, stopId: 'FERMATA-7', departure: 240 }],
     })]);
 
-    const p = read(bytes).trips[0].points[0];
+    const t = read(bytes).trips[0];
+    const p = t.points[0];
 
-    assert.equal(p.stopIdHash, fnv64('FERMATA-7'));
+    assert.equal(t.firstStopId32, id32('FERMATA-7'), 'ancora di testa');
+    assert.equal(t.lastStopId32, id32('FERMATA-7'), 'unico punto: e anche la coda');
     assert.equal(p.seq, 12);
     assert.equal(p.delay, 240);
     assert.equal(p.rel, 0);
@@ -262,10 +272,10 @@ describe('punti di previsione', () => {
       tripId: 'c1', stops: [{ seq: 5, departure: 60 }],
     })]);
 
-    const p = read(bytes).trips[0].points[0];
+    const t = read(bytes).trips[0];
 
-    assert.equal(p.stopIdHash, 0n);
-    assert.equal(p.seq, 5);
+    assert.equal(t.firstStopId32, 0);
+    assert.equal(t.points[0].seq, 5);
   });
 
   test('senza stop_sequence il punto resta, con il sentinella', () => {
@@ -273,10 +283,10 @@ describe('punti di previsione', () => {
       tripId: 'c1', stops: [{ stopId: 'solo-id', departure: 60 }],
     })]);
 
-    const p = read(bytes).trips[0].points[0];
+    const t = read(bytes).trips[0];
 
-    assert.equal(p.seq, 0xffff);
-    assert.equal(p.stopIdHash, fnv64('solo-id'));
+    assert.equal(t.points[0].seq, 0xffff);
+    assert.equal(t.firstStopId32, id32('solo-id'));
   });
 
   test('un anticipo resta negativo fino ai byte', () => {
@@ -288,11 +298,32 @@ describe('punti di previsione', () => {
   });
 
   test('un ritardo assurdo si satura invece di traboccare', () => {
+    // Il tetto dei punti e' piu' basso di quello del ritardo complessivo
+    // (16.000 contro 32.000) perche' i punti viaggiano come differenze: due
+    // valori agli estremi opposti darebbero uno scarto che in un i16 non ci
+    // sta, e li' un traboccamento non sposta un punto, sfasa tutta la corsa
+    // da quel punto in poi.
     const { bytes } = build([tripUpdateEntity({
       tripId: 'c1', stops: [{ seq: 1, stopId: 's', departure: 99999 }],
     })]);
 
-    assert.equal(read(bytes).trips[0].points[0].delay, 32000);
+    assert.equal(read(bytes).trips[0].points[0].delay, 16000);
+  });
+
+  test('le differenze si risommano anche a cavallo degli estremi', () => {
+    const { bytes } = build([tripUpdateEntity({
+      tripId: 'c1',
+      stops: [
+        { seq: 1, stopId: 'a', departure: 15000 },
+        { seq: 2, stopId: 'b', departure: -15000 },
+        { seq: 3, stopId: 'c', departure: 600 },
+      ],
+    })]);
+
+    assert.deepEqual(
+      read(bytes).trips[0].points.map((p) => p.delay),
+      [15000, -15000, 600],
+    );
   });
 
   test('una fermata SALTATA si dichiara, e non e un ritardo', () => {
@@ -311,7 +342,7 @@ describe('punti di previsione', () => {
 
     assert.equal(points.length, 3);
     assert.equal(points[1].rel, 1, 'saltata');
-    assert.equal(points[1].stopIdHash, fnv64('b'));
+    assert.equal(points[1].seq, 2);
   });
 
   test('una fermata senza dati interrompe la propagazione', () => {
@@ -327,6 +358,56 @@ describe('punti di previsione', () => {
 
     assert.equal(points.length, 2);
     assert.equal(points[1].rel, 2);
+  });
+});
+
+describe('le ancore delle fermate', () => {
+  test('sono la prima e l ultima fermata dell elenco', () => {
+    // Sono gli unici stop_id che viaggiano. Tenere l'hash su ogni punto
+    // costava il doppio della sezione (24,4 kB compressi contro 14,4,
+    // misurati sul feed vero): otto byte casuali che gzip non comprime.
+    const { bytes } = build([tripUpdateEntity({
+      tripId: 'c1',
+      stops: [
+        { seq: 4, stopId: 'testa', departure: 60 },
+        { seq: 5, stopId: 'mezzo', departure: 120 },
+        { seq: 6, stopId: 'coda', departure: 180 },
+      ],
+    })]);
+
+    const t = read(bytes).trips[0];
+
+    assert.equal(t.firstStopId32, id32('testa'));
+    assert.equal(t.lastStopId32, id32('coda'));
+    assert.deepEqual(t.points.map((p) => p.seq), [4, 5, 6]);
+  });
+
+  test('le ancore seguono i punti TENUTI, non quelli letti', () => {
+    // Se la compattazione toglie l'ultimo punto, l'ancora di coda deve
+    // seguirlo: altrimenti l'app verificherebbe la mappatura contro una
+    // fermata che nella sezione non c'e'.
+    const { bytes } = build([tripUpdateEntity({
+      tripId: 'c1',
+      stops: [
+        { seq: 1, stopId: 'a', departure: 60 },
+        { seq: 2, stopId: 'b', departure: 60 },
+        { seq: 3, stopId: 'c', departure: 60 },
+      ],
+    })]);
+
+    const t = read(bytes).trips[0];
+
+    assert.equal(t.points.length, 1, 'le tre copie diventano una');
+    assert.equal(t.firstStopId32, id32('a'));
+    assert.equal(t.lastStopId32, id32('a'));
+  });
+
+  test('una corsa senza punti non ha ancore', () => {
+    const { bytes } = build([tripUpdateEntity({ tripId: 'c1', overallDelay: 60 })]);
+    const t = read(bytes).trips[0];
+
+    assert.equal(t.firstStopId32, 0);
+    assert.equal(t.lastStopId32, 0);
   });
 });
 
@@ -470,17 +551,17 @@ describe('la valvola sul peso', () => {
   }
 
   test('sotto il tetto non si tocca niente', () => {
-    const { stats } = build(bigFeed(20, 50));
+    const { stats } = build(bigFeed(20, 200));
 
-    assert.equal(stats.points, 1000);
+    assert.equal(stats.points, 4000);
     assert.equal(stats.truncated, false);
     assert.equal(stats.pointsDropped, 0);
   });
 
   test('sopra il tetto si taglia la coda e lo si dichiara', () => {
-    const { bytes, stats } = build(bigFeed(40, 400));
+    const { bytes, stats } = build(bigFeed(60, 1000));
 
-    assert.equal(stats.rawPoints, 16000);
+    assert.equal(stats.rawPoints, 60000);
     assert.ok(stats.points <= MAX_POINTS, `${stats.points} punti oltre il tetto`);
     assert.equal(stats.truncated, true);
     assert.ok(stats.pointsDropped > 0);
@@ -492,17 +573,17 @@ describe('la valvola sul peso', () => {
   test('il taglio toglie la coda, non le corse', () => {
     // Una corsa senza previsioni sparirebbe del tutto dal live invece di
     // averne meno: il taglio deve essere uguale per tutti.
-    const { bytes } = build(bigFeed(40, 400));
+    const { bytes } = build(bigFeed(60, 1000));
     const trips = read(bytes).trips;
 
-    assert.equal(trips.length, 400);
+    assert.equal(trips.length, 1000);
     assert.ok(trips.every((t) => t.points.length > 0));
     const sizes = new Set(trips.map((t) => t.points.length));
     assert.equal(sizes.size, 1, 'stesso numero di punti per tutte');
   });
 
   test('i punti tagliati sono quelli lontani, non quelli vicini', () => {
-    const { bytes } = build(bigFeed(40, 400));
+    const { bytes } = build(bigFeed(60, 1000));
     const t = read(bytes).trips[0];
 
     // Le sequenze tenute partono da 1 e sono consecutive: la coda va via.

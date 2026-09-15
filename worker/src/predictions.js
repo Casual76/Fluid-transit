@@ -9,6 +9,15 @@
  * ufficiali usano le previsioni cosi' come sono. Questa sezione le porta
  * fino all'app intere.
  *
+ * ## Quanto segnale c'era davvero
+ *
+ * Misurato sul feed vero il 15/09/2026: 307 corse, 4.415 fermate, 4.109 con
+ * un ritardo dichiarato. **Lo stesso ritardo non si ripete mai**: fra due
+ * fermate consecutive lo scarto mediano e' 14 secondi, il 75esimo percentile
+ * 24, il 90esimo 40. Non e' un numero copiato trenta volte — e' una
+ * previsione che deriva lungo la corsa, ed e' esattamente cio' che il nostro
+ * modello si stava inventando.
+ *
  * ## Perche' una sezione nuova e non un record piu' largo
  *
  * `/rt/v1/updates` ha record fissi da 32 byte e il lettore installato sui
@@ -18,19 +27,33 @@
  * Quindi `/rt/v1/updates` resta congelato per sempre e le previsioni vivono
  * a `/rt/v1/predictions`, che le versioni vecchie non chiedono.
  *
- * ## Il formato
+ * ## Il formato, e dove sono finiti i byte
  *
  * Record variabili, quindi non si puo' usare lo schema "conta e affetta"
  * delle altre sezioni. Si usa lo stesso trucco del bundle (`PATTERN_STOPS`):
  * un indice a record fissi che punta dentro un blob a record fissi.
  *
- *   header 32 B | INDEX (32 B per corsa) | POINTS (16 B per previsione)
+ *   header 32 B | INDEX (40 B per corsa) | POINTS (6 B per previsione)
+ *
+ * La prima versione teneva l'hash a 64 bit della fermata **su ogni punto**.
+ * Sono otto byte casuali che gzip non comprime, e a quel prezzo la sezione
+ * pesava il 40% in piu'. Adesso l'hash sta due volte per CORSA — la prima e
+ * l'ultima fermata dell'elenco — e i punti portano solo lo `stop_sequence`.
+ *
+ * Non e' un atto di fede sullo `stop_sequence`: e' un'ancora verificabile.
+ * L'app sa che la corsa ha N fermate; con i due estremi puo' controllare che
+ * `posizione = seq - scarto` porti davvero su quelle due fermate e che la
+ * distanza fra i due estremi sia la stessa nelle due numerazioni. Se il
+ * controllo passa, la mappatura vale per tutte le fermate in mezzo; se non
+ * passa, si ripiega sulla stima invece di attribuire il ritardo alla fermata
+ * sbagliata — che e' lo sbaglio gia' costato una fermata di scarto su tutto
+ * il tabellone (il feed di at numera da 1, il bundle da 0).
  *
  * Header:
  *    0 u8[4] "FTRT"   4 u16 version = 2   6 u8 kind = 4   7 u8 headerLen = 32
  *    8 u32 generatedAt      12 u32 feedTimestamp
- *   16 u32 tripCount        20 u16 tripRecord = 32   22 u16 flags
- *   24 u32 pointCount       28 u16 pointRecord = 16  30 u16 pad
+ *   16 u32 tripCount        20 u16 tripRecord = 40   22 u16 flags
+ *   24 u32 pointCount       28 u16 pointRecord = 6   30 u16 pad
  *
  * INDEX, ordinato per tripHash crescente (l'app ci fa la ricerca binaria):
  *    0 i64 tripHash (0 = il feed non dichiara la corsa)
@@ -43,36 +66,51 @@
  *   28 i16 tripDelaySec    il `delay` complessivo del TripUpdate
  *                          (-32768 = assente; e' diverso da "zero, in orario")
  *   30 u16 pad
+ *   32 u32 firstStopId32  i 32 bit bassi di FNV-1a 64 dello stop_id del PRIMO
+ *                         punto (0 = assente)
+ *   36 u32 lastStopId32   idem per l'ULTIMO punto
  *
  * POINTS:
- *    0 i64 stopIdHash   FNV-1a 64 di stop_id (0 = il feed non lo dichiara)
- *    8 u16 stopSeq      lo stop_sequence dichiarato (0xFFFF = assente)
- *   10 i16 delaySec     saturato a +/-32000
- *   12 u8  rel          0 prevista, 1 SALTATA, 2 senza dati
- *   13 u8  from         0 arrivo, 1 partenza, 0xFF nessuno dei due
- *   14 u16 pad
+ *    0 u16 seq        lo stop_sequence dichiarato (0xFFFF = assente)
+ *    2 i16 delayDelta la DIFFERENZA dal punto precedente della stessa corsa
+ *                     (il primo punto si conta da zero, quindi e' assoluto)
+ *    4 u8  rel        0 prevista, 1 SALTATA, 2 senza dati
+ *    5 u8  from       0 arrivo, 1 partenza, 0xFF nessuno dei due
  *
- * Lo `stopIdHash` c'e' perche' `stop_sequence` non basta: GTFS lo lascia
- * libero, il bundle non lo conserva, e il feed di at parte da 1 mentre il
- * bundle indicizza da 0 — una trappola che e' gia' costata una fermata di
- * scarto su tutto il tabellone. L'hash del `stop_id` invece e' la stessa
- * chiave che il bundle usa gia'.
+ * I ritardi viaggiano come differenze perche' sono numeri quasi casuali e
+ * gzip non ne cava niente, mentre gli scarti fra fermate vicine sono piccoli
+ * (mediana 14 secondi) e quindi quasi tutti a byte alto zero. Misurato sul
+ * feed vero: 74 kB compressi con gli hash a 64 bit su ogni punto e i ritardi
+ * assoluti, 64 kB con le ancore a 32 bit e le differenze. L'app li risomma
+ * scorrendo i punti di una corsa, che e' l'ordine in cui li legge comunque.
+ *
+ * Le ancore bastano a 32 bit perche' non servono a CERCARE niente: servono a
+ * confermare una mappatura che l'app ha gia' ricavato. Una collisione su
+ * quattro miliardi, su due controlli, e' ben oltre il necessario.
  *
  * ## La compattazione
  *
- * Le previsioni si emettono solo quando cambiano. E' lecito perche' la regola
- * di GTFS-RT dice esattamente questo: una previsione vale per tutte le
- * fermate successive finche' non ce n'e' un'altra. Quindi non e' una
- * compressione con perdita, e' scrivere la stessa cosa senza ripeterla.
- * Le fermate SALTATE e quelle senza dati si emettono sempre: non sono
- * ritardi che si propagano, sono fatti di quella fermata.
+ * Le previsioni identiche di seguito si emettono una volta sola. E' lecito
+ * perche' la regola di GTFS-RT dice esattamente questo: una previsione vale
+ * per tutte le fermate successive finche' non ce n'e' un'altra. Quindi non e'
+ * una compressione con perdita, e' scrivere la stessa cosa senza ripeterla.
+ * Sul feed vero toglie pochissimo — i valori non si ripetono mai — ma costa
+ * niente e protegge dal giorno in cui l'origine cambiasse abitudine.
+ *
+ * Non si accorpano invece le previsioni VICINE ma diverse: l'app arrotonda al
+ * minuto, e un arrotondamento sopra l'altro sposta di un minuto intero i
+ * valori vicini al confine. Su un'app che esiste per far tornare i numeri con
+ * quelli ufficiali e' l'errore da non fare.
+ *
+ * Le fermate SALTATE e quelle senza dati si emettono sempre: non sono ritardi
+ * che si propagano, sono fatti di quella fermata.
  */
 
 import { fnv64 } from './snapshot.js';
 
 export const PRED_HEADER_LEN = 32;
-export const PRED_TRIP_RECORD = 32;
-export const PRED_POINT_RECORD = 16;
+export const PRED_TRIP_RECORD = 40;
+export const PRED_POINT_RECORD = 6;
 export const PRED_VERSION = 2;
 export const PRED_KIND = 4;
 
@@ -82,23 +120,19 @@ export const NO_DELAY = -32768;
 /**
  * Il tetto ai punti di una sezione, e la valvola che lo fa rispettare.
  *
- * Misurato su un feed sintetico delle dimensioni di quello vero (434 corse,
- * 30 fermate l'una): se l'origine ripete lo stesso ritardo per tutta la corsa
- * la sezione sta in 10 kB compressi, se cambia ogni cinque fermate in 29 kB,
- * ma se mandasse un valore diverso a ogni fermata arriverebbe a 145 kB — che
- * su rete mobile, ogni due minuti, non e' una cosa da fare a qualcuno.
+ * Non e' una soglia tarata a occhio. Misurata sul feed vero nell'ora di punta
+ * del 15/09/2026: ~1.250 corse e ~19.000 previsioni, cioe' 160 kB grezzi e 64
+ * compressi con questa codifica. Quarantamila punti danno il doppio di
+ * margine e tengono il caso peggiore sotto i 120 kB: tanto, ma una volta ogni
+ * due minuti e solo a schermata aperta, e comunque meno delle tile che la
+ * stessa mappa scarica.
  *
- * Quale dei tre casi sia quello vero non lo sappiamo ancora: lo diranno i
- * conteggi. Nel frattempo il tetto garantisce che il caso peggiore non possa
- * far danno, e quando scatta lo si dichiara (bit 0 di `flags`) invece di
- * consegnare in silenzio una verita' parziale.
- *
- * Non si quantizzano i ritardi per farli collassare: l'app arrotonda al
- * minuto, e un arrotondamento sopra l'altro sposta di un minuto intero i
- * valori vicini al confine. Su un'app che esiste per far tornare i numeri con
- * quelli ufficiali, e' esattamente l'errore da non fare.
+ * La prima stesura aveva il tetto a seimila, tarato su una stima del feed che
+ * si e' rivelata sbagliata di tre volte: la valvola scattava sempre e tagliava
+ * ogni corsa a quattro previsioni, cioe' buttava proprio il dato che questa
+ * sezione esiste per portare. Le stime vanno misurate.
  */
-export const MAX_POINTS = 6000;
+export const MAX_POINTS = 40000;
 
 /** bit 0: la sezione e' stata troncata per stare nel tetto. */
 export const FLAG_TRUNCATED = 1;
@@ -117,6 +151,18 @@ function startTimeSeconds(s) {
 
 function clampDelay(d) {
   return Math.max(-32000, Math.min(32000, Math.round(d)));
+}
+
+/**
+ * Il ritardo di un punto sta in una finestra piu' stretta di quella del
+ * ritardo complessivo, e non per capriccio: viaggiando come differenza, due
+ * valori agli estremi opposti darebbero uno scarto da 64.000 che in un i16
+ * non ci sta — e un traboccamento li' non sposta un punto, sfasa tutta la
+ * corsa da quel punto in poi, perche' l'app risomma. Quattro ore e mezzo di
+ * ritardo sono gia' un dato senza senso: tagliarle non toglie niente di vero.
+ */
+function clampPointDelay(d) {
+  return Math.max(-16000, Math.min(16000, Math.round(d)));
 }
 
 /** GTFS-RT StopTimeUpdate.ScheduleRelationship -> i nostri tre casi. */
@@ -152,6 +198,12 @@ export function compressPoints(stops) {
   return out;
 }
 
+/** I 32 bit bassi dell'hash di una fermata: l'ancora, non una chiave. */
+function stopId32(point) {
+  if (!point || !point.stopId) return 0;
+  return Number(BigInt.asUintN(32, fnv64(point.stopId)));
+}
+
 /** Lo stato della corsa nel suo insieme. */
 function tripStatus(u, points) {
   if (u.canceled) return 1;
@@ -165,13 +217,10 @@ function tripStatus(u, points) {
 /**
  * La sezione pronta da servire, piu' i conteggi per /health.
  *
- * I conteggi non sono decorativi: dicono se questo cambio serve a qualcosa.
- * Se `points` e `rawPoints` fossero quasi uguali, il feed manderebbe
- * previsioni davvero diverse fermata per fermata; se `points` fosse una
- * frazione minima, starebbe ripetendo lo stesso numero trenta volte e allora
- * il guadagno e' di onesta' (diciamo "dichiarato" invece di "stimato") piu'
- * che di precisione. Sono due conclusioni diverse e vanno misurate, non
- * indovinate.
+ * I conteggi non sono decorativi: sono quelli che hanno detto che il feed
+ * pubblica previsioni davvero diverse fermata per fermata, e non trenta copie
+ * dello stesso numero. Sono anche quelli che hanno mostrato il primo tetto
+ * tarato male.
  */
 export function buildPredictions({ generatedAt, tu, flags = 0 }) {
   const updates = (tu && tu.updates) || [];
@@ -185,6 +234,8 @@ export function buildPredictions({ generatedAt, tu, flags = 0 }) {
     pointsWithoutStopId: 0,
     pointsTimeOnly: 0,
     skipped: 0,
+    truncated: false,
+    pointsDropped: 0,
   };
 
   const rows = [];
@@ -210,8 +261,6 @@ export function buildPredictions({ generatedAt, tu, flags = 0 }) {
     rows.push({ u, points, status });
   }
   stats.trips = rows.length;
-  stats.truncated = false;
-  stats.pointsDropped = 0;
 
   // La valvola. Si taglia la CODA di ogni corsa, non le corse intere: la
   // previsione che serve di piu' e' quella delle prossime fermate, e una
@@ -254,7 +303,7 @@ export function buildPredictions({ generatedAt, tu, flags = 0 }) {
   view.setUint32(12, (tu && tu.timestamp) || 0, true);
   view.setUint32(16, rows.length, true);
   view.setUint16(20, PRED_TRIP_RECORD, true);
-  view.setUint16(22, flags >>> 0 & 0xffff, true);
+  view.setUint16(22, (flags >>> 0) & 0xffff, true);
   view.setUint32(24, stats.points, true);
   view.setUint16(28, PRED_POINT_RECORD, true);
 
@@ -275,13 +324,22 @@ export function buildPredictions({ generatedAt, tu, flags = 0 }) {
     const overall = row.u.overallDelay;
     view.setInt16(o + 28, overall === null || overall === undefined ? NO_DELAY : clampDelay(overall), true);
 
+    // Le due ancore. Sono gli unici stop_id che viaggiano, e servono all'app
+    // per verificare la mappatura invece di fidarsene.
+    const firstPoint = row.points[0];
+    const lastPoint = row.points[row.points.length - 1];
+    view.setUint32(o + 32, stopId32(firstPoint), true);
+    view.setUint32(o + 36, stopId32(lastPoint), true);
+
+    let previousDelay = 0;
     for (const p of row.points) {
       const po = pointsOff + pointCursor * PRED_POINT_RECORD;
-      view.setBigInt64(po, p.stopId ? fnv64(p.stopId) : 0n, true);
-      view.setUint16(po + 8, p.seq === null || p.seq === undefined ? 0xffff : Math.min(0xfffe, p.seq), true);
-      view.setInt16(po + 10, p.delay === null ? 0 : clampDelay(p.delay), true);
-      view.setUint8(po + 12, p.rel);
-      view.setUint8(po + 13, p.from === undefined || p.from < 0 ? 0xff : p.from);
+      const delay = p.delay === null ? previousDelay : clampPointDelay(p.delay);
+      view.setUint16(po, p.seq === null || p.seq === undefined ? 0xffff : Math.min(0xfffe, p.seq), true);
+      view.setInt16(po + 2, delay - previousDelay, true);
+      view.setUint8(po + 4, p.rel);
+      view.setUint8(po + 5, p.from === undefined || p.from < 0 ? 0xff : p.from);
+      previousDelay = delay;
       pointCursor++;
     }
   });

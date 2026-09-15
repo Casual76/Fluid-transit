@@ -13,7 +13,11 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    # Il Worker e i documenti hanno la loro Action: una modifica che tocca
+    # solo quelli non ha niente da compilare, e questo job costa dieci minuti.
+    paths-ignore: ['worker/**', 'docs/**', '**.md', 'manifest.json']
   pull_request:
+    paths-ignore: ['worker/**', 'docs/**', '**.md', 'manifest.json']
 
 concurrency:
   group: build-app-${{ github.ref }}

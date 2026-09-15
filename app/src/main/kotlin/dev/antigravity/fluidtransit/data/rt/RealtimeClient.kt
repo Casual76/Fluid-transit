@@ -5,6 +5,8 @@ import java.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -92,6 +94,33 @@ class RealtimeClient(
     /** Scritta dalla mappa quando risolve lo snapshot contro il bundle: diagnostica. */
     val resolvedPercent = MutableStateFlow<Int?>(null)
 
+    /**
+     * Un giro per volta, per ognuno dei tre.
+     *
+     * I contatori qui sotto — tre errori di fila, tre giri stantii di fila,
+     * il blocco di cinque minuti — decidono da dove vengono i numeri, e sono
+     * `var` normali letti e scritti da piu' coroutine: la mappa chiama
+     * [refreshVehicles] al suo ritmo, il giro dei tabelloni chiama
+     * [refreshDelays] (che a processo freddo chiama a sua volta
+     * [refreshVehicles]), e il widget chiama tutti e due per conto suo. Due
+     * giri sovrapposti si contano i fallimenti a vicenda e si scrivono sopra
+     * l'etag: a parita' di rete, l'app poteva finire su PROXY o su DIRECT a
+     * seconda di chi arrivava primo. E' una delle facce di "si comporta in
+     * modo diverso ogni volta".
+     *
+     * Chi arriva secondo aspetta il primo: non si evita la sua richiesta, ma
+     * la fa con l'etag appena ricevuto e si prende un 304 senza corpo, invece
+     * di scaricare e rifare il parse degli stessi byte mentre l'altro li sta
+     * ancora scrivendo.
+     *
+     * Tre serrature separate e mai incrociate: si prende quella dei ritardi e
+     * poi, eventualmente, quella dei mezzi — mai il contrario — quindi non si
+     * puo' incastrare.
+     */
+    private val vehiclesLock = Mutex()
+    private val delaysLock = Mutex()
+    private val predictionsLock = Mutex()
+
     private var proxyFailures = 0
     private var staleStrikes = 0
     private var directHoldUntilMs = 0L
@@ -115,7 +144,9 @@ class RealtimeClient(
         Source.SCHEDULE_ONLY -> 60_000L
     }
 
-    suspend fun refreshVehicles() = withContext(Dispatchers.IO) {
+    suspend fun refreshVehicles() = vehiclesLock.withLock { fetchVehicles() }
+
+    private suspend fun fetchVehicles() = withContext(Dispatchers.IO) {
         val proxyOk = runCatching { proxyAllowed() }.getOrDefault(true)
         val nowMs = System.currentTimeMillis()
 
@@ -200,14 +231,16 @@ class RealtimeClient(
         }
     }
 
-    suspend fun refreshDelays() = withContext(Dispatchers.IO) {
+    suspend fun refreshDelays() = delaysLock.withLock { fetchDelays() }
+
+    private suspend fun fetchDelays() = withContext(Dispatchers.IO) {
         // In un processo fresco lo stato parte da SCHEDULE_ONLY e nessuno ha
         // ancora interrogato il proxy. Uscire di qui voleva dire che il
         // widget, le routine e la scheda Oggi non vedevano MAI un ritardo,
         // perche' erano gli unici a chiedere e nessuno prima di loro aveva
         // stabilito lo stato. Il giro dei veicoli e' quello che lo stabilisce.
         if (_status.value.source != Source.PROXY && _status.value.lastSuccessAt == null) {
-            refreshVehicles()
+            vehiclesLock.withLock { fetchVehicles() }
         }
         // Poi vale il compromesso deciso per DIRECT: i trip-updates integrali
         // dall'origine sono 1-2 MB al minuto, non roba da telefono.
@@ -232,7 +265,9 @@ class RealtimeClient(
      * costerebbero i trip-updates integrali. Un 404 vuol dire che il proxy
      * non le conosce, e allora si smette di chiederle per questa sessione.
      */
-    suspend fun refreshPredictions() = withContext(Dispatchers.IO) {
+    suspend fun refreshPredictions() = predictionsLock.withLock { fetchPredictions() }
+
+    private suspend fun fetchPredictions() = withContext(Dispatchers.IO) {
         if (predictionsAbsent) return@withContext
         if (_status.value.source != Source.PROXY) return@withContext
         try {

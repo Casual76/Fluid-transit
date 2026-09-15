@@ -2,6 +2,8 @@ package dev.antigravity.fluidtransit.data.rt
 
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -380,6 +382,53 @@ class RealtimeClientTest {
     }
 
     // ---------------------------------------------------------- le risposte
+
+    // ------------------------------------------------- due giri insieme
+
+    @Test
+    fun `due giri dei mezzi insieme non si pestano i piedi`() = runTest {
+        // La mappa e il giro dei tabelloni chiamano lo stesso client da due
+        // coroutine diverse, e a processo freddo capita davvero. I contatori
+        // che decidono PROXY o DIRECT sono `var` normali: due giri
+        // sovrapposti si contavano i fallimenti a vicenda, e a parita' di
+        // rete l'app poteva finire da una parte o dall'altra a seconda di
+        // chi arrivava primo.
+        proxy.enqueue(snapshotResponse(vehicleCount = 3, feedAge = 20, etag = "W/\"v1\""))
+        proxy.enqueue(MockResponse().setResponseCode(304).setHeader("X-Feed-Age", "22"))
+
+        val rt = client()
+        coroutineScope {
+            launch { rt.refreshVehicles() }
+            launch { rt.refreshVehicles() }
+        }
+
+        assertEquals(RealtimeClient.Source.PROXY, rt.status.value.source)
+        assertEquals(3, rt.status.value.vehicleCount)
+        assertEquals(2, proxy.requestCount)
+        // Il secondo giro e' partito DOPO il primo, quindi aveva gia' l'etag:
+        // e' la prova che si sono messi in fila invece di sovrapporsi.
+        proxy.takeRequest()
+        assertEquals("W/\"v1\"", proxy.takeRequest().getHeader("If-None-Match"))
+    }
+
+    @Test
+    fun `due giri dei ritardi insieme si mettono in fila`() = runTest {
+        proxy.enqueue(snapshotResponse(vehicleCount = 1, feedAge = 10))
+        proxy.enqueue(delaysResponse(delayCount = 4).setHeader("ETag", "W/\"d1\""))
+        proxy.enqueue(MockResponse().setResponseCode(304))
+
+        val rt = client()
+        rt.refreshVehicles()
+        coroutineScope {
+            launch { rt.refreshDelays() }
+            launch { rt.refreshDelays() }
+        }
+
+        assertEquals(4, rt.delays.value?.byTripHash?.size)
+        proxy.takeRequest() // i mezzi
+        proxy.takeRequest() // i primi ritardi
+        assertEquals("W/\"d1\"", proxy.takeRequest().getHeader("If-None-Match"))
+    }
 
     private fun snapshotResponse(
         vehicleCount: Int,

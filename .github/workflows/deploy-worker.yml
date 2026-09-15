@@ -13,10 +13,15 @@ on:
     branches: [main]
     paths:
       - 'worker/**'
+      # Gli attrezzi non finiscono su Cloudflare: sono banchi di prova che
+      # girano qui o a mano. Senza questa riga, aggiungere uno script che
+      # genera una fixture ripubblicava il Worker in produzione per niente.
+      - '!worker/tools/**'
       - '.github/workflows/deploy-worker.yml'
   pull_request:
     paths:
       - 'worker/**'
+      - '!worker/tools/**'
       - '.github/workflows/deploy-worker.yml'
 
 concurrency:

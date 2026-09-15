@@ -175,6 +175,24 @@ Per la UI valgono le regole del Fluid Engine (`engine/skill/fluid-engine/`):
 `ContinuousCornerShape` e mai `RoundedCornerShape`, niente `fontSize` a mano,
 palette generata da un solo accento, ruoli sempre in coppia.
 
+## Il banco di fedelta'
+
+```bash
+cd worker && npm run fedelta
+```
+
+Scarica il feed GTFS-RT **grezzo** della Regione e la sezione che il proxy
+serve all'app, e confronta i ritardi uno per uno. E' l'unico modo di
+rispondere a "i nostri minuti sono quelli della fonte?": guardando l'app si
+confronterebbe l'app con se' stessa.
+
+Ultima misura: **873 punti confrontati, 0 differenze** (15/09/2026).
+
+Gira da solo in CI due volte al giorno, nelle ore di punta — a notte fonda il
+feed ha una manciata di corse e il confronto non direbbe niente. Esce 1 se le
+differenze superano cinque per mille, 2 se i due lati vengono da due
+generazioni diverse (non e' un difetto: si riprova).
+
 ## La lista di quello che resta aperto
 
 `APERTO.md` alla radice. Ogni riga e' qualcosa di **osservato** e non chiuso,

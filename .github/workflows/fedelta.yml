@@ -1,0 +1,62 @@
+name: Banco di fedelta'
+
+# La domanda a cui questo workflow risponde e' "i nostri minuti sono quelli
+# della fonte?", ed e' l'unica che non si puo' verificare guardando l'app:
+# qualunque cosa mostri, la si starebbe confrontando con se' stessa.
+#
+# Qui si scaricano DUE cose — il feed GTFS-RT grezzo della Regione e la
+# sezione che il nostro proxy serve all'app — e si confrontano ritardo per
+# ritardo. Zero differenze vuol dire che fra l'origine e il telefono non si
+# perde e non si inventa niente.
+#
+# Gli orari: nelle ore di punta. A notte fonda il feed ha una manciata di
+# corse e il confronto non direbbe niente.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 08:15 e 17:15 UTC = 10:15 e 19:15 in Italia d'estate, quando il feed e'
+    # pieno e le corse seguite sono al massimo.
+    - cron: '15 8 * * *'
+    - cron: '15 17 * * *'
+
+concurrency:
+  group: fedelta
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  confronta:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Confronta il proxy con l'origine
+        working-directory: worker
+        run: |
+          set +e
+          node tools/fedelta.mjs | tee fedelta.txt
+          esito=${PIPESTATUS[0]}
+          set -e
+          case "$esito" in
+            0) echo "::notice::i minuti dell'app sono quelli della Regione" ;;
+            # I due lati vengono da due generazioni diverse: non e' un
+            # difetto nostro, e fallire qui sarebbe un allarme falso.
+            2) echo "::warning::confronto non conclusivo (sfasamento fra i due feed)" ;;
+            1) echo "::error::i nostri minuti NON sono quelli della fonte"; exit 1 ;;
+            *) echo "::error::il banco non e' riuscito a girare"; exit 1 ;;
+          esac
+
+      - name: Il rapporto, se serve guardarlo
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedelta
+          path: worker/fedelta.txt
+          retention-days: 14

@@ -46,6 +46,20 @@ class StopWidgetConfigActivity : ComponentActivity() {
             val s = settings ?: return@setContent
             FluidTheme(settings = s, brand = TransitBrand) {
                 val stops = app.favorites.stops()
+                // Il nome che vale e' quello degli orari, qui come nelle
+                // schede e nel widget: quello salvato accanto alla stella e'
+                // un ripiego, e resta com'era il giorno in cui si e' messa.
+                val reader = (
+                    app.bundleManager.state.value
+                        as? dev.antigravity.fluidtransit.data.bundle.BundleManager.BundleState.Ready
+                    )?.reader
+                fun nomeDi(stop: dev.antigravity.fluidtransit.data.favorites.Favorites.Stop): String =
+                    reader?.let { r ->
+                        stop.idHashHex.toULongOrNull(16)?.toLong()
+                            ?.let { r.findStopByIdHash(it) }
+                            ?.takeIf { it >= 0 }
+                            ?.let { r.stopName(it) }
+                    }?.ifEmpty { null } ?: stop.name
                 FluidScreen(title = "Quale fermata?") {
                     if (stops.isEmpty()) {
                         item {
@@ -60,9 +74,9 @@ class StopWidgetConfigActivity : ComponentActivity() {
                             FluidListGroup {
                                 for (stop in stops) {
                                     FluidListRow(
-                                        title = stop.name,
+                                        title = nomeDi(stop),
                                         subtitle = "Le prossime partenze sulla home",
-                                        onClick = { pick(appWidgetId, stop) },
+                                        onClick = { pick(appWidgetId, stop, nomeDi(stop)) },
                                     )
                                 }
                             }
@@ -73,13 +87,20 @@ class StopWidgetConfigActivity : ComponentActivity() {
         }
     }
 
-    private fun pick(appWidgetId: Int, stop: dev.antigravity.fluidtransit.data.favorites.Favorites.Stop) {
+    private fun pick(
+        appWidgetId: Int,
+        stop: dev.antigravity.fluidtransit.data.favorites.Favorites.Stop,
+        nome: String,
+    ) {
         lifecycleScope.launch {
             val manager = GlanceAppWidgetManager(this@StopWidgetConfigActivity)
             val glanceId = manager.getGlanceIdBy(appWidgetId)
             updateAppWidgetState(this@StopWidgetConfigActivity, glanceId) { prefs ->
                 prefs[KEY_STOP_HASH] = stop.idHashHex
-                prefs[KEY_STOP_NAME] = stop.name
+                // Si salva il nome buono, cosi' anche il ripiego — quello
+                // che il widget usa prima che gli orari siano pronti — parte
+                // gia' giusto.
+                prefs[KEY_STOP_NAME] = nome
             }
             StopWidget().update(this@StopWidgetConfigActivity, glanceId)
             setResult(

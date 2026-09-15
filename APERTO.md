@@ -37,16 +37,16 @@ torna, e la mappa e' dov'era, allo stesso zoom. Lo stato salvabile fa il suo
 lavoro. Riga tolta dalla lista e tenuta qui per non riaprire l'indagine.
 — verificato il 15/09/2026
 
-**Il widget della fermata non si ridisegna subito dopo la configurazione.**
-Scegli la fermata, torni alla home, e il widget continua a dire "Tocca per
-configurare" pur avendo la fermata gia' scritta nel suo stato (verificato
-leggendo `files/datastore/appWidget-N.preferences_pb`: hash e nome ci sono).
-Escluso: non e' il permesso, non e' lo stato mancante, non e' un'eccezione
-(nessuna nei log), e non lo risolvono ne' un `update()` diretto ne' un
-`updateAll()` da una sveglia. Una volta ridisegnato mostra i numeri giusti,
-identici a quelli delle schermate. Dopo la configurazione parte comunque una
-sveglia a due secondi, che e' il meccanismo giusto per riprovarci.
-— visto il 15/09/2026
+**Il widget della fermata dopo la configurazione: non si riproduce piu', ma
+la prova non e' quella giusta.** Riprovato il 16/09 lanciando la schermata di
+configurazione a mano su un widget gia' agganciato: si sceglie la fermata, si
+torna alla home, e il widget si ridisegna con i numeri giusti. Il caso
+originale pero' e' un widget appena AGGIUNTO, che il lanciatore aggancia dopo
+che la schermata di configurazione si e' chiusa, e quello non si e' potuto
+ricreare a comando. Nel frattempo il budget di tempo del disegno e' sceso da
+quattordici secondi a otto, che era il sospetto piu' probabile. Resta da
+guardare la prossima volta che si aggiunge un widget da zero.
+— riprovato il 16/09/2026
 
 **Da verificare con un bus vivo: le parole del pannello corsa.** Le altre due
 verifiche in attesa sono state fatte all'una di notte, quando il feed si e'

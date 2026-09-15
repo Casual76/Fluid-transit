@@ -51,6 +51,14 @@ jobs:
       - name: Test JVM e compilazione debug
         run: ./gradlew --no-daemon :core-routing:test :app:testDebugUnitTest :app:assembleDebug
 
+      # Lint di Android: gli errori fermano la build, gli avvisi no. Il primo
+      # che ha trovato era una chiamata alla posizione senza controllo del
+      # permesso, dentro il provider che espone gli strumenti ad altre app:
+      # una SecurityException in attesa di succedere, su un percorso che sul
+      # telefono di sviluppo non passa mai.
+      - name: Lint
+        run: ./gradlew --no-daemon :app:lintDebug
+
       # R8 e' attivo in release su codice che usa mmap e JSON navigato a mano,
       # con un proguard-rules.pro quasi vuoto: se un giorno toglie qualcosa che
       # serve, vogliamo saperlo qui e non da un crash sul telefono di qualcuno.

@@ -106,6 +106,29 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
+
+    /**
+     * Lint come cancello, non come rumore.
+     *
+     * Gli ERRORI fermano la build: sono difetti veri, e il primo che ha
+     * trovato — una chiamata alla posizione senza controllare il permesso,
+     * dentro il provider che espone gli strumenti ad altre app — era una
+     * SecurityException in attesa di succedere.
+     *
+     * Gli avvisi restano avvisi: dicono cose vere ma non urgenti (usa
+     * l'estensione KTX, targetCellWidth vale solo da API 31) e trasformarli
+     * in errori vorrebbe dire o ignorarli tutti o rincorrerli.
+     *
+     * `GradleDependency` invece si spegne: nomina versioni nuove di librerie
+     * che qui sono pinnate apposta — due version catalog che litigano, vedi
+     * CLAUDE.md — e un avviso che non si puo' seguire e' solo rumore.
+     */
+    lint {
+        abortOnError = true
+        warningsAsErrors = false
+        checkReleaseBuilds = true
+        disable += "GradleDependency"
+    }
 }
 
 dependencies {

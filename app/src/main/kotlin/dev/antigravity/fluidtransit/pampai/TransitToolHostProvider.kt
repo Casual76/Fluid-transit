@@ -130,14 +130,31 @@ class TransitToolHostProvider : AiToolHostProvider<ToolContext>() {
   private fun ensureLocation() {
     if (app.assistantBridge.location != null) return
     val manager = context?.getSystemService(LocationManager::class.java) ?: return
+    val ctx = context ?: return
     app.assistantBridge.location = {
-      runCatching {
-        listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
-          .filter { manager.isProviderEnabled(it) }
-          .mapNotNull { manager.getLastKnownLocation(it) }
-          .maxByOrNull { it.time }
-          ?.let { it.latitude to it.longitude }
-      }.getOrNull()
+      // Il permesso si controlla PRIMA, e a ogni chiamata: si puo' revocare
+      // mentre l'app vive. Prima ci si affidava al `runCatching` intorno, che
+      // e' peggio di quanto sembri — la SecurityException del primo provider
+      // interrompeva la catena, quindi bastava un provider negato per perdere
+      // anche quelli che avrebbero risposto.
+      val consentito = listOf(
+        android.Manifest.permission.ACCESS_COARSE_LOCATION,
+        android.Manifest.permission.ACCESS_FINE_LOCATION,
+      ).any {
+        androidx.core.content.ContextCompat.checkSelfPermission(ctx, it) ==
+          android.content.pm.PackageManager.PERMISSION_GRANTED
+      }
+      if (!consentito) {
+        null
+      } else {
+        runCatching {
+          listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+            .filter { manager.isProviderEnabled(it) }
+            .mapNotNull { p -> runCatching { manager.getLastKnownLocation(p) }.getOrNull() }
+            .maxByOrNull { it.time }
+            ?.let { it.latitude to it.longitude }
+        }.getOrNull()
+      }
     }
   }
 

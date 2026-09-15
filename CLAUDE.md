@@ -155,6 +155,19 @@ riconosce dall'assenza di righe `e:` nel log. Si sblocca cancellando le
 `build/` **da Git Bash** (`rm -rf`, che gestisce i percorsi lunghi) e
 rilanciando con `--no-build-cache --no-daemon`.
 
+Il punto in cui capita quasi sempre sono i risultati dei test, da soli o
+attraverso la cache del build (`Failed to load cache entry ... Could not load
+from local cache`). Prima di far girare i test conviene togliere di mezzo
+quelle due cartelle e basta, invece dell'intera `build/`:
+
+```bash
+rm -rf app/build/test-results app/build/reports core-routing/build/test-results core-routing/build/reports
+```
+
+Capita anche che il demone Kotlin muoia da solo
+(`Connection to the Kotlin daemon has been unexpectedly lost`): non e' un
+errore di codice, si rilancia e basta.
+
 ## Pubblicare
 
 **L'app**: build firmata in locale, poi la skill `pampa-store-publish-direct`,

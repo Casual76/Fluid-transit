@@ -48,6 +48,19 @@ identici a quelli delle schermate. Dopo la configurazione parte comunque una
 sveglia a due secondi, che e' il meccanismo giusto per riprovarci.
 — visto il 15/09/2026
 
+**Da verificare con il feed pieno: "Qui intorno" senza doppioni.** La regola
+"lo stesso autobus una riga sola" e' provata dai test e misurata sul bundle,
+ma a mezzanotte in Toscana non passa quasi niente e non si e' potuta vedere
+con una lista piena. Va guardata di mattina, insieme alle due gia' in attesa:
+le parole del pannello corsa con un bus vivo, e le righe "dal bus" su un
+tabellone. — aperto il 15/09/2026
+
+**Le posizioni finte dell'emulatore non arrivano all'app.** `adb emu geo fix`
+risponde `OK` ma la posizione resta quella predefinita di Mountain View: per
+provare qualcosa che dipende da dove sei, la strada che funziona e' togliere
+il permesso di posizione, cosi' il riferimento diventa il centro della mappa,
+e portare la mappa dove serve. — visto il 15/09/2026
+
 ## Non si vede, ma conta
 
 **`/rt/v1/refresh` e' aperto.** Il codice che controlla il segreto c'è e si

@@ -131,13 +131,22 @@ fun BottomGlassPanel(
     fun Modifier.panelDrag(): Modifier = pointerInput(Unit) {
         val dismissAt = 42.dp.toPx()
         val expandAt = -36.dp.toPx()
+        // Quanto in alto puo' arrivare la superficie.
+        //
+        // Era 64 PIXEL fissi, contro una soglia di espansione di 36 dp: su
+        // uno schermo da 420 dpi quei 36 dp sono 94 pixel, cioe' oltre il
+        // tetto. Il gesto "trascina su per espandere" non poteva riuscire su
+        // nessun telefono moderno — restava vivo solo a densita' 1, che non
+        // esiste piu'. Adesso il tetto si calcola DALLA soglia, cosi' i due
+        // numeri non possono piu' allontanarsi.
+        val ceiling = expandAt * 1.8f
         detectVerticalDragGestures(
             onVerticalDrag = { _, dy ->
                 scope.launch {
                     // Verso l'alto si va poco e con resistenza: e' un gesto
                     // di intenzione, non uno spostamento.
                     val next = offsetY.value + if (offsetY.value + dy < 0) dy / 2.5f else dy
-                    offsetY.snapTo(next.coerceAtLeast(-64f))
+                    offsetY.snapTo(next.coerceAtLeast(ceiling))
                 }
             },
             onDragEnd = {

@@ -55,6 +55,15 @@ fun PlannerGlass(
     backdrop: GlassBackdropState,
     from: PlaceRef?,
     to: PlaceRef?,
+    /**
+     * Da dove si parte quando nessuno l'ha scelto.
+     *
+     * La riga diceva sempre "La tua posizione", anche col GPS spento, mentre
+     * il pannello dei risultati sotto diceva correttamente "Dal centro della
+     * mappa". Due frasi diverse sullo stesso fatto, nella stessa schermata, a
+     * dieci centimetri di distanza.
+     */
+    defaultFrom: String,
     timeLabel: String,
     onPickFrom: () -> Unit,
     onPickTo: () -> Unit,
@@ -87,7 +96,7 @@ fun PlannerGlass(
                     },
                     // Senza origine scelta si parte da dove sei: dirlo qui
                     // evita la domanda "da dove sta calcolando?".
-                    text = from?.name ?: "La tua posizione",
+                    text = from?.name ?: defaultFrom,
                     placeholder = from == null,
                     onClick = onPickFrom,
                 )

@@ -110,6 +110,15 @@ fun SearchGlass(
     onPick: (Suggestion) -> Unit,
     /** Se c'e', in cima al pannello compare "Calcola un percorso". */
     onPlanRoute: (() -> Unit)? = null,
+    /**
+     * Cosa si sta cercando, quando non e' "qualcosa".
+     *
+     * La stessa barra serve a trovare un posto sulla mappa e a compilare una
+     * riga del pianificatore, e nel secondo caso continuava a dire "Fermata,
+     * linea o luogo…": la domanda giusta e "dove vuoi andare", e chiederla
+     * e' meta' della risposta.
+     */
+    hint: String = "Fermata, linea o luogo…",
     /** Se c'e', con la barra piena il tasto del mic diventa "chiedi all'IA". */
     onAsk: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -178,7 +187,7 @@ fun SearchGlass(
                     decorationBox = { inner ->
                         if (query.isEmpty()) {
                             Text(
-                                text = "Fermata, linea o luogo…",
+                                text = hint,
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )

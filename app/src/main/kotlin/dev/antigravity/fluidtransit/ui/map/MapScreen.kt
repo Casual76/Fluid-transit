@@ -584,11 +584,21 @@ fun MapScreen(
         runPlanner()
     }
 
+    /**
+     * Il pianificatore, aperto sulla domanda che si stava per fare.
+     *
+     * Apriva due righe vuote, e per cominciare a scrivere ne serviva una
+     * terza di tocchi: barra, "calcola un percorso", riga "A". Ma chi apre il
+     * pianificatore sa gia' dove vuole andare — e' il "da dove" che quasi
+     * sempre e' scontato, perche' e' dove sei. Quindi si va dritti a scegliere
+     * la destinazione, con la tastiera gia' su; la riga "Da" resta li' sotto
+     * per quando non e' scontata.
+     */
     fun openPlanner() {
-        searchOpen = false
         query = ""
-        plannerField = null
         plannerOpen = true
+        plannerField = "to"
+        searchOpen = true
     }
 
     // Le richieste da fuori: da un'altra scheda (Preferiti, Oggi) o da fuori
@@ -1337,6 +1347,11 @@ fun MapScreen(
                     backdrop = backdrop,
                     from = originRef,
                     to = destRef,
+                    defaultFrom = if (locationGranted && controller.lastLocation() != null) {
+                        "La tua posizione"
+                    } else {
+                        "Il centro della mappa"
+                    },
                     timeLabel = when (journeyTimeMode) {
                         "depart" -> "Parti alle ${hhmm(journeyTimeEpoch)}"
                         "arrive" -> "Arriva entro le ${hhmm(journeyTimeEpoch)}"
@@ -1382,7 +1397,13 @@ fun MapScreen(
                 // ordinano insieme agli altri: stessa scala di pertinenza.
                 results = (queryResults + civiciResults).sortedByDescending { it.score },
                 saved = savedSuggestions,
-                recents = recents.filter { it.kind == "stop" || it.kind == "place" }
+                // Tutto tranne le linee, che hanno la loro fila.
+                //
+                // Il filtro nominava "stop" e "place", quindi i civici — che
+                // si salvavano regolarmente fra i recenti — non si vedevano
+                // MAI: cercare "via Bolognese 12" e ricercarla il giorno dopo
+                // erano due ricerche identiche e complete.
+                recents = recents.filter { it.kind != "route" }
                     .map { it.toSuggestion() },
                 nearby = nearby,
                 recentLines = recents.filter { it.kind == "route" }.map { it.toSuggestion() },
@@ -1430,6 +1451,20 @@ fun MapScreen(
                     } else {
                         // La ricerca sta compilando una riga del
                         // pianificatore, non portando da qualche parte.
+                        //
+                        // Ma il posto scelto entra lo stesso nei recenti: era
+                        // l'unico modo di sceglierne uno senza che l'app se lo
+                        // ricordasse, e cosi' il viaggio di ieri andava
+                        // ricercato per intero anche se era lo stesso di oggi.
+                        if (s.kind != "saved") {
+                            recentStore.add(
+                                RecentSearches.Entry(
+                                    s.kind, s.key, s.title, s.subtitle,
+                                    s.colorRgb, s.lat, s.lon,
+                                ),
+                            )
+                            recentsVersion++
+                        }
                         val ref = PlaceRef(s.title, s.subtitle, s.lat, s.lon)
                         if (field == "from") originRef = ref else destRef = ref
                         plannerField = null
@@ -1439,7 +1474,14 @@ fun MapScreen(
                         runPlanner()
                     }
                 },
-                onPlanRoute = { openPlanner() },
+                // Mentre si compila una riga del pianificatore, l'ingresso al
+                // pianificatore non ha piu' senso: ci siamo dentro.
+                onPlanRoute = if (plannerField == null) ({ openPlanner() }) else null,
+                hint = when (plannerField) {
+                    "to" -> "Dove vuoi andare?"
+                    "from" -> "Da dove parti?"
+                    else -> "Fermata, linea o luogo…"
+                },
             )
             }
             androidx.compose.animation.AnimatedVisibility(visible = !searchOpen) {

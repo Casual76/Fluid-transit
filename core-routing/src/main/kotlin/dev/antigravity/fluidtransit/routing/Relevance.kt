@@ -57,7 +57,19 @@ object Relevance {
      * il Liceo Agnoletti sotto tre scuole qualsiasi che stavano solo un po'
      * piu' vicine.
      */
-    class Session(private val tokens: List<String>) {
+    class Session(
+        private val tokens: List<String>,
+        /**
+         * Tollera un refuso per parola.
+         *
+         * NON e' il comportamento normale, ed e' voluto: la ricerca esatta e'
+         * gia' molto buona, e allargarla sempre farebbe uscire "Ponte" per
+         * chi scrive "Fonte". Si accende solo quando la ricerca esatta non ha
+         * trovato NIENTE — cioe' esattamente quando un refuso e' la
+         * spiegazione piu' probabile.
+         */
+        private val fuzzy: Boolean = false,
+    ) {
 
         private class Cand(
             val id: Int,
@@ -92,7 +104,7 @@ object Relevance {
             val values = IntArray(n)
             var matched = 0
             for (t in 0 until n) {
-                val v = bestTokenValue(hay, nameEnd, tokens[t])
+                val v = bestTokenValue(hay, nameEnd, tokens[t], fuzzy)
                 if (v > 0) {
                     values[t] = v
                     matched++
@@ -247,7 +259,12 @@ object Relevance {
      * distinzione le due valevano uguale, e cercando "via roma 12" si
      * finiva in via Romagnosi.
      */
-    private fun bestTokenValue(hay: String, nameEnd: Int, token: String): Int {
+    private fun bestTokenValue(
+        hay: String,
+        nameEnd: Int,
+        token: String,
+        fuzzy: Boolean = false,
+    ): Int {
         var best = 0
         var at = hay.indexOf(token)
         while (at >= 0) {
@@ -267,6 +284,80 @@ object Relevance {
             if (best == 14) return best
             at = hay.indexOf(token, at + 1)
         }
+        if (best == 0 && fuzzy) return fuzzyTokenValue(hay, nameEnd, token)
         return best
+    }
+
+    /**
+     * Quanto vale una parola che combacia A MENO DI UN REFUSO.
+     *
+     * Vale sempre meno del piu' debole degli incontri esatti (che e' 1): cosi'
+     * un risultato trovato per somiglianza non puo' mai superare uno trovato
+     * per davvero, nemmeno quando i due compaiono insieme.
+     *
+     * Solo su parole di almeno quattro lettere: sotto, una distanza di uno
+     * copre mezzo vocabolario — "via" diventerebbe "vie", "vai", "vi", "ia".
+     */
+    private fun fuzzyTokenValue(hay: String, nameEnd: Int, token: String): Int {
+        if (token.length < 4) return 0
+        var i = 0
+        while (i < hay.length) {
+            var j = hay.indexOf(' ', i)
+            if (j < 0) j = hay.length
+            if (withinOneEdit(hay, i, j, token)) {
+                // Nel nome vale un po' di piu' che nel contorno, come per gli
+                // incontri esatti: la proporzione fra i due resta.
+                return if (j <= nameEnd) 3 else 1
+            }
+            i = j + 1
+        }
+        return 0
+    }
+
+    /**
+     * La parola `hay[from, to)` sta a una modifica da [token]?
+     *
+     * Una sostituzione, un'inserimento, una cancellazione o uno scambio di
+     * due lettere vicine — che sul telefono e' il refuso piu' comune di tutti:
+     * "Soderni" per "Soderini", "Careggi" per "Cargegi".
+     *
+     * Scritto a mano invece che con una matrice: qui gira su centinaia di
+     * migliaia di voci, e allocare una matrice per ognuna sarebbe il costo
+     * vero. Con una distanza massima di uno basta una passata.
+     */
+    private fun withinOneEdit(hay: String, from: Int, to: Int, token: String): Boolean {
+        val n = to - from
+        val m = token.length
+        if (n < 0 || kotlin.math.abs(n - m) > 1) return false
+
+        var i = 0
+        var j = 0
+        var usata = false
+        while (i < n && j < m) {
+            if (hay[from + i] == token[j]) {
+                i++
+                j++
+                continue
+            }
+            if (usata) return false
+            usata = true
+            when {
+                // Scambio di due lettere vicine: "eesto" per "sesto".
+                n == m && i + 1 < n && j + 1 < m &&
+                    hay[from + i] == token[j + 1] && hay[from + i + 1] == token[j] -> {
+                    i += 2
+                    j += 2
+                }
+                n == m -> {
+                    i++
+                    j++
+                }
+                // Una lettera di troppo da una parte o dall'altra.
+                n > m -> i++
+                else -> j++
+            }
+        }
+        // Quello che avanza deve stare nell'unica modifica concessa.
+        return (n - i) + (m - j) + (if (usata) 1 else 0) <= 1
     }
 }

@@ -73,10 +73,22 @@ class SearchIndex private constructor(
         // Linee e fermate nella STESSA sessione: cosi' la rarita' di una
         // parola si misura sull'intero insieme e i due punteggi sono
         // confrontabili fra loro e con quelli dei luoghi.
-        val session = Relevance.Session(tokens)
-        for (i in routeNorm.indices) session.observe(i, routeNorm[i], routeNameEnd[i])
-        for (i in stopNorm.indices) {
-            session.observe(routeNorm.size + i, stopNorm[i], stopNorm[i].length)
+        fun sessione(fuzzy: Boolean): Relevance.Session {
+            val s = Relevance.Session(tokens, fuzzy)
+            for (i in routeNorm.indices) s.observe(i, routeNorm[i], routeNameEnd[i])
+            for (i in stopNorm.indices) {
+                s.observe(routeNorm.size + i, stopNorm[i], stopNorm[i].length)
+            }
+            return s
+        }
+
+        // Prima esatta. Se non trova NIENTE, si riprova tollerando un refuso
+        // per parola: e' il momento in cui un refuso e' la spiegazione piu'
+        // probabile, ed e' l'unico in cui vale la pena pagare una seconda
+        // passata sull'indice. Allargare sempre farebbe uscire "Ponte" a chi
+        // scrive "Fonte".
+        val session = sessione(fuzzy = false).let {
+            if (it.candidateCount > 0) it else sessione(fuzzy = true)
         }
 
         val keep = Relevance.TopK(limit)

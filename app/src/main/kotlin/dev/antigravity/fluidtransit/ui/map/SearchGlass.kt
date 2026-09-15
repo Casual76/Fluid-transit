@@ -110,6 +110,8 @@ fun SearchGlass(
     onPick: (Suggestion) -> Unit,
     /** Se c'e', in cima al pannello compare "Calcola un percorso". */
     onPlanRoute: (() -> Unit)? = null,
+    /** Se c'e', accanto a RECENTI compare "Cancella". */
+    onClearRecents: (() -> Unit)? = null,
     /**
      * Cosa si sta cercando, quando non e' "qualcosa".
      *
@@ -297,7 +299,18 @@ fun SearchGlass(
                         items(saved.size) { i -> SuggestionRow(saved[i], onPick, divider = i > 0) }
                     }
                     if (recents.isNotEmpty()) {
-                        item { SectionLabel("Recenti", Icons.Rounded.History) }
+                        item {
+                            // Lo storico si poteva riempire e non svuotare.
+                            // Un elenco di posti dove si e' stati e' una cosa
+                            // personale: doversi disinstallare l'app per
+                            // toglierlo e' una risposta che non va data.
+                            SectionLabel(
+                                "Recenti",
+                                Icons.Rounded.History,
+                                action = if (onClearRecents != null) "Cancella" else null,
+                                onAction = onClearRecents,
+                            )
+                        }
                         items(recents.size) { i -> SuggestionRow(recents[i], onPick, divider = i > 0) }
                     }
                     if (nearby.isNotEmpty()) {
@@ -327,7 +340,13 @@ fun SearchGlass(
 }
 
 @Composable
-private fun SectionLabel(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
+private fun SectionLabel(
+    text: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    /** Una parola in coda, quando la sezione ha qualcosa da offrire. */
+    action: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -346,7 +365,25 @@ private fun SectionLabel(text: String, icon: androidx.compose.ui.graphics.vector
             text = text.uppercase(),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
         )
+        if (action != null && onAction != null) {
+            Text(
+                text = action,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .clickable(
+                        interactionSource = androidx.compose.runtime.remember {
+                            androidx.compose.foundation.interaction.MutableInteractionSource()
+                        },
+                        indication = null,
+                        role = androidx.compose.ui.semantics.Role.Button,
+                        onClick = onAction,
+                    )
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+            )
+        }
     }
 }
 

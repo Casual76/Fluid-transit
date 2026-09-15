@@ -1497,6 +1497,10 @@ fun MapScreen(
                 // Mentre si compila una riga del pianificatore, l'ingresso al
                 // pianificatore non ha piu' senso: ci siamo dentro.
                 onPlanRoute = if (plannerField == null) ({ openPlanner() }) else null,
+                onClearRecents = {
+                    recentStore.clear()
+                    recentsVersion++
+                },
                 hint = when (plannerField) {
                     "to" -> "Dove vuoi andare?"
                     "from" -> "Da dove parti?"

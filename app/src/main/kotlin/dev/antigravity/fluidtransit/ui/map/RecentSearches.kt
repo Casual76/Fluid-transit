@@ -62,6 +62,17 @@ class RecentSearches(context: Context) {
         }
     }
 
+    /**
+     * Svuota lo storico.
+     *
+     * Si poteva riempire e non svuotare, e un elenco di posti dove si e'
+     * stati e' una cosa personale: doversi disinstallare l'app per toglierlo
+     * e' una risposta che non va data.
+     */
+    fun clear() {
+        runCatching { file.delete() }
+    }
+
     private companion object {
         const val MAX = 10
     }

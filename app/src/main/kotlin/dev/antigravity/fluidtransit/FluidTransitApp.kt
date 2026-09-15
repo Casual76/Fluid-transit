@@ -278,6 +278,40 @@ class FluidTransitApp : Application() {
         updates.check()
         // Le routine: canale di notifica pronto e sveglie riarmate (dopo un
         // aggiornamento dell'app le sveglie vecchie non esistono piu').
+        // Quando l'app torna davanti, si ricontrolla se stanotte e' uscito un
+        // bundle nuovo. Senza, un processo vivo per giorni continua a servire
+        // gli orari del giorno in cui l'app e' stata aperta.
+        //
+        // Si conta quante activity sono davanti invece di guardare la
+        // singola: una rotazione ne distrugge una e ne crea un'altra, e senza
+        // il conteggio sembrerebbe un ritorno dallo sfondo ogni volta che si
+        // gira il telefono.
+        registerActivityLifecycleCallbacks(
+            object : android.app.Application.ActivityLifecycleCallbacks {
+                private var davanti = 0
+
+                override fun onActivityStarted(activity: android.app.Activity) {
+                    if (davanti++ == 0) bundleManager.refreshOnForeground()
+                }
+
+                override fun onActivityStopped(activity: android.app.Activity) {
+                    if (davanti > 0) davanti--
+                }
+
+                override fun onActivityCreated(
+                    activity: android.app.Activity,
+                    savedInstanceState: android.os.Bundle?,
+                ) = Unit
+                override fun onActivityResumed(activity: android.app.Activity) = Unit
+                override fun onActivityPaused(activity: android.app.Activity) = Unit
+                override fun onActivitySaveInstanceState(
+                    activity: android.app.Activity,
+                    outState: android.os.Bundle,
+                ) = Unit
+                override fun onActivityDestroyed(activity: android.app.Activity) = Unit
+            },
+        )
+
         dev.antigravity.fluidtransit.data.routines.RoutineScheduler.ensureChannel(this)
         applicationScope.launch {
             dev.antigravity.fluidtransit.data.routines.RoutineScheduler.rescheduleAll(this@FluidTransitApp)

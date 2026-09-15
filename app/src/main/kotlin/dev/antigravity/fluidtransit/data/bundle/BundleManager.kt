@@ -66,6 +66,15 @@ class BundleManager(
 
     private val dir = File(context.filesDir, "bundles")
     private val active = File(dir, "active.ftb")
+
+    /**
+     * Il bundle di ieri, messo da parte durante la promozione.
+     *
+     * Esiste solo per il tempo di un rename. Se lo si trova all'avvio vuol
+     * dire che il processo e' morto durante uno scambio, ed e' l'unico orario
+     * rimasto: si rimette al suo posto.
+     */
+    private val previousFile = File(dir, "active.previous.ftb")
     private val meta = File(dir, "active.meta.json")
     private val mutex = Mutex()
     private var wifiCallback: ConnectivityManager.NetworkCallback? = null
@@ -74,6 +83,9 @@ class BundleManager(
     fun start() {
         scope.launch(Dispatchers.IO) {
             mutex.withLock {
+                // Uno scambio interrotto a meta': il bundle di ieri e' ancora
+                // li' di lato, ed e' meglio di niente.
+                BundleSwap.recover(active, previousFile)
                 if (active.isFile) {
                     runCatching { openAndSmoke(active) }
                         .onSuccess { reader ->
@@ -93,8 +105,34 @@ class BundleManager(
             // sottofondo: se stanotte e' uscito un bundle nuovo si scarica e
             // si sostituisce senza passare dalla schermata di benvenuto.
             if (state.value is BundleState.Ready) {
+                lastCheckAt = System.currentTimeMillis()
                 mutex.withLock { refreshSilently() }
             }
+        }
+    }
+
+    private var lastCheckAt = 0L
+
+    /**
+     * Ricontrolla se stanotte e' uscito un bundle nuovo.
+     *
+     * `start()` girava una volta sola, all'avvio del PROCESSO. Un telefono
+     * che tiene l'app in memoria per giorni — cioe' il caso normale — non
+     * rivedeva mai il bundle notturno: continuava a servire gli orari del
+     * giorno in cui l'app era stata aperta l'ultima volta. E' successo per
+     * davvero, e la conseguenza era quella peggiore possibile: orari vecchi
+     * mostrati come se fossero di oggi.
+     *
+     * Il controllo costa una richiesta di poche centinaia di byte, e su rete
+     * a consumo non parte nemmeno: un'ora di intervallo e' generosa.
+     */
+    fun refreshOnForeground() {
+        scope.launch(Dispatchers.IO) {
+            if (state.value !is BundleState.Ready) return@launch
+            val now = System.currentTimeMillis()
+            if (now - lastCheckAt < CHECK_EVERY_MS) return@launch
+            lastCheckAt = now
+            mutex.withLock { refreshSilently() }
         }
     }
 
@@ -194,12 +232,17 @@ class BundleManager(
         // apre non deve mai diventare quello attivo.
         openAndSmoke(part).close()
         val previous = (state.value as? BundleState.Ready)?.reader
-        if (active.isFile) active.delete()
-        check(part.renameTo(active)) { "impossibile installare il bundle scaricato" }
+
+        // La promozione non passa mai da "nessun bundle": il vecchio si
+        // sposta di lato, il nuovo prende il suo posto, e solo alla fine il
+        // vecchio si butta. Il perche', e il ramo che fallisce, stanno in
+        // BundleSwap insieme ai loro test.
+        BundleSwap.promote(part, active, previousFile)
         writeMeta(index)
         val reader = openAndSmoke(active)
         _state.value = BundleState.Ready(reader, reader.buildId, index.overlayUrl)
         previous?.close()
+        previousFile.delete()
     }
 
     private fun writeMeta(index: BundleIndex) {
@@ -337,5 +380,14 @@ class BundleManager(
 
         /** Stima mostrata prima di conoscere l'indice, per la domanda su rete a consumo. */
         const val EXPECTED_BYTES = 6L * 1024 * 1024
+
+        /**
+         * Ogni quanto si ricontrolla l'indice tornando davanti.
+         *
+         * Il bundle cambia una volta per notte, quindi piu' spesso di cosi'
+         * sarebbe rumore; meno spesso e' un telefono che tiene l'app in
+         * memoria tutto il giorno e non vede mai il cambio.
+         */
+        const val CHECK_EVERY_MS = 60L * 60 * 1000
     }
 }

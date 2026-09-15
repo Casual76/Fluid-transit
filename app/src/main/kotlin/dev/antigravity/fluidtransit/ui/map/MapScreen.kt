@@ -29,6 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -628,9 +629,19 @@ fun MapScreen(
 
     // Le azioni dell'assistente le esegue la mappa, perche' e' l'unica che
     // puo': il modulo dell'assistente non sa niente di pannelli e di camera.
-    LaunchedEffect(Unit) {
-        app.assistantBridge.actions.collect { action ->
-            val reader = ready?.reader
+    // Il corpo si rilegge a ogni composizione, il collector no.
+    //
+    // `LaunchedEffect(Unit)` non riparte mai — e deve restare cosi', o
+    // riavviare il collector perderebbe le azioni in coda — ma per questo si
+    // portava dietro per sempre lo stato della PRIMA composizione: il bundle
+    // di allora, e le funzioni locali che lo usano. Dopo lo scambio notturno
+    // quel reader e' chiuso, e le azioni dell'assistente ci lavoravano sopra.
+    //
+    // rememberUpdatedState tiene ferma la sottoscrizione e fresco il corpo.
+    val handleAction by rememberUpdatedState<
+        suspend (dev.antigravity.fluidtransit.ai.tools.AssistantAction) -> Unit,
+        > { action ->
+        val reader = ready?.reader
             when (action) {
                 is dev.antigravity.fluidtransit.ai.tools.AssistantAction.ShowPlace -> {
                     assistantOpen = false
@@ -739,7 +750,9 @@ fun MapScreen(
                 // quando a chiedere e' un assistente esterno e questa schermata non esiste.
                 else -> Unit
             }
-        }
+    }
+    LaunchedEffect(Unit) {
+        app.assistantBridge.actions.collect { handleAction(it) }
     }
 
     val journeysTarget = when (val p = panel) {

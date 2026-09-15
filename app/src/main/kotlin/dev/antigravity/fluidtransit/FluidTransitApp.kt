@@ -137,6 +137,19 @@ class FluidTransitApp : Application() {
         >(null)
 
     /**
+     * L'indice di fermate e linee, per chi deve cercare.
+     *
+     * Lo costruiva la schermata mappa e lo depositava nel ponte
+     * dell'assistente: chi parlava con Aria senza aver mai aperto la mappa —
+     * da un'altra app, con gli strumenti federati — cercava dentro il niente
+     * e si sentiva rispondere "non trovo nessuna fermata". Vive qui perche'
+     * dipende solo dal bundle e dai gruppi di banchine, non da una schermata.
+     */
+    val searchIndex = kotlinx.coroutines.flow.MutableStateFlow<
+        dev.antigravity.fluidtransit.ui.map.SearchIndex?,
+        >(null)
+
+    /**
      * L'indirizzo con cui l'app e' stata aperta, finche' non lo si e' aperto.
      *
      * Sta sull'Application e non sull'Activity per due motivi. Uno: quando
@@ -405,6 +418,24 @@ class FluidTransitApp : Application() {
                     runCatching {
                         dev.antigravity.fluidtransit.routing.StopGroups.build(reader)
                     }.getOrNull()
+                }
+            }
+        }
+
+        // E subito dopo l'indice di ricerca, che dai gruppi dipende: senza,
+        // uscirebbero le righe doppie che l'indice esiste per evitare.
+        applicationScope.launch {
+            stopGroups.collect { groups ->
+                val reader =
+                    (bundleManager.state.value as? BundleManager.BundleState.Ready)?.reader
+                searchIndex.value = if (reader == null || groups == null) {
+                    null
+                } else {
+                    kotlinx.coroutines.withContext(Dispatchers.Default) {
+                        runCatching {
+                            dev.antigravity.fluidtransit.ui.map.SearchIndex.build(reader, groups)
+                        }.getOrNull()
+                    }
                 }
             }
         }

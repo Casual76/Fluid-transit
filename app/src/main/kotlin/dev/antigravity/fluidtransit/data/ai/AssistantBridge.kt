@@ -40,13 +40,40 @@ import kotlinx.coroutines.withContext
  */
 class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionExecutor {
 
-    /** L'indice di fermate e linee: lo costruisce la mappa, una volta per bundle. */
-    @Volatile
-    var searchIndex: SearchIndex? = null
+    /** L'indice di fermate e linee, dall'Application: non dipende da nessuna schermata. */
+    private val searchIndex: SearchIndex? get() = app.searchIndex.value
 
-    /** L'ultimo snapshot realtime risolto. */
-    @Volatile
-    var resolved: ResolvedRt? = null
+    /**
+     * L'ultimo snapshot realtime risolto.
+     *
+     * Lo depositava la schermata mappa, e quindi chi parlava con l'assistente
+     * senza averla mai aperta non aveva ne' bus vivi ne' ritardi dentro i
+     * viaggi calcolati: le risposte erano quelle di tabella, senza dirlo. Qui
+     * si risolve da se', e si tiene finche' lo snapshot non cambia — l'uguale
+     * e' per identita' perche' i due flussi pubblicano un oggetto nuovo solo
+     * quando c'e' davvero qualcosa di nuovo.
+     */
+    private var resolvedFromVehicles: Any? = null
+    private var resolvedFromDelays: Any? = null
+    private var resolvedCache: ResolvedRt? = null
+
+    @get:Synchronized
+    private val resolved: ResolvedRt?
+        get() {
+            val r = reader ?: return null
+            val v = app.realtime.vehicles.value ?: return null
+            val d = app.realtime.delays.value
+            if (resolvedCache != null && resolvedFromVehicles === v && resolvedFromDelays === d) {
+                return resolvedCache
+            }
+            val out = runCatching {
+                dev.antigravity.fluidtransit.ui.map.resolveRt(r, v, d)
+            }.getOrNull()
+            resolvedFromVehicles = v
+            resolvedFromDelays = d
+            resolvedCache = out
+            return out
+        }
 
     /** Dove si trova la persona, secondo il GPS della mappa. */
     @Volatile

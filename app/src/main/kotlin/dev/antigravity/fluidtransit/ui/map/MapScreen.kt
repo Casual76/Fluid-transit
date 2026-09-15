@@ -240,11 +240,11 @@ fun MapScreen(
     // Aspetta i gruppi di banchine: senza, uscirebbero le righe doppie che
     // l'indice esiste per evitare.
     val stopGroups by app.stopGroups.collectAsStateWithLifecycle()
-    val searchIndex by produceState<SearchIndex?>(initialValue = null, ready?.buildId, stopGroups) {
-        val reader = ready?.reader ?: return@produceState
-        val groups = stopGroups ?: return@produceState
-        value = withContext(Dispatchers.Default) { SearchIndex.build(reader, groups) }
-    }
+
+    // L'indice lo costruisce l'Application: qui si guarda e basta. Prima lo
+    // costruiva questa schermata e lo prestava all'assistente, che quindi
+    // senza mappa aperta cercava dentro il niente.
+    val searchIndex by app.searchIndex.collectAsStateWithLifecycle()
 
     // La geometria delle tratte, decodificata pigramente: e' quella che fa
     // correre i bus sulla strada invece di attraversare gli isolati.
@@ -253,9 +253,8 @@ fun MapScreen(
     }
     LaunchedEffect(pathCache) { controller.setPathCache(pathCache) }
 
-    // Quello che l'assistente non puo' sapere da solo: l'indice di ricerca,
-    // dove sei e dove stai guardando. Glielo lascia qui la mappa.
-    LaunchedEffect(searchIndex) { app.assistantBridge.searchIndex = searchIndex }
+    // Quello che l'assistente non puo' sapere da solo: dove sei e dove stai
+    // guardando. Il resto adesso se lo prende da se'.
     LaunchedEffect(Unit) {
         app.assistantBridge.location = { controller.lastLocation() }
         app.assistantBridge.camera = { controller.cameraCenter() }
@@ -995,8 +994,6 @@ fun MapScreen(
     // ventisei minuti il 03/09 — NON si disegnano bus dove non sono. Si
     // aspetta il giro fresco, che arriva in un paio di secondi.
     LaunchedEffect(resolved, rtStatus) {
-        // Anche l'assistente vuole sapere chi e' in strada adesso.
-        app.assistantBridge.resolved = resolved
         val age = rtStatus.feedAgeSeconds
         val fresh = age == null || age <= STALE_HIDE_SECONDS
         controller.setBuses(if (fresh) resolved?.buses ?: emptyList() else emptyList())

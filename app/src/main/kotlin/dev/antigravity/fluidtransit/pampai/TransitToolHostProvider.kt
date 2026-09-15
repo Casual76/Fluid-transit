@@ -9,7 +9,6 @@ import dev.antigravity.fluidtransit.ai.tools.ActionSink
 import dev.antigravity.fluidtransit.ai.tools.AssistantAction
 import dev.antigravity.fluidtransit.ai.tools.ToolContext
 import dev.antigravity.fluidtransit.ai.tools.ToolGroup
-import dev.antigravity.fluidtransit.ui.map.SearchIndex
 import dev.antigravity.fluidengine.ai.bridge.AiToolHostProvider
 import dev.antigravity.fluidengine.ai.bridge.ReadyState
 import dev.antigravity.fluidengine.ai.bridge.RemoteCall
@@ -19,8 +18,7 @@ import dev.antigravity.fluidengine.ai.tools.ToolOutput
 import dev.antigravity.fluidengine.ai.tools.ToolRegistry
 import java.time.ZoneId
 import java.util.Locale
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.JsonObject
 
 /** I gruppi degli autobus nel vocabolario dell'engine: stessi id, stessi suggerimenti. */
@@ -102,15 +100,28 @@ class TransitToolHostProvider : AiToolHostProvider<ToolContext>() {
     )
   }
 
-  /** L'indice di fermate e linee: lo costruisce la mappa, ma se non e' mai stata aperta lo facciamo qui. */
+  /**
+   * L'indice di fermate e linee.
+   *
+   * Lo costruiva la mappa, e questo provider — che vive senza mappa, chiamato
+   * da un'altra app — se lo ricostruiva per conto suo. Adesso lo costruisce
+   * l'Application appena il bundle e' pronto: qui basta aspettarlo, e capita
+   * solo su una chiamata arrivata mentre l'app si stava svegliando.
+   */
   private suspend fun ensureSearchIndex() {
-    if (app.assistantBridge.searchIndex != null) return
-    val reader = app.assistantBridge.reader ?: return
-    val index = withContext(Dispatchers.Default) {
-      runCatching { SearchIndex.build(reader, app.stopGroups.value) }.getOrNull()
+    if (app.searchIndex.value != null) return
+    kotlinx.coroutines.withTimeoutOrNull(INDEX_WAIT_MS) {
+      app.searchIndex.first { it != null }
     }
-    if (index != null && app.assistantBridge.searchIndex == null) app.assistantBridge.searchIndex = index
   }
+
+  /**
+   * Quanto si aspetta l'indice prima di rispondere senza.
+   *
+   * Otto secondi come per il bundle nel widget: e' il tempo di aprire un file
+   * mappato in memoria e costruire un indice, non di scaricare qualcosa.
+   */
+  private val INDEX_WAIT_MS = 8_000L
 
   /**
    * La posizione: la mappa la prende da MapLibre, che qui non c'e'. L'ultima nota del sistema

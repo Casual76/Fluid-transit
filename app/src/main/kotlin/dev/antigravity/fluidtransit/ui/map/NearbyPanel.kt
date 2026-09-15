@@ -272,11 +272,15 @@ fun rememberNearbyBoard(
         } else {
             // Le banchine del gruppo entrano tutte: una fermata e' una
             // fermata, e le due direzioni si distinguono dalla destinazione.
+            //
+            // L'ordine e' quello di distanza e NON si riordina: per il
+            // tabellone e' un ordine di preferenza, e decide da quale palo
+            // mostrare un autobus che passa da piu' d'uno di questi. Il piu'
+            // vicino a chi guarda e' la risposta giusta.
             reader.stopsNear(a.first, a.second, NEARBY_RADIUS_M)
                 .take(NEARBY_STOPS)
                 .flatMap { s -> stopGroups?.siblings(s)?.toList() ?: listOf(s) }
                 .distinct()
-                .sorted()
         }
     }
     val board by androidx.compose.runtime.remember(stops) {

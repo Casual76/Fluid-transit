@@ -207,6 +207,11 @@ object Departures {
      * domanda non e' "cosa passa da ognuna di queste fermate", e' "cosa passa,
      * qui intorno". Elencarle raggruppate per fermata dava 3 min, 40 min,
      * 5 min, e non si capiva.
+     *
+     * **L'ordine di [stops] e' un ordine di preferenza.** Lo stesso autobus
+     * passa da piu' fermate vicine, e va mostrato una volta sola: quale delle
+     * sue fermate mostrare lo decide chi chiama, mettendola prima. Per "qui
+     * intorno" e' la piu' vicina a chi guarda.
      */
     fun merged(
         reader: BundleReader,
@@ -221,13 +226,53 @@ object Departures {
         for (s in stops) {
             all.addAll(build(reader, s, now, limit, horizonSeconds, live).rows)
         }
-        all.sortBy { it.effectiveEpoch }
+        val rank = HashMap<Int, Int>(stops.size * 2)
+        stops.forEachIndexed { i, s -> rank.putIfAbsent(s, i) }
+        val rows = oneRowPerBus(all) { rank[it] ?: Int.MAX_VALUE }
+        rows.sortBy { it.effectiveEpoch }
         return DepartureBoard(
             stopIndex = -1,
             stopName = "",
             computedAtEpoch = nowEpoch,
-            rows = if (all.size > limit) all.subList(0, limit).toList() else all,
+            rows = if (rows.size > limit) rows.subList(0, limit).toList() else rows,
         )
+    }
+
+    /**
+     * Lo stesso autobus, una riga sola.
+     *
+     * Un tabellone di piu' fermate vicine elencava la stessa corsa una volta
+     * per fermata: la linea 14 compariva come "3 min", "5 min" e "7 min", e
+     * si leggeva come tre autobus. Misurato sul feed vero: fra le sole otto
+     * fermate piu' vicine al centro di Firenze ci sono ventuno pattern che
+     * ne toccano piu' d'una, e a Careggi trentuno, fino a quattro fermate
+     * per pattern. Non era un caso raro: era la regola.
+     *
+     * Il criterio per capire se sono due passaggi o uno solo non puo' essere
+     * il tempo, perche' le due distribuzioni si sovrappongono — misurate: la
+     * stessa corsa a due fermate vicine dista in media 44 secondi ma arriva
+     * a 34 minuti, e un anello che ripassa dalla stessa fermata ci mette al
+     * minimo 60 secondi. E' la FERMATA a distinguerli: due fermate diverse
+     * sono la stessa occasione vista da due pali, la stessa fermata due volte
+     * e' un anello che ripassa, e quella e' un'occasione vera in piu'.
+     *
+     * Quindi: di ogni corsa si tiene la fermata preferita (quella con
+     * [rank] piu' basso), e da quella si tengono tutti i passaggi.
+     */
+    internal fun oneRowPerBus(
+        rows: List<NextDeparture>,
+        rank: (Int) -> Int,
+    ): ArrayList<NextDeparture> {
+        val preferita = HashMap<Int, Int>()
+        for (r in rows) {
+            val attuale = preferita[r.tripIndex]
+            if (attuale == null || rank(r.stopIndex) < rank(attuale)) {
+                preferita[r.tripIndex] = r.stopIndex
+            }
+        }
+        val out = ArrayList<NextDeparture>(rows.size)
+        for (r in rows) if (preferita[r.tripIndex] == r.stopIndex) out.add(r)
+        return out
     }
 
     /**

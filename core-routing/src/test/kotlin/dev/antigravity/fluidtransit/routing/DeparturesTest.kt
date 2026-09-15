@@ -249,8 +249,39 @@ class DeparturesTest {
 
             val times = board.rows.map { it.effectiveEpoch }
             assertEquals(times.sorted(), times, "non sono in ordine di orario")
-            assertTrue(board.rows.any { it.stopIndex == 0 })
-            assertTrue(board.rows.any { it.stopIndex == 1 })
+            assertTrue(board.rows.isNotEmpty())
+        }
+    }
+
+    @Test
+    fun `lo stesso autobus non si conta due volte`() {
+        // Le tre fermate della rete di prova stanno sulla stessa linea, quindi
+        // ogni corsa passa da tutte e tre: chiedendole insieme, prima, uscivano
+        // dodici righe per quattro autobus. Chi guardava leggeva dodici
+        // occasioni, e nove non esistevano.
+        BundleReader(busy()).use { r ->
+            val board = Departures.merged(
+                r, stops = listOf(0, 1, 2), now = at("07:50"), limit = 20,
+            )
+            val corse = board.rows.map { it.tripIndex }
+            assertEquals(corse.distinct(), corse, "la stessa corsa compare piu' volte")
+            assertEquals(4, board.rows.size)
+        }
+    }
+
+    @Test
+    fun `chi chiede decide da quale fermata mostrarlo`() {
+        // L'ordine della lista e' un ordine di preferenza: "qui intorno" mette
+        // per prima la fermata piu' vicina a chi guarda, e l'autobus si mostra
+        // da quella. Ribaltando l'ordine si ribalta la scelta.
+        BundleReader(busy()).use { r ->
+            val daAlfa = Departures.merged(r, stops = listOf(0, 1, 2), now = at("07:50"), limit = 20)
+            assertEquals(setOf("Piazza Alfa"), daAlfa.rows.map { it.stopName }.toSet())
+
+            // Corso Gamma e' il capolinea e non ha partenze: la preferenza
+            // cade sulla prima fermata della lista che ne ha davvero.
+            val daBeta = Departures.merged(r, stops = listOf(2, 1, 0), now = at("07:50"), limit = 20)
+            assertEquals(setOf("Via Beta"), daBeta.rows.map { it.stopName }.toSet())
         }
     }
 
@@ -259,12 +290,57 @@ class DeparturesTest {
         BundleReader(busy()).use { r ->
             val board = Departures.merged(r, stops = listOf(0, 1), now = at("07:50"), limit = 8)
             assertTrue(board.rows.all { it.stopName.isNotEmpty() })
-            assertEquals(
-                setOf("Piazza Alfa", "Via Beta"),
-                board.rows.map { it.stopName }.toSet(),
-            )
         }
     }
+
+    @Test
+    fun `un anello che ripassa dalla stessa fermata resta due occasioni`() {
+        // Il caso opposto, e va tenuto: 215 dei 8.331 pattern del feed vero
+        // toccano due volte la stessa fermata, e li' il secondo passaggio e'
+        // un autobus che si puo' davvero prendere mezz'ora dopo. A separare i
+        // due casi non e' il tempo — le due distribuzioni si sovrappongono —
+        // ma la fermata: due fermate diverse sono un passaggio solo, la stessa
+        // fermata due volte sono due passaggi.
+        val corsa = 7
+        val righe = listOf(
+            riga(corsa, stop = 5, epoch = 1000, posizione = 2),
+            riga(corsa, stop = 9, epoch = 1100, posizione = 3),
+            riga(corsa, stop = 5, epoch = 3400, posizione = 18),
+        )
+        val tenute = Departures.oneRowPerBus(righe) { if (it == 5) 0 else 1 }
+        assertEquals(listOf(1000L, 3400L), tenute.map { it.scheduledEpoch })
+        assertTrue(tenute.all { it.stopIndex == 5 })
+    }
+
+    @Test
+    fun `corse diverse restano corse diverse`() {
+        val righe = listOf(
+            riga(1, stop = 5, epoch = 1000, posizione = 0),
+            riga(2, stop = 9, epoch = 1100, posizione = 0),
+            riga(3, stop = 5, epoch = 1200, posizione = 0),
+        )
+        val tenute = Departures.oneRowPerBus(righe) { if (it == 5) 0 else 1 }
+        assertEquals(3, tenute.size)
+    }
+
+    /** Una riga finta: servono solo corsa, fermata, posizione e orario. */
+    private fun riga(trip: Int, stop: Int, epoch: Long, posizione: Int) = NextDeparture(
+        tripIndex = trip,
+        patternIndex = 0,
+        routeIndex = 0,
+        stopIndex = stop,
+        positionInPattern = posizione,
+        scheduledEpoch = epoch,
+        delaySeconds = null,
+        certainty = null,
+        canceled = false,
+        skipped = false,
+        monitored = false,
+        line = "1",
+        destination = "Gamma",
+        colorRgb = 0,
+        stopName = "fermata $stop",
+    )
 
     @Test
     fun `una fermata senza passaggi da un tabellone vuoto, non un errore`() {

@@ -126,7 +126,11 @@ class DepartureBoards(private val app: FluidTransitApp) {
         if (siblings == null || siblings.size <= 1) {
             return Departures.build(reader, stop, now, key.limit, key.horizon, live)
         }
-        val merged = Departures.merged(reader, siblings.toList(), now, key.limit, key.horizon, live)
+        // La banchina chiesta per prima: se una corsa tocca due banchine
+        // dello stesso gruppo — capita ai capolinea, dove il bus arriva su
+        // un palo e riparte dall'altro — si mostra quella che si e' toccata.
+        val ordinate = listOf(stop) + siblings.filter { it != stop }
+        val merged = Departures.merged(reader, ordinate, now, key.limit, key.horizon, live)
         return DepartureBoard(
             stopIndex = stop,
             stopName = reader.stopName(stop),

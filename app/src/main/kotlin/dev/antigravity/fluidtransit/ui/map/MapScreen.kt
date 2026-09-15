@@ -74,6 +74,21 @@ private const val STALE_HIDE_SECONDS = 180L
  */
 private const val MAP_WINS_METERS = 20_000.0
 
+/** Quanto lontano si guarda per "qui intorno": dieci minuti a piedi scarsi. */
+private const val NEARBY_RADIUS_M = 700.0
+
+/** Quante fermate al massimo, prima di espanderle nelle loro banchine. */
+private const val NEARBY_STOPS = 8
+
+/**
+ * Di quanto ci si deve spostare perche' "qui intorno" cambi.
+ *
+ * Senza questo gradino, ogni pixel di trascinamento della mappa avrebbe
+ * prodotto un elenco di fermate diverso, e quindi un tabellone nuovo da
+ * calcolare e da tenere in cache.
+ */
+private const val NEARBY_ANCHOR_MOVE_M = 200.0
+
 private sealed interface Panel {
     class Stop(val tap: StopTap) : Panel
     class RouteMini(val routeIndex: Int) : Panel
@@ -81,6 +96,7 @@ private sealed interface Panel {
     class TripMini(val ref: TripRef) : Panel
     class TripFull(val ref: TripRef) : Panel
     class Place(val ref: PlaceRef) : Panel
+    data object Nearby : Panel
     class Journeys(val to: PlaceRef) : Panel
     class JourneyDetail(val to: PlaceRef, val index: Int) : Panel
 }
@@ -867,6 +883,48 @@ fun MapScreen(
         controller.setBuses(if (fresh) resolved?.buses ?: emptyList() else emptyList())
     }
 
+    // --- cosa passa qui intorno -------------------------------------------
+    //
+    // Il punto di riferimento si muove con la mappa, ma l'elenco delle fermate
+    // NO: si ricalcola solo quando ci si e' spostati di duecento metri. Senza
+    // quel gradino ogni pixel di trascinamento avrebbe creato un tabellone
+    // nuovo, con la sua cache e il suo giro di calcolo.
+    var nearbyAnchor by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    LaunchedEffect(cameraZoom, follow, ready?.buildId) {
+        while (true) {
+            val here = controller.lastLocation() ?: controller.cameraCenter()
+            val old = nearbyAnchor
+            if (here != null && (
+                    old == null ||
+                        dev.antigravity.fluidtransit.routing.BundleReader.haversine(
+                            old.first, old.second, here.first, here.second,
+                        ) > NEARBY_ANCHOR_MOVE_M
+                    )
+            ) {
+                nearbyAnchor = here
+            }
+            kotlinx.coroutines.delay(2_000)
+        }
+    }
+    val nearbyStops = remember(nearbyAnchor, ready?.buildId, stopGroups) {
+        val reader = ready?.reader
+        val anchor = nearbyAnchor
+        if (reader == null || anchor == null) {
+            emptyList()
+        } else {
+            // Le banchine del gruppo entrano tutte: una fermata e' una
+            // fermata, e le due direzioni si distinguono dalla destinazione.
+            reader.stopsNear(anchor.first, anchor.second, NEARBY_RADIUS_M)
+                .take(NEARBY_STOPS)
+                .flatMap { s -> stopGroups?.siblings(s)?.toList() ?: listOf(s) }
+                .distinct()
+                .sorted()
+        }
+    }
+    val nearbyBoard by remember(nearbyStops) {
+        app.departureBoards.merged(nearbyStops, limit = 12)
+    }.collectAsStateWithLifecycle()
+
     // Le ricerche recenti e i suggerimenti del pannello.
     val recentStore = remember { RecentSearches(context) }
     var recentsVersion by remember { mutableStateOf(0) }
@@ -1412,6 +1470,29 @@ fun MapScreen(
             },
             label = "panelBottomPad",
         )
+        // Cosa passa qui intorno, dove la tab bar lascia spazio: si legge
+        // senza toccare niente, e toccandola si apre tutto.
+        androidx.compose.animation.AnimatedVisibility(
+            visible = panel == null && !searchOpen && !plannerOpen && !navActive &&
+                reader != null && nearbyBoard.computedAtEpoch != 0L,
+            enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it / 3 }) +
+                androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it / 3 }) +
+                androidx.compose.animation.fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding(),
+        ) {
+            NearbyCapsule(
+                board = nearbyBoard,
+                backdrop = backdrop,
+                onClick = { panel = Panel.Nearby },
+                modifier = Modifier
+                    .padding(horizontal = FluidTabBarDefaults.HorizontalMargin)
+                    .padding(bottom = FluidTabBarDefaults.ContentInset + 10.dp),
+            )
+        }
+
         androidx.compose.animation.AnimatedVisibility(
             visible = panel != null && reader != null,
             enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it / 3 }) +
@@ -1481,6 +1562,7 @@ fun MapScreen(
                                 is Panel.TripMini -> "tmini-${state.ref.vehKey}"
                                 is Panel.TripFull -> "tfull-${state.ref.vehKey}"
                                 is Panel.Place -> "place-${state.ref.lat}-${state.ref.lon}"
+                                is Panel.Nearby -> "nearby"
                                 is Panel.Journeys -> "journeys-${state.to.lat}"
                                 is Panel.JourneyDetail -> "jdetail-${state.index}"
                             }
@@ -1637,6 +1719,33 @@ fun MapScreen(
                                         },
                                     )
                                 }
+                            }
+
+                            is Panel.Nearby -> Column {
+                                NearbyPanelContent(
+                                    board = nearbyBoard,
+                                    onDismiss = { panel = null },
+                                    onRouteTap = ::showRoute,
+                                    onStopTap = { stopIndex ->
+                                        // Dalla riga si va alla fermata: e' la
+                                        // continuazione naturale di "cosa passa
+                                        // qui intorno" quando una delle risposte
+                                        // interessa davvero.
+                                        panel = Panel.Stop(
+                                            StopTap(
+                                                java.lang.Long.toHexString(
+                                                    reader.stopIdHash(stopIndex),
+                                                ),
+                                                reader.stopName(stopIndex),
+                                            ),
+                                        )
+                                        controller.flyTo(
+                                            reader.stopLat(stopIndex),
+                                            reader.stopLon(stopIndex),
+                                            16.0,
+                                        )
+                                    },
+                                )
                             }
 
                             is Panel.Place -> Column {

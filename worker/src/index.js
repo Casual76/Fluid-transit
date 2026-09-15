@@ -504,6 +504,21 @@ async function serveSection(request, env, ctx, kind) {
   const feedTsOut = Number(response.headers.get('x-feed-timestamp') || 0);
   const freshAge = feedTsOut ? feedAgeHeader(feedTsOut) : null;
 
+  // Quanto e' vecchio lo SNAPSHOT, che e' un'altra domanda da quanto e'
+  // vecchio il FEED.
+  //
+  // x-feed-age misura l'origine: se la Regione pubblica un feed fermo da
+  // dieci minuti, quel numero e' dieci minuti anche se noi l'abbiamo appena
+  // riletto. L'app usava solo quello per decidere se il proxy fosse da
+  // buttare, e scendeva sull'origine — cioe' andava a prendere lo stesso
+  // dato fermo, perdendo per strada i trip-updates. Con le due eta'
+  // separate la differenza si vede: snapshot fresco e feed vecchio vuol
+  // dire che il proxy sta lavorando ed e' l'origine a essere ferma.
+  const generatedOut = Number(response.headers.get('x-snapshot-generated') || 0);
+  const snapshotAge = generatedOut
+    ? String(Math.max(0, Math.floor(Date.now() / 1000) - generatedOut))
+    : null;
+
   // Richieste condizionali dell'app: il 304 costa zero byte. Porta comunque
   // l'eta', che e' esattamente il caso in cui conta di piu': senza, l'app
   // ripiegava sull'orologio del telefono per calcolarla.
@@ -512,11 +527,12 @@ async function serveSection(request, env, ctx, kind) {
   if (inm && etag && inm === etag) {
     const h = new Headers({ etag });
     if (freshAge !== null) h.set('x-feed-age', freshAge);
+    if (snapshotAge !== null) h.set('x-snapshot-age', snapshotAge);
     return new Response(null, { status: 304, headers: h });
   }
-  if (freshAge === null) return response;
   const out = new Headers(response.headers);
-  out.set('x-feed-age', freshAge);
+  if (freshAge !== null) out.set('x-feed-age', freshAge);
+  if (snapshotAge !== null) out.set('x-snapshot-age', snapshotAge);
   return new Response(response.body, {
     status: response.status,
     headers: out,

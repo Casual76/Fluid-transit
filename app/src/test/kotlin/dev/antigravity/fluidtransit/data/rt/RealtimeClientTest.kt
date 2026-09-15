@@ -80,6 +80,10 @@ class RealtimeClientTest {
         assertTrue(first === rt.vehicles.value)
         assertEquals(2, rt.status.value.vehicleCount)
         assertEquals(RealtimeClient.Source.PROXY, rt.status.value.source)
+        // L'eta' e' quella che ha mandato il proxy, non quella ricalcolata
+        // con l'orologio del telefono: il 304 la porta apposta, e prima
+        // veniva buttata insieme a tutte le altre intestazioni.
+        assertEquals(50L, rt.status.value.feedAgeSeconds)
         proxy.takeRequest()
         assertEquals("W/\"abc\"", proxy.takeRequest().getHeader("If-None-Match"))
     }
@@ -199,6 +203,50 @@ class RealtimeClientTest {
         assertEquals(0, origin.requestCount)
 
         rt.refreshVehicles()
+        assertEquals(RealtimeClient.Source.DIRECT, rt.status.value.source)
+    }
+
+    @Test
+    fun `se e' l'origine a essere ferma, cambiare strada non serve`() = runTest {
+        // Visto il 15/09 sul telefono: la Regione pubblicava un feed fermo da
+        // 377 s mentre il proxy rispondeva benissimo. L'app scendeva
+        // sull'origine — a prendere lo STESSO dato fermo — e per farlo
+        // rinunciava a tutti i ritardi, che dall'origine non si scaricano.
+        // Lo snapshot fresco e' quello che distingue i due casi.
+        repeat(6) {
+            proxy.enqueue(
+                snapshotResponse(vehicleCount = 1, feedAge = 400)
+                    .setHeader("X-Snapshot-Age", "12"),
+            )
+        }
+
+        val rt = client()
+        repeat(6) { rt.refreshVehicles() }
+
+        assertEquals(RealtimeClient.Source.PROXY, rt.status.value.source)
+        assertEquals(0, origin.requestCount)
+        assertEquals(400L, rt.status.value.feedAgeSeconds)
+        assertTrue(
+            "lo stato non dice di chi e' la colpa: ${rt.status.value.lastError}",
+            rt.status.value.lastError?.contains("Regione") == true,
+        )
+    }
+
+    @Test
+    fun `se e' il proxy a essere fermo, l'origine vale la pena`() = runTest {
+        // Snapshot vecchio quanto il feed: il proxy non sta rileggendo
+        // niente, e l'origine puo' essere piu' fresca di lui.
+        repeat(3) {
+            proxy.enqueue(
+                snapshotResponse(vehicleCount = 1, feedAge = 400)
+                    .setHeader("X-Snapshot-Age", "400"),
+            )
+        }
+        origin.enqueue(feedResponse(vehicles = 1))
+
+        val rt = client()
+        repeat(3) { rt.refreshVehicles() }
+
         assertEquals(RealtimeClient.Source.DIRECT, rt.status.value.source)
     }
 

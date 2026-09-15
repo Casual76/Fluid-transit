@@ -122,29 +122,52 @@ class RealtimeClient(
         if (proxyOk && nowMs >= directHoldUntilMs) {
             try {
                 val fetched = fetchBinary("$proxyBase/vehicles", vehiclesEtag)
+                val bytes = fetched.bytes
                 val age: Long?
-                if (fetched != null) {
-                    val parsed = RtCodec.parseVehicles(fetched.bytes)
+                if (bytes != null) {
+                    val parsed = RtCodec.parseVehicles(bytes)
                     vehiclesEtag = fetched.etag
                     age = fetched.serverFeedAge ?: feedAge(parsed.feedTimestamp)
                     // Anche un dato vecchio e' il migliore che abbiamo: si
                     // mostra comunque, e' l'eta' a dire quanto fidarsi.
                     _vehicles.value = parsed
                 } else {
-                    // 304: dati identici, si aggiorna solo l'eta'.
-                    age = feedAge(_vehicles.value?.feedTimestamp)
+                    // 304: dati identici, si aggiorna solo l'eta' — quella
+                    // del proxy, che la calcola col proprio orologio.
+                    age = fetched.serverFeedAge ?: feedAge(_vehicles.value?.feedTimestamp)
                 }
                 proxyFailures = 0
+                lastProxyError = null
                 if (age == null || age <= STALE_SECONDS) {
                     staleStrikes = 0
                     publish(Source.PROXY, age, null)
                     return@withContext
                 }
-                // Feed stantio. La richiesta stessa ha appena svegliato il
-                // refresh pigro del proxy: quasi sempre il prossimo giro da
-                // 30 s trova dati freschi. La strada diretta scatta solo
-                // dopo tre giri stantii DI FILA — buttarsi sull'origine al
-                // primo colpo era il motivo del ritmo lento da 3 minuti.
+                // Feed stantio, e adesso la domanda e': stantio di chi?
+                //
+                // Se lo snapshot del proxy e' fresco, il proxy ha appena
+                // riletto l'origine e quel numero vecchio e' il numero che
+                // l'origine pubblica. Andare diretti significherebbe andare
+                // a prendere lo stesso identico dato fermo, rinunciando ai
+                // ritardi — che dall'origine non si scaricano — e passando a
+                // un giro da tre minuti. Si resta, e lo si dice.
+                //
+                // Osservato il 15/09: l'app passava all'origine mentre il
+                // proxy rispondeva benissimo, perche' la Regione pubblicava
+                // un feed fermo da 377 s. Risultato: zero ritardi in tutta
+                // l'app, e la schermata dello stato dati che diceva "il
+                // proxy non rispondeva" — cioe' la cosa sbagliata.
+                val snapshotAge = fetched.snapshotAge
+                if (snapshotAge != null && snapshotAge <= SNAPSHOT_FRESH_SECONDS) {
+                    staleStrikes = 0
+                    publish(Source.PROXY, age, "il feed della Regione e' fermo da ${age}s")
+                    return@withContext
+                }
+                // Lo snapshot stesso e' vecchio: il proxy non sta rileggendo
+                // niente, e l'origine puo' essere piu' fresca di lui. Qui il
+                // cambio di strada ha senso, ma solo dopo tre giri DI FILA —
+                // la richiesta stessa sveglia il refresh pigro del proxy, e
+                // buttarsi al primo colpo era il motivo del ritmo lento.
                 staleStrikes++
                 if (staleStrikes < 3) {
                     publish(Source.PROXY, age, "feed vecchio di ${age}s, riprovo")
@@ -190,8 +213,9 @@ class RealtimeClient(
         // dall'origine sono 1-2 MB al minuto, non roba da telefono.
         if (_status.value.source != Source.PROXY) return@withContext
         try {
-            val fetched = fetchBinary("$proxyBase/updates", delaysEtag) ?: return@withContext
-            _delays.value = RtCodec.parseDelays(fetched.bytes)
+            val fetched = fetchBinary("$proxyBase/updates", delaysEtag)
+            val bytes = fetched.bytes ?: return@withContext
+            _delays.value = RtCodec.parseDelays(bytes)
             delaysEtag = fetched.etag
             _status.value = _status.value.let {
                 Status(it.source, it.feedAgeSeconds, it.lastSuccessAt, it.lastError, it.vehicleCount, _delays.value?.byTripHash?.size ?: 0)
@@ -212,8 +236,9 @@ class RealtimeClient(
         if (predictionsAbsent) return@withContext
         if (_status.value.source != Source.PROXY) return@withContext
         try {
-            val fetched = fetchBinary("$proxyBase/predictions", predictionsEtag) ?: return@withContext
-            _predictions.value = RtPredictionCodec.parse(fetched.bytes)
+            val fetched = fetchBinary("$proxyBase/predictions", predictionsEtag)
+            val bytes = fetched.bytes ?: return@withContext
+            _predictions.value = RtPredictionCodec.parse(bytes)
             predictionsEtag = fetched.etag
         } catch (e: IOException) {
             if (e.message?.contains("404") == true) {
@@ -242,13 +267,14 @@ class RealtimeClient(
             // fetta piu' grossa dello snapshot (centinaia di kB di protobuf
             // grezzo) e cambiano di rado. Un 304 qui vale piu' che altrove.
             val fetched = fetchBinary("$proxyBase/alerts", alertsEtag)
-            if (fetched == null) {
+            val bytes = fetched.bytes
+            if (bytes == null) {
                 // Invariati: si rinnova solo la scadenza della cache locale.
                 alertsCacheAt = now
                 alertsCache ?: emptyList()
             } else {
                 alertsEtag = fetched.etag
-                GtfsRtLite.parseAlerts(fetched.bytes).also {
+                GtfsRtLite.parseAlerts(bytes).also {
                     alertsCache = it
                     alertsCacheAt = now
                 }
@@ -259,6 +285,7 @@ class RealtimeClient(
     /** true se e' ora di provare l'origine diretta, false se si riprova col proxy. */
     private fun registerProxyFailure(message: String): Boolean {
         proxyFailures++
+        lastProxyError = message
         val giveUp = proxyFailures >= 3
         if (giveUp) {
             directHoldUntilMs = System.currentTimeMillis() + DIRECT_HOLD_MS
@@ -270,12 +297,25 @@ class RealtimeClient(
         return giveUp
     }
 
+    /**
+     * Perche' il proxy ha smesso di rispondere.
+     *
+     * Si tiene anche quando la strada diretta funziona: quella schermata
+     * esiste per spiegare lo stato dei dati, e diceva "il proxy non
+     * rispondeva" senza mai dire cosa fosse successo — un timeout, un 500,
+     * un nome che non si risolve sono tre problemi diversi, e uno solo di
+     * essi e' colpa nostra.
+     */
+    private var lastProxyError: String? = null
+
     private fun publish(source: Source, age: Long?, error: String?) {
         _status.value = Status(
             source = source,
             feedAgeSeconds = age,
             lastSuccessAt = if (error == null) Instant.now() else _status.value.lastSuccessAt,
-            lastError = error,
+            // Sulla strada diretta l'errore del proxy resta scritto: e' la
+            // ragione per cui siamo qui, non un dettaglio del passato.
+            lastError = error ?: if (source == Source.DIRECT) lastProxyError else null,
             vehicleCount = _vehicles.value?.list?.size ?: 0,
             delayCount = _delays.value?.byTripHash?.size ?: 0,
         )
@@ -285,7 +325,8 @@ class RealtimeClient(
         if (feedTs == null || feedTs == 0L) null else Instant.now().epochSecond - feedTs
 
     private class Fetched(
-        val bytes: ByteArray,
+        /** null quando il proxy ha risposto 304: i byte sono quelli di prima. */
+        val bytes: ByteArray?,
         val etag: String?,
         /**
          * L'eta' del dato secondo il PROXY, che la calcola sul timestamp
@@ -294,19 +335,35 @@ class RealtimeClient(
          * fresco) senza motivo.
          */
         val serverFeedAge: Long?,
+        /**
+         * Quanto e' vecchio lo SNAPSHOT del proxy, che e' un'altra domanda.
+         *
+         * [serverFeedAge] misura l'origine; questo misura noi. Servono
+         * separate perche' un feed vecchio puo' voler dire due cose opposte,
+         * e solo una delle due si risolve cambiando strada.
+         */
+        val snapshotAge: Long?,
     )
 
     /** GET col condizionale: null = 304, i dati che abbiamo valgono ancora. */
-    private fun fetchBinary(url: String, etag: String?): Fetched? {
+    /**
+     * Una sezione dal proxy. Mai null: un 304 e' una risposta, non un buco.
+     *
+     * Prima il 304 tornava `null` e con lui sparivano le intestazioni. Il
+     * proxy le manda apposta anche sul 304 — "porta comunque l'eta', che e'
+     * esattamente il caso in cui conta di piu'" dice il suo commento — e
+     * l'app le buttava, ricalcolando l'eta' con l'orologio del telefono.
+     */
+    private fun fetchBinary(url: String, etag: String?): Fetched {
         val req = Request.Builder().url(url).header("User-Agent", UA)
         if (etag != null) req.header("If-None-Match", etag)
         http.newCall(req.build()).execute().use { res ->
-            if (res.code == 304) return null
-            if (!res.isSuccessful) throw IOException("HTTP ${res.code}")
+            if (res.code != 304 && !res.isSuccessful) throw IOException("HTTP ${res.code}")
             return Fetched(
-                bytes = res.body!!.bytes(),
-                etag = res.header("ETag"),
+                bytes = if (res.code == 304) null else res.body!!.bytes(),
+                etag = res.header("ETag") ?: etag,
                 serverFeedAge = res.header("X-Feed-Age")?.toLongOrNull(),
+                snapshotAge = res.header("X-Snapshot-Age")?.toLongOrNull(),
             )
         }
     }
@@ -328,6 +385,16 @@ class RealtimeClient(
 
         /** Oltre questa eta' il live non e' piu' live: soglia del piano. */
         const val STALE_SECONDS = 300L
+
+        /**
+         * Sotto questa eta' lo snapshot del proxy si considera appena fatto.
+         *
+         * Il proxy si rinfresca PRIMA di rispondere quando il suo snapshot
+         * supera i 90 s, quindi quello che serve non e' quasi mai piu'
+         * vecchio di cosi'. Il doppio del suo limite lascia spazio al viaggio
+         * della risposta senza scambiare un proxy sano per uno fermo.
+         */
+        const val SNAPSHOT_FRESH_SECONDS = 180L
         private const val DIRECT_HOLD_MS = 5 * 60_000L
     }
 }

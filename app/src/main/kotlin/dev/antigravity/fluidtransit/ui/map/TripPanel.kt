@@ -43,6 +43,7 @@ import dev.antigravity.fluidtransit.ui.common.toneColor
 import java.time.Instant
 import java.time.ZonedDateTime
 import java.time.temporal.ChronoUnit
+import androidx.compose.material.icons.rounded.Close
 
 /**
  * Le chiavi di un bus toccato, come bastano a risalire a corsa e linea.
@@ -283,6 +284,7 @@ fun TripFullContent(
     /** null = niente sezione; "ok" = pulsante; "far" = riga "non disponibile". */
     boardGuard: String? = null,
     onBoardBus: (() -> Unit)? = null,
+    onDismiss: (() -> Unit)? = null,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(

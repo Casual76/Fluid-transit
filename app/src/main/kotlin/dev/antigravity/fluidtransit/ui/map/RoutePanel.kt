@@ -33,6 +33,7 @@ import dev.antigravity.fluidengine.ui.fluid.FluidSegmentedControl
 import dev.antigravity.fluidtransit.routing.BundleReader
 import java.time.Instant
 import java.time.temporal.ChronoUnit
+import androidx.compose.material.icons.rounded.Close
 
 /**
  * Tutto quello che la scheda linea sa dire, calcolato dal bundle in un
@@ -305,6 +306,7 @@ fun RouteFullContent(
     onStopTap: (RouteInfo.StopRef) -> Unit,
     isFavorite: Boolean = false,
     onToggleFavorite: () -> Unit = {},
+    onDismiss: (() -> Unit)? = null,
 ) {
     val dir = info.directions.getOrNull(direction) ?: info.directions.firstOrNull() ?: return
 
@@ -352,6 +354,31 @@ fun RouteFullContent(
                     )
                     .padding(7.dp),
             )
+            // La X, come nelle schede fermata, luogo e viaggi.
+            //
+            // Qui non c'era: si chiudeva trascinando giu' o col tasto
+            // Indietro, cioe' con due gesti che nessuna delle altre schede
+            // chiede. Un pannello che si congeda in un modo suo e' una delle
+            // cose che fanno dire "si comporta in modo diverso ogni volta",
+            // e costa una icona.
+            if (onDismiss != null) {
+                androidx.compose.material3.Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = "Chiudi",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clickable(
+                            interactionSource = androidx.compose.runtime.remember {
+                                androidx.compose.foundation.interaction.MutableInteractionSource()
+                            },
+                            indication = null,
+                            role = androidx.compose.ui.semantics.Role.Button,
+                            onClick = onDismiss,
+                        )
+                        .padding(7.dp),
+                )
+            }
         }
 
         // --- oggi: prima/ultima corsa e frequenza ------------------------

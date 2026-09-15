@@ -1845,6 +1845,7 @@ fun MapScreen(
                                                 routeHashHex, info.shortName, info.colorRgb,
                                             )
                                         },
+                                        onDismiss = ::exitRouteMode,
                                     )
                                 } else {
                                     PanelLoading("Leggo la linea\u2026")
@@ -1910,6 +1911,7 @@ fun MapScreen(
                                                 panel = null
                                             }
                                         },
+                                        onDismiss = ::exitRouteMode,
                                     )
                                 } else {
                                     PanelLoading("Leggo la corsa\u2026")

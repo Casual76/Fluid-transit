@@ -116,23 +116,37 @@ jobs:
           # Toscana. Il 15/09/2026 e' costato il 56% di tracce aderite invece
           # del 95: tutto il sud e la costa erano ancora tessere mancanti.
           PROBES='43.7696,11.2558,43.7712,11.2486|43.3188,11.3308,43.3204,11.3260|42.7635,11.1128,42.7650,11.1080|44.0367,10.1400,44.0382,10.1352|43.4633,11.8797,43.4648,11.8749'
+          probe_ok() {
+            IFS=',' read -r aLat aLon bLat bLon <<< "$1"
+            curl -s -m 5 -X POST localhost:8002/trace_route \
+                 -d "{\"shape\":[{\"lat\":$aLat,\"lon\":$aLon},{\"lat\":$bLat,\"lon\":$bLon}],\"costing\":\"bus\"}" \
+                 | grep -q '"trip"'
+          }
           VALHALLA_URL=""
-          for i in $(seq 1 90); do
-            allReady=1
-            IFS='|' read -ra P <<< "$PROBES"
+          passed=0
+          IFS='|' read -ra P <<< "$PROBES"
+          # Fino a venticinque minuti. Il grafo dell'intera Toscana ci mette
+          # una decina di minuti a rispondere su Firenze e di piu' per il
+          # resto; il job ha un'ora, quindi c'e' margine.
+          for i in $(seq 1 150); do
+            passed=0
             for probe in "${P[@]}"; do
-              IFS=',' read -r aLat aLon bLat bLon <<< "$probe"
-              curl -s -m 5 -X POST localhost:8002/trace_route \
-                   -d "{\"shape\":[{\"lat\":$aLat,\"lon\":$aLon},{\"lat\":$bLat,\"lon\":$bLon}],\"costing\":\"bus\"}" \
-                   | grep -q '"trip"' || { allReady=0; break; }
+              probe_ok "$probe" && passed=$((passed + 1))
             done
-            if [ "$allReady" = "1" ]; then
+            if [ "$passed" -eq "${#P[@]}" ]; then
               VALHALLA_URL="http://localhost:8002"
-              echo "sonde superate a tutti e cinque gli angoli dopo $((i * 10)) s"
+              echo "grafo pronto su tutti e cinque gli angoli dopo $((i * 10)) s"
               break
             fi
             sleep 10
           done
+          # Scaduto il tempo: un matching parziale e' comunque meglio di
+          # nessun matching, perche' ogni traccia che aderisce e' un
+          # guadagno suo, indipendente dalle altre.
+          if [ -z "$VALHALLA_URL" ] && [ "$passed" -gt 0 ]; then
+            VALHALLA_URL="http://localhost:8002"
+            echo "::warning::grafo pronto solo su $passed angoli su ${#P[@]}: si procede lo stesso"
+          fi
           if [ -n "$VALHALLA_URL" ]; then
             echo "2" > work/overlay.rev
             echo "Valhalla pronto: matching attivo"

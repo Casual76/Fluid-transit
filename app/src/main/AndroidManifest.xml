@@ -45,7 +45,7 @@
             </intent-filter>
             <!--
                 Gli indirizzi interni: fluidtransit://stop/<hash>?name=...,
-                route/<hash>, journey/<id>, nav, today, data-status. Li
+                route/<hash>, journey/<id>, nav, today, alerts, data-status. Li
                 scrivono i widget e le notifiche; il vocabolario sta in
                 ui/nav/Deeplink.kt.
             -->

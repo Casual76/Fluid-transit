@@ -61,6 +61,9 @@ private const val RouteSettings = "settings"
  */
 private const val RouteDataStatus = "data-status"
 
+/** Gli avvisi di servizio: come lo stato dei dati, sopra la scheda che c'e'. */
+private const val RouteAlerts = "alerts"
+
 private val Tabs = listOf(
     FluidTabItem(route = RouteMap, label = "Mappa", icon = Icons.Rounded.Map),
     FluidTabItem(route = RouteToday, label = "Oggi", icon = Icons.Rounded.WbSunny),
@@ -161,6 +164,9 @@ private fun AppShell(app: FluidTransitApp) {
             Deeplink.DataStatus -> {
                 above = RouteDataStatus
             }
+            Deeplink.Alerts -> {
+                above = RouteAlerts
+            }
         }
         app.pendingLink.value = null
     }
@@ -222,7 +228,17 @@ private fun AppShell(app: FluidTransitApp) {
                             above == RouteDataStatus ->
                                 DataStatusScreen(app, onBack = { above = null })
 
-                            route == RouteToday -> TodayTab(app, onOpenOnMap = openOnMap)
+                            above == RouteAlerts ->
+                                dev.antigravity.fluidtransit.ui.alerts.AlertsScreen(
+                                    app,
+                                    onBack = { above = null },
+                                )
+
+                            route == RouteToday -> TodayTab(
+                                app,
+                                onOpenOnMap = openOnMap,
+                                onOpenAlerts = { above = RouteAlerts },
+                            )
                             route == RouteFavorites -> FavoritesTab(app, onOpenOnMap = openOnMap)
                             route == RouteSettings ->
                                 SettingsTab(app, onOpenDataStatus = { above = RouteDataStatus })

@@ -50,6 +50,7 @@ import kotlinx.coroutines.launch
 fun TodayTab(
     app: FluidTransitApp,
     onOpenOnMap: (MapIntent) -> Unit,
+    onOpenAlerts: () -> Unit = {},
 ) {
     val bundleState by app.bundleManager.state.collectAsStateWithLifecycle()
     val ready = bundleState as? BundleState.Ready
@@ -92,7 +93,7 @@ fun TodayTab(
             val activeNow = (a.startEpoch == 0L || a.startEpoch <= now) &&
                 (a.endEpoch == 0L || a.endEpoch >= now)
             activeNow && (a.routeHashes.isEmpty() || a.routeHashes.any { it in mine })
-        }.take(6)
+        }
     }
 
     val today = LocalDate.now(Ftb.ROME).dayOfWeek.value
@@ -257,16 +258,32 @@ fun TodayTab(
         }
 
         // --- gli avvisi --------------------------------------------------
+        //
+        // Qui ne stanno tre, con la porta per gli altri: sei avvisi tagliati a
+        // 220 caratteri in fondo alla giornata erano tanto testo e poca
+        // informazione, e non c'era modo di leggerne uno per intero.
         if (alerts.isNotEmpty()) {
             item { FluidSectionTitle(eyebrow = "Avvisi", title = "Sulle tue linee") }
             item {
                 FluidListGroup {
-                    for (a in alerts) {
+                    for (a in alerts.take(3)) {
                         FluidListRow(
                             title = a.header.ifEmpty { "Avviso di servizio" },
-                            subtitle = a.description.take(220),
+                            subtitle = dev.antigravity.fluidtransit.routing.AlertText
+                                .period(a.startEpoch, a.endEpoch, Instant.now().epochSecond)
+                                ?: a.description.take(120),
+                            onClick = onOpenAlerts,
                         )
                     }
+                    FluidListRow(
+                        title = if (alerts.size > 3) {
+                            "Tutti gli avvisi (${alerts.size})"
+                        } else {
+                            "Apri gli avvisi"
+                        },
+                        subtitle = "Col periodo e le linee toccate",
+                        onClick = onOpenAlerts,
+                    )
                 }
             }
         }

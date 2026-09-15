@@ -27,6 +27,7 @@ package dev.antigravity.fluidtransit.ui.nav
  * journey/<routineId>            il viaggio di una routine
  * nav                            la navigazione in corso
  * today                          la scheda Oggi
+ * alerts                         gli avvisi di servizio
  * data-status                    lo stato dei dati
  * ```
  *
@@ -40,6 +41,7 @@ sealed interface Deeplink {
     class Journey(val routineId: Long) : Deeplink
     data object Nav : Deeplink
     data object Today : Deeplink
+    data object Alerts : Deeplink
     data object DataStatus : Deeplink
 
     companion object {
@@ -55,6 +57,8 @@ sealed interface Deeplink {
         fun nav(): String = "$SCHEME://nav"
 
         fun today(): String = "$SCHEME://today"
+
+        fun alerts(): String = "$SCHEME://alerts"
 
         fun dataStatus(): String = "$SCHEME://data-status"
 
@@ -92,6 +96,7 @@ sealed interface Deeplink {
                 "journey" -> arg.toLongOrNull()?.let { Journey(it) }
                 "nav" -> Nav
                 "today" -> Today
+                "alerts" -> Alerts
                 "data-status" -> DataStatus
                 else -> null
             }

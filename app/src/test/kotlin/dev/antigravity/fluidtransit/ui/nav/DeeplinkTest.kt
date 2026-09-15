@@ -66,6 +66,7 @@ class DeeplinkTest {
         assertSame(Deeplink.Nav, Deeplink.parse(Deeplink.nav()))
         assertSame(Deeplink.Today, Deeplink.parse(Deeplink.today()))
         assertSame(Deeplink.DataStatus, Deeplink.parse(Deeplink.dataStatus()))
+        assertSame(Deeplink.Alerts, Deeplink.parse(Deeplink.alerts()))
     }
 
     @Test

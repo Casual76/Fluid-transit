@@ -22,6 +22,11 @@ import dev.antigravity.fluidtransit.routing.NextDeparture
 import dev.antigravity.fluidtransit.ui.map.LiveDot
 import dev.antigravity.fluidtransit.ui.map.RoutePill
 import dev.antigravity.fluidtransit.ui.map.liveGreen
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 
 /**
  * La riga di una partenza. Una sola, per tutta l'app.
@@ -45,6 +50,15 @@ fun DepartureRowUi(
     showStopName: Boolean = false,
     /** Un'azione a destra del testo, per esempio "vola sul bus". */
     trailing: @Composable (() -> Unit)? = null,
+    /**
+     * Il tocco sulla riga della provenienza: "perche' questo numero".
+     *
+     * Riceve il rettangolo di quelle parole, cosi' la spiegazione nasce da
+     * li' e non dal centro dello schermo. Quando c'e', il testo si sottolinea:
+     * un tocco che non si annuncia non lo trova nessuno, e una sottolineatura
+     * e' il modo in cui da sempre si dice "questo si puo' aprire".
+     */
+    onSupportTap: ((androidx.compose.ui.geometry.Rect?) -> Unit)? = null,
 ) {
     val phrase = DepartureText.phrase(row, nowEpoch)
     Row(
@@ -93,12 +107,33 @@ fun DepartureRowUi(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            var supportBounds by androidx.compose.runtime.remember {
+                androidx.compose.runtime.mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
+            }
             Text(
                 text = phrase.support,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textDecoration = if (onSupportTap != null) {
+                    androidx.compose.ui.text.style.TextDecoration.Underline
+                } else {
+                    null
+                },
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                modifier = if (onSupportTap == null) {
+                    Modifier
+                } else {
+                    Modifier
+                        .onGloballyPositioned { supportBounds = it.boundsInRoot() }
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            role = Role.Button,
+                            onClickLabel = "Perche' questo numero",
+                            onClick = { onSupportTap(supportBounds) },
+                        )
+                },
             )
         }
 

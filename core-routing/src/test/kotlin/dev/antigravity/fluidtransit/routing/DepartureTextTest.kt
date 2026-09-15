@@ -177,7 +177,10 @@ class DepartureTextTest {
         assertEquals(
             "dal bus",
             DepartureText.boardSource(
-                board(row(300, delay = 60, certainty = Certainty.DECLARED), row(600)),
+                board(
+                    row(300, delay = 60, certainty = Certainty.DECLARED),
+                    row(600, delay = 20, certainty = Certainty.DECLARED),
+                ),
             ),
         )
         assertEquals(
@@ -187,6 +190,32 @@ class DepartureTextTest {
             ),
         )
         assertEquals("orari da tabella", DepartureText.boardSource(board(row(300), row(600))))
+    }
+
+    @Test
+    fun `un tabellone misto non promette piu' di quello che ha`() {
+        // Con dieci righe in memoria e sei a schermo, bastava che una riga
+        // nascosta venisse dal feed perche' il piede dicesse "dal bus" sopra
+        // sei righe che dicevano tutte "orario da tabella". Una contraddizione
+        // dentro lo stesso pannello, a due centimetri di distanza.
+        fun board(vararg rows: NextDeparture) = DepartureBoard(0, "Alfa", now, rows.toList())
+
+        assertEquals(
+            "in parte dal bus",
+            DepartureText.boardSource(
+                board(row(300, delay = 60, certainty = Certainty.DECLARED), row(600)),
+            ),
+        )
+        assertEquals(
+            "dal bus",
+            DepartureText.boardSource(
+                board(
+                    row(300, delay = 60, certainty = Certainty.DECLARED),
+                    row(600, delay = 30, certainty = Certainty.PROPAGATED),
+                ),
+            ),
+        )
+        assertEquals("orari da tabella", DepartureText.boardSource(board()))
     }
 
     // --------------------------------------- la stessa fermata, dall'altro lato

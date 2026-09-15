@@ -311,10 +311,23 @@ object DepartureText {
      * "Prossimi passaggi · dal bus" ha senso solo se almeno una riga viene dal
      * feed; altrimenti promette una cosa che non c'e'.
      */
-    fun boardSource(board: DepartureBoard): String = when {
-        board.rows.any { it.fromFeed } -> "dal bus"
-        board.rows.any { it.live } -> "stimati"
-        else -> "orari da tabella"
+    fun boardSource(board: DepartureBoard): String {
+        val dalBus = board.rows.count { it.fromFeed }
+        return when {
+            board.rows.isEmpty() -> "orari da tabella"
+            dalBus == board.rows.size -> "dal bus"
+            // Il caso di mezzo, che prima diceva "dal bus" e basta.
+            //
+            // Con dieci righe in memoria e sei a schermo, bastava che una
+            // riga nascosta venisse dal feed perche' il piede promettesse
+            // "dal bus" sopra sei righe che dicevano tutte "orario da
+            // tabella". Una contraddizione dentro lo stesso pannello, a due
+            // centimetri di distanza: e' esattamente il genere di cosa che fa
+            // dire che l'app non si spiega.
+            dalBus > 0 -> "in parte dal bus"
+            board.rows.any { it.live } -> "stimati"
+            else -> "orari da tabella"
+        }
     }
 
 }

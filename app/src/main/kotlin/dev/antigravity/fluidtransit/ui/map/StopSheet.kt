@@ -224,24 +224,17 @@ fun StopPanelContent(
                 items(board.rows.size) { i ->
                     val row = board.rows[i]
                     if (i > 0) FluidHairline()
-                    // Il tocco sulla riga apre "perche' questo numero", sulla
-                    // riga stessa. E' il tabellone che si sta guardando
-                    // quando viene il dubbio, quindi e' qui che la risposta
-                    // deve stare: e il tocco sulla riga, in questa scheda,
-                    // non faceva niente.
-                    var bounds by remember { mutableStateOf<Rect?>(null) }
+                    // Il tocco sulle PAROLE della provenienza apre "perche'
+                    // questo numero", e nasce da quelle parole.
+                    //
+                    // Prima era la riga intera, senza niente che lo
+                    // annunciasse: chi non provava non lo trovava. Adesso il
+                    // bersaglio e' proprio la frase che si sta mettendo in
+                    // dubbio, ed e' sottolineata.
                     DepartureRowUi(
                         row = row,
                         nowEpoch = board.computedAtEpoch,
-                        modifier = Modifier
-                            .onGloballyPositioned { bounds = it.boundsInRoot() }
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                role = Role.Button,
-                                onClickLabel = "Perche' questo numero",
-                                onClick = { onWhyTap(row, bounds) },
-                            ),
+                        onSupportTap = { rect -> onWhyTap(row, rect) },
                         onLineTap = { onRouteTap(row.routeIndex) },
                         trailing = {
                             if (row.tripIndex in liveTrips && !row.canceled) {

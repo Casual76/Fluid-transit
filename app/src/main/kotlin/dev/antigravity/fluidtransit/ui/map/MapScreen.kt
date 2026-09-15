@@ -534,6 +534,15 @@ fun MapScreen(
     /** Quale delle due righe sta compilando la ricerca: "from", "to", o niente. */
     var plannerField by rememberSaveable { mutableStateOf<String?>(null) }
 
+    // "Perche' questo numero": la riga toccata e il rettangolo da cui il
+    // pop-up nasce. Non e' salvabile di proposito — e' una risposta a un
+    // tocco, non uno stato in cui si resta.
+    var whyRow by remember {
+        mutableStateOf<dev.antigravity.fluidtransit.routing.NextDeparture?>(null)
+    }
+    var whyOrigin by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    var whyAt by remember { mutableStateOf(0L) }
+
     /** Calcola, quando c'e' abbastanza per calcolare. */
     fun runPlanner() {
         val to = destRef ?: return
@@ -1552,6 +1561,16 @@ fun MapScreen(
             )
         }
 
+        // "Perche' questo numero", dichiarato qui e disegnato alla radice: si
+        // apre SUL numero toccato, non al centro dello schermo.
+        dev.antigravity.fluidtransit.ui.common.WhyThisNumberPortal(
+            row = whyRow,
+            nowEpoch = whyAt,
+            origin = { whyOrigin },
+            onDismiss = { whyRow = null },
+            onOpenDataStatus = onOpenDataStatus,
+        )
+
         androidx.compose.animation.AnimatedVisibility(
             visible = panel != null && reader != null,
             enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it / 3 }) +
@@ -1654,6 +1673,11 @@ fun MapScreen(
                                     },
                                     onDismiss = { panel = null },
                                     onRouteTap = ::showRoute,
+                                    onWhyTap = { r, rect ->
+                                        whyRow = r
+                                        whyOrigin = rect
+                                        whyAt = java.time.Instant.now().epochSecond
+                                    },
                                     backdrop = backdrop,
                                     isFavorite = isFav,
                                     onToggleFavorite = {

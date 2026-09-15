@@ -247,4 +247,82 @@ class DepartureTextTest {
         )
         assertEquals("Cancellata", p.headline)
     }
+
+    // ------------------------------------------------- perche' questo numero
+
+    @Test
+    fun `ogni provenienza ha la sua spiegazione, e nessuna e' vuota`() {
+        // Il punto non e' il testo: e' che per ogni stato in cui la riga puo'
+        // trovarsi ci sia qualcosa da leggere. Una spiegazione che manca e'
+        // peggio di nessun tocco, perche' promette e non mantiene.
+        val casi = listOf(
+            row(300, delay = 180, certainty = Certainty.DECLARED),
+            row(300, delay = 180, certainty = Certainty.PROPAGATED),
+            row(300, delay = 180, certainty = Certainty.ESTIMATED),
+            row(300, delay = 0, certainty = Certainty.SERVED),
+            row(300),
+            row(300, monitored = true),
+            row(300, canceled = true),
+        )
+        for (r in casi) {
+            val why = DepartureText.why(r, now)
+            assertTrue(why.title.isNotBlank(), "titolo vuoto per ${r.certainty}")
+            assertTrue(why.lines.isNotEmpty(), "nessuna riga per ${r.certainty}")
+            assertTrue(
+                why.lines.all { it.isNotBlank() },
+                "una riga vuota per ${r.certainty}",
+            )
+        }
+    }
+
+    @Test
+    fun `la spiegazione dice sempre l'orario di tabella`() {
+        // E' il numero da cui parte tutto: senza, la spiegazione non si
+        // aggancia a niente di verificabile.
+        val casi = listOf(
+            row(300, delay = 180, certainty = Certainty.DECLARED),
+            row(300, delay = 180, certainty = Certainty.ESTIMATED),
+            row(300),
+            row(300, canceled = true),
+        )
+        for (r in casi) {
+            val why = DepartureText.why(r, now)
+            assertTrue(
+                why.lines.any { it.contains(Times.hhmm(r.scheduledEpoch)) },
+                "manca l'orario di tabella per ${r.certainty}: ${why.lines}",
+            )
+        }
+    }
+
+    @Test
+    fun `una stima nostra lo dichiara, una previsione del feed no`() {
+        val stimata = DepartureText.why(
+            row(300, delay = 180, certainty = Certainty.ESTIMATED), now,
+        )
+        assertTrue(
+            stimata.lines.any { it.contains("stimato") },
+            "la stima non si dichiara: ${stimata.lines}",
+        )
+
+        val dichiarata = DepartureText.why(
+            row(300, delay = 180, certainty = Certainty.DECLARED), now,
+        )
+        assertTrue(
+            dichiarata.lines.none { it.contains("stimiamo") },
+            "una previsione del feed si spaccia per stima: ${dichiarata.lines}",
+        )
+    }
+
+    @Test
+    fun `propagata spiega da dove arriva il numero`() {
+        // E' il caso che l'utente non puo' indovinare: il numero e' del feed,
+        // ma non e' di questa fermata.
+        val why = DepartureText.why(
+            row(300, delay = 180, certainty = Certainty.PROPAGATED), now,
+        )
+        assertTrue(
+            why.lines.any { it.contains("precedente") },
+            "non dice che la previsione e' di un'altra fermata: ${why.lines}",
+        )
+    }
 }

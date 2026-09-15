@@ -45,6 +45,11 @@ import java.time.Instant
 import java.time.ZonedDateTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 
 /**
  * Sfuma il contenuto ai bordi verticali dello scorrimento: senza, le righe
@@ -100,6 +105,11 @@ fun StopPanelContent(
     onFlyToBus: (tripIndex: Int) -> Unit = {},
     /** "Parti da qui": questa fermata come ORIGINE del pianificatore. */
     onStartHere: (() -> Unit)? = null,
+    /** Il tocco su una riga: "perche' questo numero", aperto sulla riga stessa. */
+    onWhyTap: (
+        dev.antigravity.fluidtransit.routing.NextDeparture,
+        androidx.compose.ui.geometry.Rect?,
+    ) -> Unit = { _, _ -> },
 ) {
     val stopIndex = androidx.compose.runtime.remember(stopIdHashHex, reader) {
         stopIdHashHex.toULongOrNull(16)?.toLong()?.let { reader.findStopByIdHash(it) } ?: -1
@@ -214,9 +224,24 @@ fun StopPanelContent(
                 items(board.rows.size) { i ->
                     val row = board.rows[i]
                     if (i > 0) FluidHairline()
+                    // Il tocco sulla riga apre "perche' questo numero", sulla
+                    // riga stessa. E' il tabellone che si sta guardando
+                    // quando viene il dubbio, quindi e' qui che la risposta
+                    // deve stare: e il tocco sulla riga, in questa scheda,
+                    // non faceva niente.
+                    var bounds by remember { mutableStateOf<Rect?>(null) }
                     DepartureRowUi(
                         row = row,
                         nowEpoch = board.computedAtEpoch,
+                        modifier = Modifier
+                            .onGloballyPositioned { bounds = it.boundsInRoot() }
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                role = Role.Button,
+                                onClickLabel = "Perche' questo numero",
+                                onClick = { onWhyTap(row, bounds) },
+                            ),
                         onLineTap = { onRouteTap(row.routeIndex) },
                         trailing = {
                             if (row.tripIndex in liveTrips && !row.canceled) {

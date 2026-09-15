@@ -182,6 +182,117 @@ object DepartureText {
         return "${row.line} $when_"
     }
 
+    /** La spiegazione di UN orario: cosa ha detto il feed, e cosa ci mettiamo noi. */
+    class Why(val title: String, val lines: List<String>)
+
+    /**
+     * Perche' questo numero.
+     *
+     * La riga dice "dal bus" o "stimato" in due parole, che e' quanto ci sta
+     * in un tabellone. Ma "stimato" e' una promessa su come lavora l'app, e
+     * una promessa che non si puo' aprire e' una cosa da prendere sulla
+     * fiducia — cioe' esattamente quello che qui manca.
+     *
+     * Le frasi non sono generiche: dicono cosa ha dichiarato il feed, per
+     * quale fermata, e cosa ci ha aggiunto l'app.
+     */
+    fun why(row: NextDeparture, nowEpoch: Long): Why {
+        val tabella = "Orario di tabella: ${Times.hhmm(row.scheduledEpoch)}"
+        val mostrato = "Orario mostrato: ${Times.hhmm(row.effectiveEpoch)}"
+        val scarto = Times.delayLabel(row.delaySeconds)
+
+        if (row.canceled) {
+            return Why(
+                title = "Corsa cancellata",
+                lines = listOf(
+                    "Il feed dichiara che questa corsa oggi non verra' fatta.",
+                    tabella,
+                    "La mostriamo lo stesso, dichiarata: sapere che il bus non " +
+                        "viene e' piu' utile che aspettarlo senza saperlo.",
+                ),
+            )
+        }
+        if (row.skipped) {
+            return Why(
+                title = "Il bus non ferma qui",
+                lines = listOf(
+                    "Il feed dichiara che questa corsa, oggi, salta questa fermata.",
+                    tabella,
+                ),
+            )
+        }
+
+        return when (row.certainty) {
+            Certainty.DECLARED -> Why(
+                title = "Lo dice il bus, per questa fermata",
+                lines = listOf(
+                    "Il feed pubblica una previsione per QUESTA fermata di questa " +
+                        "corsa: $scarto.",
+                    tabella,
+                    mostrato,
+                    "E' il dato migliore che esista: e' lo stesso numero che " +
+                        "usano le app ufficiali.",
+                ),
+            )
+
+            Certainty.PROPAGATED -> Why(
+                title = "Lo dice il bus, per una fermata prima",
+                lines = listOf(
+                    "Il feed pubblica una previsione per una fermata precedente di " +
+                        "questa corsa: $scarto.",
+                    "La regola di GTFS-RT dice che quella previsione vale per tutte " +
+                        "le fermate seguenti finche' non ce n'e' un'altra. Quindi " +
+                        "vale anche qui.",
+                    tabella,
+                    mostrato,
+                ),
+            )
+
+            Certainty.ESTIMATED -> Why(
+                title = "Questo numero lo stimiamo noi",
+                lines = listOf(
+                    "Nessuna previsione del feed copre questa fermata.",
+                    "Partiamo dall'ultimo ritardo che il feed ha dichiarato per " +
+                        "questa corsa e lo portiamo avanti, consumandone un pezzo " +
+                        "verso il capolinea: $scarto.",
+                    tabella,
+                    mostrato,
+                    "Puo' non combaciare con le app ufficiali, ed e' per questo che " +
+                        "c'e' scritto \"stimato\" e non \"dal bus\".",
+                ),
+            )
+
+            Certainty.SERVED -> Why(
+                title = "Il bus e' gia' passato di qui",
+                lines = listOf(
+                    "Il feed dice che questa corsa ha gia' servito questa fermata.",
+                    tabella,
+                ),
+            )
+
+            null -> Why(
+                title = "Vale l'orario di tabella",
+                lines = if (row.monitored) {
+                    listOf(
+                        "Il feed vede il mezzo in strada ma non dice di quanto sia " +
+                            "in ritardo.",
+                        tabella,
+                        "E' meno di una previsione e piu' di niente: il bus c'e', " +
+                            "l'orario e' quello pubblicato.",
+                    )
+                } else {
+                    listOf(
+                        "Il feed non parla di questa corsa: nessuna previsione, " +
+                            "nessun mezzo agganciato.",
+                        tabella,
+                        "Succede per le linee che il tempo reale non copre, e la " +
+                            "notte quando i mezzi sono spenti.",
+                    )
+                },
+            )
+        }
+    }
+
     /**
      * Da dove viene un numero, in due parole.
      *

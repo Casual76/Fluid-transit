@@ -5,6 +5,7 @@ import dev.antigravity.fluidtransit.ai.tools.Args.str
 import dev.antigravity.fluidtransit.routing.BundleReader
 import dev.antigravity.fluidtransit.routing.Ftb
 import dev.antigravity.fluidtransit.routing.Raptor
+import dev.antigravity.fluidtransit.routing.DepartureText
 import dev.antigravity.fluidtransit.routing.Times
 import java.time.Instant
 import java.time.LocalTime
@@ -186,29 +187,22 @@ class NextDeparturesTool : AiTool {
                 ?: return "non trovo una fermata che si chiami \"$query\""
         }
 
-        val now = Instant.ofEpochMilli(ctx.nowMillis)
-        val departures = reader.nextDepartures(stopIndex, now, limit = wanted, horizonSeconds = 3 * 3600)
-        if (departures.isEmpty()) return "da ${reader.stopName(stopIndex)} non passa piu' niente nelle prossime tre ore"
+        // Lo stesso tabellone delle schermate, non un calcolo parallelo:
+        // altrimenti chiedere "quando passa il 6" e guardare la scheda della
+        // stessa fermata poteva dare due minuti diversi.
+        val board = ctx.transit.board(stopIndex, wanted, 3 * 3600)
+            ?: return "errore: gli orari non sono ancora scaricati"
+        if (board.rows.isEmpty()) {
+            return "da ${reader.stopName(stopIndex)} non passa piu' niente nelle prossime tre ore"
+        }
 
         return ToolText.build {
-            line("fermata", reader.stopName(stopIndex))
-            for (d in departures) {
-                val live = ctx.transit.delays?.at(
-                    d.tripIndex,
-                    d.positionInPattern,
-                    reader.patternStopCount(d.patternIndex),
-                )
-                val eff = d.instant.epochSecond + (live?.delaySeconds ?: 0)
-                val linea = reader.routeShortName(d.routeIndex)
-                    .ifEmpty { reader.routeLongName(d.routeIndex) }
-                val stato = when {
-                    live == null -> "orario previsto"
-                    live.delaySeconds == 0 -> "live, in orario"
-                    else -> "live, ${Times.delayLabel(live.delaySeconds)}"
-                }
+            line("fermata", board.stopName.ifEmpty { reader.stopName(stopIndex) })
+            for (d in board.rows) {
+                val phrase = DepartureText.phrase(d, board.computedAtEpoch)
                 line(
-                    "$linea verso ${reader.patternDestination(d.patternIndex)}: " +
-                        "${Times.minutesLabel(ctx.nowEpoch, eff)} (${Times.hhmm(eff)}, $stato)",
+                    "${d.line} verso ${d.destination}: " +
+                        "${phrase.headline} (${Times.hhmm(d.effectiveEpoch)}, ${phrase.support})",
                 )
             }
         }

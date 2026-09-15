@@ -188,4 +188,63 @@ class DepartureTextTest {
         )
         assertEquals("orari da tabella", DepartureText.boardSource(board(row(300), row(600))))
     }
+
+    // --------------------------------------- la stessa fermata, dall'altro lato
+
+    @Test
+    fun `una fermata lungo la corsa si legge come una partenza`() {
+        // E' lo stesso fatto guardato dall'altro lato: "quando passa di qui"
+        // e "dove passa questo" devono dire le stesse identiche parole. La
+        // scheda corsa scriveva "previsto 14:32" dove la scheda fermata
+        // scrive "da tabella alle 14:32".
+        for (c in listOf(
+            Certainty.DECLARED,
+            Certainty.PROPAGATED,
+            Certainty.ESTIMATED,
+            null,
+        )) {
+            val delay = if (c == null) null else 180
+            val dalla = DepartureText.phrase(row(300, delay = delay, certainty = c), now)
+            val lungo = DepartureText.alongTrip(
+                scheduledEpoch = now + 300,
+                delaySeconds = delay,
+                certainty = c,
+                nowEpoch = now,
+            )
+            assertEquals(dalla.headline, lungo.headline, "il numero cambia per $c")
+            assertEquals(dalla.support, lungo.support, "le parole cambiano per $c")
+            assertEquals(dalla.tone, lungo.tone, "il tono cambia per $c")
+            assertEquals(dalla.pulse, lungo.pulse, "il pallino cambia per $c")
+        }
+    }
+
+    @Test
+    fun `una fermata saltata lo dice`() {
+        // Il feed lo dichiara (schedule_relationship SKIPPED) e l'app lo
+        // sapeva senza mostrarlo: il tabellone della fermata la toglie
+        // dall'elenco, ma chi guarda il percorso della corsa deve vederla.
+        val p = DepartureText.alongTrip(
+            scheduledEpoch = now + 300,
+            delaySeconds = 60,
+            certainty = Certainty.DECLARED,
+            skipped = true,
+            nowEpoch = now,
+        )
+        assertEquals("Non ferma", p.headline)
+        assertEquals(DepartureText.Tone.CANCELED, p.tone)
+        assertTrue(!p.pulse, "una fermata saltata non pulsa")
+    }
+
+    @Test
+    fun `una corsa cancellata vince sul resto`() {
+        val p = DepartureText.alongTrip(
+            scheduledEpoch = now + 300,
+            delaySeconds = 60,
+            certainty = Certainty.DECLARED,
+            canceled = true,
+            skipped = true,
+            nowEpoch = now,
+        )
+        assertEquals("Cancellata", p.headline)
+    }
 }

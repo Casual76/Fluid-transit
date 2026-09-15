@@ -73,6 +73,13 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
 
     override val delays: DelayModel get() = app.delayModel
 
+    /** La stessa fonte delle quattro schermate e del widget, niente di meno. */
+    override suspend fun board(
+        stopIndex: Int,
+        limit: Int,
+        horizonSeconds: Int,
+    ) = app.departureBoards.snapshot(listOf(stopIndex), limit, horizonSeconds)
+
     override val here: Pair<Double, Double>? get() = location?.invoke()
 
     override val looking: Pair<Double, Double>? get() = camera?.invoke()

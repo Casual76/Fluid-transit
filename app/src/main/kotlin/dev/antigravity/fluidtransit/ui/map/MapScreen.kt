@@ -436,7 +436,7 @@ fun MapScreen(
             return@produceState
         }
         value = withContext(Dispatchers.Default) {
-            RouteInfo.build(reader, idx, Instant.now(), app.delayModel)
+            RouteInfo.build(reader, idx, Instant.now(), app.departureBoards.live())
         }
     }
 
@@ -474,7 +474,7 @@ fun MapScreen(
                 now = Instant.now(),
                 delaySec = d?.takeIf { !it.noData }?.delaySec,
                 canceled = d?.canceled == true,
-                delays = app.delayModel,
+                live = app.departureBoards.live(),
             )
         }
     }

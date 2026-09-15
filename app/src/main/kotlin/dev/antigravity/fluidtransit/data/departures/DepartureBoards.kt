@@ -145,7 +145,16 @@ class DepartureBoards(private val app: FluidTransitApp) {
      * ripiego sotto. Non e' un o-l'uno-o-l'altro: le previsioni coprono le
      * corse che il feed sta seguendo, e per tutte le altre vale il modello,
      * dentro la stessa interrogazione.
+     *
+     * E' pubblico perche' i tabelloni non sono l'unico posto che mostra un
+     * orario: la scheda linea e la scheda corsa mostrano gli stessi orari
+     * visti dall'altro lato — non "cosa passa di qui" ma "dove passa questo"
+     * — e leggevano il solo modello dei ritardi, senza le previsioni per
+     * fermata. Lo stesso bus, alla stessa fermata, poteva dire due numeri
+     * diversi a seconda di quale scheda avevi aperto.
      */
+    fun live(): LiveTimes = liveTimes()
+
     private fun liveTimes(): LiveTimes {
         val base = LiveFromFeed(
             delays = app.delayModel,

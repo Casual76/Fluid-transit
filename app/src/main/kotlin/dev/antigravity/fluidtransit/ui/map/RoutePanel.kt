@@ -74,6 +74,10 @@ class RouteInfo(
          * passa bisognava uscire e toccare la fermata.
          */
         val timeEpoch: Long = 0L,
+        /** L'orario di tabella di quella corsa qui. Zero come sopra. */
+        val scheduledEpoch: Long = 0L,
+        /** Da dove viene la correzione: null = nessun dato live. */
+        val certainty: dev.antigravity.fluidtransit.routing.Certainty? = null,
     )
 
     companion object {
@@ -81,7 +85,7 @@ class RouteInfo(
             reader: BundleReader,
             routeIndex: Int,
             now: Instant,
-            delays: dev.antigravity.fluidtransit.routing.DelayModel? = null,
+            live: dev.antigravity.fluidtransit.routing.LiveTimes? = null,
         ): RouteInfo {
             val patterns = reader.patternsOfRoute(routeIndex)
             val today = now.atZone(dev.antigravity.fluidtransit.routing.Ftb.ROME).toLocalDate()
@@ -121,20 +125,34 @@ class RouteInfo(
                 } else {
                     null
                 }
-                val tripLive = nextTrip >= 0 && delays?.current(nextTrip) != null
+                // "Il feed sta seguendo questa corsa" e' una domanda che
+                // LiveTimes sa rispondere da se', e che e' diversa da "ha un
+                // ritardo": una corsa monitorata e puntuale ha ritardo zero.
+                val tripLive = nextTrip >= 0 &&
+                    (
+                        live?.monitored(nextTrip) == true ||
+                            live?.at(nextTrip, 0, n, now.epochSecond) != null
+                        )
 
                 val stops = (0 until n).map { i ->
                     val s = reader.patternStop(best, i)
+                    // Come sopra: il filtro delle fermate gia' servite
+                    // mancava solo qui e in Preferiti.
+                    val at = if (offsets != null) {
+                        live?.at(nextTrip, i, n, now.epochSecond)?.takeIf {
+                            it.certainty != dev.antigravity.fluidtransit.routing.Certainty.SERVED
+                        }
+                    } else {
+                        null
+                    }
                     StopRef(
+                        scheduledEpoch = if (offsets != null) nextDep + offsets[i] else 0L,
                         timeEpoch = if (offsets != null) {
-                            val live = delays?.at(nextTrip, i, n, java.time.Instant.now().epochSecond)
-                                // Come sopra: il filtro delle fermate gia'
-                                // servite mancava solo qui e in Preferiti.
-                                ?.takeIf { it.confidence != dev.antigravity.fluidtransit.routing.DelayModel.Confidence.SERVED }
-                            nextDep + offsets[i] + (live?.delaySeconds ?: 0)
+                            nextDep + offsets[i] + (at?.delaySeconds ?: 0)
                         } else {
                             0L
                         },
+                        certainty = at?.certainty,
                         stopIndex = s,
                         name = reader.stopName(s),
                         idHashHex = java.lang.Long.toHexString(reader.stopIdHash(s)),
@@ -346,8 +364,8 @@ fun RouteFullContent(
                     }
                     val dir = info.directions.getOrNull(direction)
                     if (dir?.stops?.any { it.timeEpoch > 0 } == true) {
-                        append("\nGli orari qui sotto sono della prossima corsa")
-                        append(if (dir.nextTripLive) ", corretti col ritardo live." else ", previsti.")
+                        append("\nGli orari qui sotto sono della prossima corsa, ")
+                        append(if (dir.nextTripLive) "dal bus." else "da tabella.")
                     }
                 },
                 style = MaterialTheme.typography.bodySmall,
@@ -417,17 +435,21 @@ fun RouteFullContent(
                         modifier = Modifier.weight(1f),
                     )
                     if (stop.timeEpoch > 0) {
-                        // L'orario della prossima corsa. Verde solo se il
-                        // feed la sta davvero seguendo: altrimenti e' un
-                        // orario previsto e non deve fingere di essere altro.
+                        // L'orario della prossima corsa, col tono che dice da
+                        // dove viene: prima era verde per tutta la direzione
+                        // appena una corsa era seguita, comprese le fermate
+                        // che il feed non copre.
+                        val tone = dev.antigravity.fluidtransit.routing.DepartureText.alongTrip(
+                            scheduledEpoch = stop.scheduledEpoch,
+                            delaySeconds = (stop.timeEpoch - stop.scheduledEpoch)
+                                .toInt().takeIf { stop.certainty != null },
+                            certainty = stop.certainty,
+                            nowEpoch = java.time.Instant.now().epochSecond,
+                        ).tone
                         Text(
                             text = dev.antigravity.fluidtransit.routing.Times.hhmm(stop.timeEpoch),
                             style = MaterialTheme.typography.labelLarge,
-                            color = if (dir.nextTripLive) {
-                                liveGreen()
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
+                            color = dev.antigravity.fluidtransit.ui.common.toneColor(tone),
                         )
                     } else if (i == 0 || i == dir.stops.size - 1) {
                         Text(

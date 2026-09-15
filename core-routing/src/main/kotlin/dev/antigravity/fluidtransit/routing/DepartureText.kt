@@ -64,50 +64,104 @@ object DepartureText {
      */
     const val CLOCK_AFTER_MINUTES = 60
 
-    fun phrase(row: NextDeparture, nowEpoch: Long): Phrase {
-        if (row.canceled) {
+    fun phrase(row: NextDeparture, nowEpoch: Long): Phrase = phraseOf(
+        scheduledEpoch = row.scheduledEpoch,
+        delaySeconds = row.delaySeconds,
+        certainty = row.certainty,
+        canceled = row.canceled,
+        skipped = row.skipped,
+        monitored = row.monitored,
+        nowEpoch = nowEpoch,
+    )
+
+    /**
+     * Una fermata lungo il percorso di una corsa.
+     *
+     * Le schede linea e corsa mostrano gli stessi orari della scheda fermata,
+     * viste dall'altro lato: non "cosa passa di qui" ma "dove passa questo".
+     * Erano rimaste fuori dal vocabolario comune e si vedeva — scrivevano
+     * "previsto 14:32" dove la scheda fermata scrive "da tabella alle 14:32",
+     * e coloravano di verde anche le stime, che e' proprio la distinzione che
+     * questo file esiste per tenere.
+     *
+     * Stessa funzione sotto, quindi stesse parole per forza.
+     */
+    fun alongTrip(
+        scheduledEpoch: Long,
+        delaySeconds: Int?,
+        certainty: Certainty?,
+        canceled: Boolean = false,
+        skipped: Boolean = false,
+        monitored: Boolean = false,
+        nowEpoch: Long,
+    ): Phrase = phraseOf(
+        scheduledEpoch, delaySeconds, certainty, canceled, skipped, monitored, nowEpoch,
+    )
+
+    private fun phraseOf(
+        scheduledEpoch: Long,
+        delaySeconds: Int?,
+        certainty: Certainty?,
+        canceled: Boolean,
+        skipped: Boolean,
+        monitored: Boolean,
+        nowEpoch: Long,
+    ): Phrase {
+        if (canceled) {
             return Phrase(
                 headline = "Cancellata",
-                support = "La corsa delle ${Times.hhmm(row.scheduledEpoch)} non ci sara'",
+                support = "La corsa delle ${Times.hhmm(scheduledEpoch)} non ci sara'",
+                tone = Tone.CANCELED,
+                pulse = false,
+            )
+        }
+        if (skipped) {
+            // Il feed dice che questa fermata, oggi, questa corsa la salta.
+            // E' un'informazione che l'app aveva e non diceva: il tabellone
+            // della fermata la toglie dall'elenco, e chi guarda il percorso
+            // della corsa deve poterla vedere barrata.
+            return Phrase(
+                headline = "Non ferma",
+                support = "Il bus oggi salta questa fermata",
                 tone = Tone.CANCELED,
                 pulse = false,
             )
         }
 
-        val minutes = Times.minutesUntil(nowEpoch, row.effectiveEpoch)
+        val effective = scheduledEpoch + (delaySeconds ?: 0)
+        val minutes = Times.minutesUntil(nowEpoch, effective)
         val headline = if (minutes < CLOCK_AFTER_MINUTES) {
-            Times.minutesLabel(nowEpoch, row.effectiveEpoch)
+            Times.minutesLabel(nowEpoch, effective)
         } else {
-            Times.hhmm(row.effectiveEpoch)
+            Times.hhmm(effective)
         }
 
+        val live = delaySeconds != null
+        val fromFeed = certainty == Certainty.DECLARED || certainty == Certainty.PROPAGATED
         val tone = when {
-            row.fromFeed -> Tone.LIVE
-            row.live -> Tone.ESTIMATED
+            fromFeed -> Tone.LIVE
+            live -> Tone.ESTIMATED
             else -> Tone.SCHEDULED
         }
+        val source = if (fromFeed) "dal bus" else "stimato"
 
         val support = when {
             // Il ritardo e' zero ma il feed sta seguendo la corsa: "in orario"
             // e' un'informazione, ed e' diversa da "non sappiamo niente".
-            row.live && row.delaySeconds == 0 ->
-                "${source(row)} · in orario"
-            row.live ->
-                "${source(row)} · da tabella alle ${Times.hhmm(row.scheduledEpoch)}"
+            live && delaySeconds == 0 -> "$source · in orario"
+            live -> "$source · da tabella alle ${Times.hhmm(scheduledEpoch)}"
             // Il feed vede il mezzo ma non dice di quanto e' in ritardo. E'
             // meno di una previsione e piu' di niente, e in una riga sola ci
             // sta solo se si dice corto.
-            row.monitored ->
-                "orario da tabella · il mezzo e' in strada"
-            else ->
-                "orario da tabella"
+            monitored -> "orario da tabella · il mezzo e' in strada"
+            else -> "orario da tabella"
         }
 
         return Phrase(
             headline = headline,
             support = support,
             tone = tone,
-            pulse = row.certainty == Certainty.DECLARED,
+            pulse = certainty == Certainty.DECLARED,
         )
     }
 
@@ -129,6 +183,18 @@ object DepartureText {
     }
 
     /**
+     * Da dove viene un numero, in due parole.
+     *
+     * Serve dove non c'e' spazio per una frase: la notifica della
+     * navigazione, che ha una riga sola e prima diceva "ritardo live".
+     */
+    fun source(certainty: Certainty?): String? = when (certainty) {
+        Certainty.DECLARED, Certainty.PROPAGATED -> "dal bus"
+        Certainty.ESTIMATED, Certainty.SERVED -> "stimato"
+        null -> null
+    }
+
+    /**
      * La provenienza di un tabellone intero, per un titolo.
      *
      * "Prossimi passaggi · dal bus" ha senso solo se almeno una riga viene dal
@@ -140,5 +206,4 @@ object DepartureText {
         else -> "orari da tabella"
     }
 
-    private fun source(row: NextDeparture): String = if (row.fromFeed) "dal bus" else "stimato"
 }

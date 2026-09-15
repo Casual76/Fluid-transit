@@ -299,11 +299,16 @@ class NavigationService : Service() {
                     // salita e quello alla discesa non sono lo stesso numero,
                     // perche' fra le due fermate il bus ne recupera un pezzo.
                     val stops = reader.patternStopCount(leg.pattern)
-                    val boardDelay = app.delayModel
-                        .at(leg.trip, leg.boardPosition, stops, now)?.delaySeconds ?: 0
-                    val alightDelay = app.delayModel
+                    // La stessa fonte delle schede: prima qui c'era il solo
+                    // modello dei ritardi, quindi la navigazione non vedeva
+                    // le previsioni per fermata che il feed pubblica. Il bus
+                    // che stai aspettando poteva dire due minuti diversi a
+                    // seconda che guardassi la capsula o la sua fermata.
+                    val live = app.departureBoards.live()
+                    val boardAt = live.at(leg.trip, leg.boardPosition, stops, now)
+                    val boardDelay = boardAt?.delaySeconds ?: 0
+                    val alightDelay = live
                         .at(leg.trip, leg.alightPosition, stops, now)?.delaySeconds ?: 0
-                    val delay = boardDelay
                     val boardTime = leg.dayStartEpoch + leg.dep0 +
                         reader.profileOffset(leg.profile, leg.boardPosition) + boardDelay
                     val alightTime = leg.dayStartEpoch + leg.dep0 +
@@ -331,7 +336,12 @@ class NavigationService : Service() {
                             phase = "wait",
                             headline = "Aspetta la ${leg.lineName}",
                             detail = "parte tra ${((boardTime - now) / 60 + 1)} min" +
-                                if (delay != 0) " · ritardo live" else "",
+                                // Le parole del tabellone anche qui: "ritardo
+                                // live" non voleva dire niente altrove.
+                                (
+                                    dev.antigravity.fluidtransit.routing.DepartureText
+                                        .source(boardAt?.certainty)?.let { " · $it" } ?: ""
+                                    ),
                             stopsRemaining = totalStops,
                             totalStops = totalStops,
                             etaEpoch = alightTime,
@@ -341,7 +351,7 @@ class NavigationService : Service() {
                         // A bordo: la prossima fermata e' la prima col tempo davanti.
                         var nextPos = leg.alightPosition
                         for (pos in leg.boardPosition + 1..leg.alightPosition) {
-                            val posDelay = app.delayModel
+                            val posDelay = live
                                 .at(leg.trip, pos, stops, now)?.delaySeconds ?: 0
                             val t = leg.dayStartEpoch + leg.dep0 +
                                 reader.profileOffset(leg.profile, pos) + posDelay

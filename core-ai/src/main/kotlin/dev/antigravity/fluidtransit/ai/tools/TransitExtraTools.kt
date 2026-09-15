@@ -5,6 +5,7 @@ import dev.antigravity.fluidtransit.ai.tools.Args.int
 import dev.antigravity.fluidtransit.ai.tools.Args.str
 import dev.antigravity.fluidtransit.routing.BundleReader
 import dev.antigravity.fluidtransit.routing.Ftb
+import dev.antigravity.fluidtransit.routing.DepartureText
 import dev.antigravity.fluidtransit.routing.Times
 import java.time.DayOfWeek
 import java.time.Instant
@@ -210,25 +211,27 @@ class NextBusForTool : AiTool {
     val stop = Resolve.stopIndex(ctx, args.str("fermata")) ?: return "non trovo la fermata di partenza"
     val wanted = args.str("verso")?.lowercase()?.trim() ?: return "errore: manca la destinazione"
     val target = ctx.transit.findStops(wanted, 1).firstOrNull()
-    val departures = reader.nextDepartures(stop, Instant.ofEpochMilli(ctx.nowMillis), limit = 40, horizonSeconds = 3 * 3600, zone = ctx.zone)
-    val matching = departures.filter { d ->
-      val destination = reader.patternDestination(d.patternIndex).lowercase()
-      destination.contains(wanted) || target != null && passesThrough(reader, d.patternIndex, d.positionInPattern, target.stopIndex)
+    // Lo stesso tabellone delle schermate. Qui si diceva "orario previsto" e
+    // "dal vivo": due terzi di un terzo vocabolario, su numeri calcolati a
+    // parte che potevano non coincidere con quelli della scheda fermata.
+    val board = ctx.transit.board(stop, 40, 3 * 3600) ?: return NO_DATA
+    val matching = board.rows.filter { d ->
+      d.destination.lowercase().contains(wanted) ||
+        target != null && passesThrough(reader, d.patternIndex, d.positionInPattern, target.stopIndex)
     }
     if (matching.isEmpty()) {
-      val destinations = departures.map { reader.patternDestination(it.patternIndex) }.filter { it.isNotBlank() }.distinct()
+      val destinations = board.rows.map { it.destination }.filter { it.isNotBlank() }.distinct()
       return "da ${reader.stopName(stop)} non parte niente verso \"$wanted\" nelle prossime tre ore" +
         (if (destinations.isEmpty()) "" else "; da qui si va verso: ${destinations.joinToString(", ")}")
     }
     return ToolText.build {
-      line("da", reader.stopName(stop))
+      line("da", board.stopName.ifEmpty { reader.stopName(stop) })
       line("verso", target?.name ?: wanted)
       matching.take(5).forEach { d ->
-        val live = ctx.transit.delays?.at(d.tripIndex, d.positionInPattern, reader.patternStopCount(d.patternIndex))
-        val effective = d.instant.epochSecond + (live?.delaySeconds ?: 0)
+        val phrase = DepartureText.phrase(d, board.computedAtEpoch)
         line(
-          "${reader.lineName(d.routeIndex)} → ${reader.patternDestination(d.patternIndex)} · ${Times.hhmm(effective, ctx.zone)} " +
-            "(${Times.minutesLabel(ctx.nowEpoch, effective)}) · " + (if (live == null) "orario previsto" else "dal vivo, ${Times.delayLabel(live.delaySeconds)}"),
+          "${d.line} → ${d.destination} · ${Times.hhmm(d.effectiveEpoch, ctx.zone)} " +
+            "(${phrase.headline}) · ${phrase.support}",
         )
       }
     }

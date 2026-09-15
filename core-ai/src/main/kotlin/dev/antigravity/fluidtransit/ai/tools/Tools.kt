@@ -106,6 +106,24 @@ interface TransitBridge {
     val places: PlacesSearch?
     val delays: DelayModel?
 
+    /**
+     * Le prossime partenze da una fermata.
+     *
+     * Gli strumenti se le calcolavano da soli, con `nextDepartures` e il
+     * modello dei ritardi: era la sesta copia dello stesso calcolo, e
+     * l'unica che non vedeva ne' le previsioni per fermata del feed ne' le
+     * banchine riunite. Chiedere all'assistente "quando passa il 6" e
+     * guardare la scheda della stessa fermata poteva dare due minuti
+     * diversi, e nessuno dei due era sbagliato: erano due calcoli diversi.
+     *
+     * Null quando gli orari non ci sono ancora.
+     */
+    suspend fun board(
+        stopIndex: Int,
+        limit: Int,
+        horizonSeconds: Int,
+    ): dev.antigravity.fluidtransit.routing.DepartureBoard? = null
+
     /** Dove si trova l'utente adesso, se il telefono lo sa. */
     val here: Pair<Double, Double>?
 

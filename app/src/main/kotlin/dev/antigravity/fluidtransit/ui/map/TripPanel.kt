@@ -33,10 +33,13 @@ import androidx.compose.ui.unit.dp
 import dev.antigravity.fluidengine.ui.fluid.FluidHairline
 import dev.antigravity.fluidengine.ui.fluid.FluidTabBarDefaults
 import dev.antigravity.fluidtransit.routing.BundleReader
-import dev.antigravity.fluidtransit.routing.DelayModel
+import dev.antigravity.fluidtransit.routing.Certainty
+import dev.antigravity.fluidtransit.routing.DepartureText
+import dev.antigravity.fluidtransit.routing.LiveTimes
 import dev.antigravity.fluidtransit.routing.Ftb
 import dev.antigravity.fluidtransit.routing.StopTimes
 import dev.antigravity.fluidtransit.routing.Times
+import dev.antigravity.fluidtransit.ui.common.toneColor
 import java.time.Instant
 import java.time.ZonedDateTime
 import java.time.temporal.ChronoUnit
@@ -79,7 +82,9 @@ class TripInfo(
         /** L'orario corretto col ritardo di QUESTA fermata. */
         val effectiveEpoch: Long,
         /** Da dove viene la correzione: null = nessun dato live. */
-        val confidence: DelayModel.Confidence?,
+        val certainty: Certainty?,
+        /** Il feed dichiara che questa corsa, oggi, qui non ferma. */
+        val skipped: Boolean,
         val isLast: Boolean,
     )
 
@@ -90,7 +95,7 @@ class TripInfo(
             now: Instant,
             delaySec: Int?,
             canceled: Boolean,
-            delays: DelayModel? = null,
+            live: LiveTimes? = null,
         ): TripInfo {
             val shortName = if (ref.routeIndex >= 0) {
                 reader.routeShortName(ref.routeIndex).ifEmpty { reader.routeLongName(ref.routeIndex) }
@@ -138,13 +143,17 @@ class TripInfo(
                 // Il ritardo di QUESTA fermata. Prima era lo stesso intero su
                 // tutte, e la scheda prometteva gli stessi otto minuti di
                 // ritardo al capolinea di un'ora dopo.
-                val live = delays?.at(ref.tripIndex, i, n, java.time.Instant.now().epochSecond)
-                val confidence = live?.confidence
-                    ?: if (delaySec != null) DelayModel.Confidence.PROJECTED else null
+                val at = live?.at(ref.tripIndex, i, n, java.time.Instant.now().epochSecond)
                 // Il feed dice fin dove il bus e' arrivato: piu' affidabile
                 // dell'orologio quando la corsa e' in anticipo.
-                if (confidence == DelayModel.Confidence.SERVED) continue
-                val eff = scheduled + (live?.delaySeconds ?: delaySec ?: 0)
+                if (at?.certainty == Certainty.SERVED) continue
+                // Il ritardo del mezzo intero vale come ripiego, ma e' una
+                // stima nostra e va detto: e' una fermata che il feed non
+                // copre, non una previsione che ha dichiarato.
+                val certainty = at?.certainty
+                    ?: if (delaySec != null) Certainty.ESTIMATED else null
+                val skipped = live?.skipped(ref.tripIndex, i) == true
+                val eff = scheduled + (at?.delaySeconds ?: delaySec ?: 0)
                 if (eff < now.epochSecond - 60) continue // gia' passata
                 val s = reader.patternStop(pattern, i)
                 stops.add(
@@ -155,7 +164,8 @@ class TripInfo(
                         lon = reader.stopLon(s),
                         scheduledEpoch = scheduled,
                         effectiveEpoch = eff,
-                        confidence = confidence,
+                        certainty = certainty,
+                        skipped = skipped,
                         isLast = i == n - 1,
                     ),
                 )
@@ -397,39 +407,33 @@ fun TripFullContent(
                             )
                         }
                         Column(horizontalAlignment = Alignment.End) {
+                            // Le stesse parole, gli stessi toni e la stessa
+                            // regola del pallino del resto dell'app: qui
+                            // c'erano un "previsto" che voleva dire un'altra
+                            // cosa, il verde anche sulle stime e un 60
+                            // scritto a mano.
                             val nowSec = java.time.Instant.now().epochSecond
-                            val minutes = Times.minutesUntil(nowSec, stop.effectiveEpoch)
+                            val phrase = DepartureText.alongTrip(
+                                scheduledEpoch = stop.scheduledEpoch,
+                                delaySeconds = (stop.effectiveEpoch - stop.scheduledEpoch)
+                                    .toInt().takeIf { stop.certainty != null },
+                                certainty = stop.certainty,
+                                skipped = stop.skipped,
+                                nowEpoch = nowSec,
+                            )
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(5.dp),
                             ) {
-                                // Il pallino solo dove il feed sta guardando
-                                // adesso: prima TUTTE le fermate diventavano
-                                // verdi, anche quelle di un'ora dopo, che
-                                // sono pura estrapolazione.
-                                if (stop.confidence == DelayModel.Confidence.OBSERVED) {
-                                    LiveDot(liveGreen())
-                                }
+                                if (phrase.pulse) LiveDot(toneColor(phrase.tone))
                                 Text(
-                                    text = if (minutes < 60) {
-                                        Times.minutesLabel(nowSec, stop.effectiveEpoch)
-                                    } else {
-                                        Times.hhmm(stop.effectiveEpoch)
-                                    },
+                                    text = phrase.headline,
                                     style = MaterialTheme.typography.titleSmall,
-                                    color = if (stop.confidence != null) {
-                                        liveGreen()
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurface
-                                    },
+                                    color = toneColor(phrase.tone),
                                 )
                             }
-                            // Sotto sta SEMPRE l'orario di tabella, come
-                            // nella scheda fermata: prima qui c'era quello
-                            // gia' corretto, cioe' il contrario, e lo stesso
-                            // posto voleva dire due cose diverse.
                             Text(
-                                text = "previsto ${Times.hhmm(stop.scheduledEpoch)}",
+                                text = phrase.support,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

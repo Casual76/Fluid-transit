@@ -71,6 +71,19 @@ class RealtimeClient(
     private val _delays = MutableStateFlow<RtDelays?>(null)
     val delays: StateFlow<RtDelays?> = _delays
 
+    /**
+     * Le previsioni fermata per fermata.
+     *
+     * Sono quelle che fanno combaciare i nostri minuti con quelli ufficiali:
+     * [delays] porta UN numero per corsa e lascia all'app il compito di
+     * inventarsi come si propaga, queste portano quello che il feed dice
+     * davvero a ogni fermata. Restano null se il proxy non le serve — un
+     * Worker piu' vecchio dell'app — e in quel caso vale [delays], che non si
+     * smette mai di scaricare.
+     */
+    private val _predictions = MutableStateFlow<RtPredictionSet?>(null)
+    val predictions: StateFlow<RtPredictionSet?> = _predictions
+
     private val _status = MutableStateFlow(
         Status(Source.SCHEDULE_ONLY, null, null, null, 0, 0),
     )
@@ -84,6 +97,16 @@ class RealtimeClient(
     private var directHoldUntilMs = 0L
     private var vehiclesEtag: String? = null
     private var delaysEtag: String? = null
+    private var predictionsEtag: String? = null
+
+    /**
+     * Il proxy non serve le previsioni: si smette di chiederle.
+     *
+     * Appiccicoso di proposito. Un 404 qui non e' un intoppo passeggero, e'
+     * un Worker piu' vecchio dell'app; riprovare ogni trenta secondi per
+     * tutta la sessione sarebbe una richiesta buttata ogni trenta secondi.
+     */
+    private var predictionsAbsent = false
 
     /** La cadenza suggerita per il prossimo giro, secondo lo stato corrente. */
     fun vehiclesIntervalMs(): Long = when (_status.value.source) {
@@ -147,6 +170,7 @@ class RealtimeClient(
             _vehicles.value = parsed
             // In DIRECT i ritardi non si scaricano: quelli vecchi mentirebbero.
             _delays.value = null
+            _predictions.value = null
             publish(Source.DIRECT, feedAge(parsed.feedTimestamp), null)
         } catch (e: Exception) {
             publish(Source.SCHEDULE_ONLY, feedAge(_vehicles.value?.feedTimestamp), e.message)
@@ -174,6 +198,31 @@ class RealtimeClient(
             }
         } catch (_: Exception) {
             // I ritardi sono un di piu': un giro mancato non cambia stato.
+        }
+    }
+
+    /**
+     * Le previsioni per fermata, dal proxy.
+     *
+     * Stesso patto dei ritardi: vale solo da PROXY, perche' dall'origine
+     * costerebbero i trip-updates integrali. Un 404 vuol dire che il proxy
+     * non le conosce, e allora si smette di chiederle per questa sessione.
+     */
+    suspend fun refreshPredictions() = withContext(Dispatchers.IO) {
+        if (predictionsAbsent) return@withContext
+        if (_status.value.source != Source.PROXY) return@withContext
+        try {
+            val fetched = fetchBinary("$proxyBase/predictions", predictionsEtag) ?: return@withContext
+            _predictions.value = RtPredictionCodec.parse(fetched.bytes)
+            predictionsEtag = fetched.etag
+        } catch (e: IOException) {
+            if (e.message?.contains("404") == true) {
+                predictionsAbsent = true
+                _predictions.value = null
+            }
+        } catch (_: Exception) {
+            // Come i ritardi: un giro mancato non cambia stato. Quello che
+            // l'app mostra resta quello di prima, con la sua eta'.
         }
     }
 

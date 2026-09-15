@@ -120,11 +120,22 @@ class DepartureBoards(private val app: FluidTransitApp) {
     private fun readerOrNull(): BundleReader? =
         (app.bundleManager.state.value as? BundleState.Ready)?.reader
 
-    private fun liveTimes(): LiveTimes = LiveFromFeed(
-        delays = app.delayModel,
-        canceled = app.canceledTrips.value,
-        withVehicle = app.tripsWithVehicle.value,
-    )
+    /**
+     * Cosa si sa del tempo reale, adesso.
+     *
+     * Le previsioni per fermata quando ci sono, il modello dei ritardi come
+     * ripiego sotto. Non e' un o-l'uno-o-l'altro: le previsioni coprono le
+     * corse che il feed sta seguendo, e per tutte le altre vale il modello,
+     * dentro la stessa interrogazione.
+     */
+    private fun liveTimes(): LiveTimes {
+        val base = LiveFromFeed(
+            delays = app.delayModel,
+            canceled = app.canceledTrips.value,
+            withVehicle = app.tripsWithVehicle.value,
+        )
+        return app.livePredictions.value ?: base
+    }
 
     private fun empty(key: Key, now: Instant = Instant.now()): DepartureBoard {
         val stop = key.stops.firstOrNull() ?: -1
@@ -142,6 +153,10 @@ class DepartureBoards(private val app: FluidTransitApp) {
         pump = app.applicationScope.launch {
             while (true) {
                 runCatching { app.realtime.refreshDelays() }
+                // Le previsioni per fermata viaggiano insieme ai ritardi: se
+                // il proxy le serve valgono quelle, altrimenti vale il
+                // modello. Chi chiede non deve sapere quale delle due.
+                runCatching { app.realtime.refreshPredictions() }
                 delay(POLL_MS)
             }
         }

@@ -147,6 +147,19 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
                         "orari non si stanno agganciando",
                     meta = "$tracked · ${withVehicle.size} coi mezzi",
                 )
+                val predictions by app.realtime.predictions.collectAsStateWithLifecycle()
+                FluidListRow(
+                    title = "Previsioni fermata per fermata",
+                    subtitle = "Quante corse arrivano col ritardo dichiarato a OGNI fermata, e " +
+                        "non con un numero solo da propagare a mano. E' quello che fa combaciare " +
+                        "i minuti con quelli ufficiali: dove non arrivano, i numeri restano " +
+                        "una nostra stima e l'app lo dice",
+                    meta = predictions?.let { set ->
+                        val punti = set.byTripHash.values.sumOf { it.points.size }
+                        "${set.byTripHash.size} corse · $punti punti" +
+                            if (set.truncated) " · ridotte" else ""
+                    } ?: "—",
+                )
                 FluidListRow(
                     title = "Corse riconosciute",
                     subtitle = "Quanti bus del feed live combaciano con gli orari del bundle. " +

@@ -115,6 +115,18 @@ class FluidTransitApp : Application() {
     val liveVersion = kotlinx.coroutines.flow.MutableStateFlow(0)
 
     /**
+     * Le previsioni per fermata gia' risolte contro il bundle.
+     *
+     * Null finche' non arrivano — proxy vecchio, o primo giro non ancora
+     * fatto — e in quel caso vale il modello dei ritardi. Si ricostruisce a
+     * ogni snapshot perche' dentro ci sono indici del bundle e scarti di
+     * sequenza verificati: entrambi valgono per QUEL giro e per quel bundle.
+     */
+    val livePredictions = kotlinx.coroutines.flow.MutableStateFlow<
+        dev.antigravity.fluidtransit.data.departures.LiveFromPredictions?,
+        >(null)
+
+    /**
      * L'unica fonte delle prossime partenze.
      *
      * Vive qui per la stessa ragione del modello dei ritardi: due schermate
@@ -321,6 +333,33 @@ class FluidTransitApp : Application() {
                 delayModel.forgetBefore(at - 30 * 60)
                 // Per ultimo, quando tutto e' dentro: e' il segnale su cui i
                 // tabelloni si ricalcolano.
+                liveVersion.value += 1
+            }
+        }
+
+        // Le previsioni per fermata, risolte contro il bundle una volta per
+        // snapshot: la corsa in indice, e lo scarto fra lo stop_sequence del
+        // feed e la posizione nel pattern verificato contro le due ancore.
+        applicationScope.launch {
+            realtime.predictions.collect { set ->
+                val ready = bundleManager.state.value as? BundleManager.BundleState.Ready
+                val reader = ready?.reader
+                if (set == null || reader == null) {
+                    livePredictions.value = null
+                    return@collect
+                }
+                livePredictions.value = dev.antigravity.fluidtransit.data.departures
+                    .LiveFromPredictions.resolve(
+                        reader = reader,
+                        set = set,
+                        fallback = dev.antigravity.fluidtransit.data.departures.LiveFromFeed(
+                            delays = delayModel,
+                            canceled = canceledTrips.value,
+                            withVehicle = tripsWithVehicle.value,
+                        ),
+                        canceledTrips = canceledTrips.value,
+                        withVehicle = tripsWithVehicle.value,
+                    )
                 liveVersion.value += 1
             }
         }

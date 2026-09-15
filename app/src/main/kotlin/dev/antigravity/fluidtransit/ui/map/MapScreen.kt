@@ -802,6 +802,7 @@ fun MapScreen(
         // fotogramma vedeva "orario da tabella" per un paio di secondi, cioe'
         // esattamente il momento in cui si fa l'idea che il live non ci sia.
         runCatching { rt.refreshDelays() }
+        runCatching { rt.refreshPredictions() }
     }
 
     // --- i cicli del realtime: vivono col ciclo di vita della schermata ----
@@ -842,6 +843,7 @@ fun MapScreen(
         lifecycleOwner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
             while (true) {
                 rt.refreshDelays()
+                rt.refreshPredictions()
                 kotlinx.coroutines.delay(30_000)
             }
         }

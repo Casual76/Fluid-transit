@@ -94,8 +94,11 @@ object DepartureText {
                 "${source(row)} · in orario"
             row.live ->
                 "${source(row)} · da tabella alle ${Times.hhmm(row.scheduledEpoch)}"
+            // Il feed vede il mezzo ma non dice di quanto e' in ritardo. E'
+            // meno di una previsione e piu' di niente, e in una riga sola ci
+            // sta solo se si dice corto.
             row.monitored ->
-                "orario da tabella · il mezzo e' seguito ma non dichiara un ritardo"
+                "orario da tabella · il mezzo e' in strada"
             else ->
                 "orario da tabella"
         }

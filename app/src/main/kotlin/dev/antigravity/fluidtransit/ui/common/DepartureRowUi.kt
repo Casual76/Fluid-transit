@@ -69,6 +69,13 @@ fun DepartureRowUi(
         }
         RoutePill(text = row.line, colorRgb = row.colorRgb, modifier = pill)
 
+        // La provenienza sta SOTTO la destinazione, non sotto il numero.
+        //
+        // Messa a destra costringeva la colonna dei minuti a essere larga
+        // quanto "dal bus - da tabella alle 20:03", e la destinazione finiva
+        // troncata a "LA G..." proprio sulle righe che avevano qualcosa in
+        // piu' da dire. Il numero a destra resta corto, la spiegazione ha
+        // tutta la riga.
         Column(modifier = Modifier.weight(1f)) {
             if (showStopName && row.stopName.isNotEmpty()) {
                 Text(
@@ -86,29 +93,27 @@ fun DepartureRowUi(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-        }
-
-        trailing?.invoke()
-
-        Column(horizontalAlignment = Alignment.End) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-            ) {
-                // Il pallino pulsa solo dove il feed sta guardando adesso.
-                if (phrase.pulse) LiveDot(toneColor(phrase.tone))
-                Text(
-                    text = phrase.headline,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = toneColor(phrase.tone),
-                )
-            }
             Text(
                 text = phrase.support,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        trailing?.invoke()
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            // Il pallino pulsa solo dove il feed sta guardando adesso.
+            if (phrase.pulse) LiveDot(toneColor(phrase.tone))
+            Text(
+                text = phrase.headline,
+                style = MaterialTheme.typography.titleSmall,
+                color = toneColor(phrase.tone),
             )
         }
     }

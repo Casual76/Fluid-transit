@@ -114,7 +114,7 @@ class DepartureTextTest {
     @Test
     fun `una corsa seguita che non dichiara un ritardo lo dice`() {
         val p = DepartureText.phrase(row(300, monitored = true), now)
-        assertTrue(p.support.contains("seguito"), p.support)
+        assertTrue(p.support.contains("in strada"), p.support)
     }
 
     @Test

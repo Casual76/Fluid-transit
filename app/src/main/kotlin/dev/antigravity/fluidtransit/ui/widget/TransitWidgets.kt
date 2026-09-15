@@ -151,6 +151,7 @@ class StopWidget : GlanceAppWidget() {
         // I ritardi, che il widget prima non guardava affatto: mostrava gli
         // orari di tabella come se fossero certi, e per mezz'ora di fila.
         runCatching { withTimeoutOrNull(4_000) { app.realtime.refreshDelays() } }
+        runCatching { withTimeoutOrNull(4_000) { app.realtime.refreshPredictions() } }
         return app.departureBoards.snapshot(listOf(stop), limit = 5)
     }
 }

@@ -59,7 +59,6 @@ import kotlinx.coroutines.withContext
  * basso a sinistra sopra l'attribuzione, tasto posizione in basso a destra.
  * Tutto come da spec decisa con l'utente il 31/08.
  */
-/** Cosa mostra il pannello dal basso. Uno stato solo: il morphing e' un cambio di contenuto. */
 /**
  * Oltre questa eta' del feed i bus non si disegnano: meglio una mappa senza
  * mezzi per due secondi che mezzi dove non sono. Il tetto vero dell'origine
@@ -89,18 +88,6 @@ private const val NEARBY_STOPS = 8
  */
 private const val NEARBY_ANCHOR_MOVE_M = 200.0
 
-private sealed interface Panel {
-    class Stop(val tap: StopTap) : Panel
-    class RouteMini(val routeIndex: Int) : Panel
-    class RouteFull(val routeIndex: Int) : Panel
-    class TripMini(val ref: TripRef) : Panel
-    class TripFull(val ref: TripRef) : Panel
-    class Place(val ref: PlaceRef) : Panel
-    data object Nearby : Panel
-    class Journeys(val to: PlaceRef) : Panel
-    class JourneyDetail(val to: PlaceRef, val index: Int) : Panel
-}
-
 @androidx.compose.runtime.Composable
 @kotlin.OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 fun MapScreen(
@@ -124,8 +111,27 @@ fun MapScreen(
     var follow by rememberSaveable { mutableStateOf(FollowMode.FREE) }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
-    var panel by remember { mutableStateOf<Panel?>(null) }
-    var routeDirection by remember { mutableStateOf(0) }
+    var panel by rememberSaveable(stateSaver = PanelSaver) {
+        mutableStateOf<Panel?>(null)
+    }
+    var routeDirection by rememberSaveable { mutableStateOf(0) }
+
+    /**
+     * Il guardiano del bundle.
+     *
+     * Un pannello salvato porta dentro degli indici, e gli indici valgono
+     * solo nel bundle che li ha prodotti. Se l'app e' stata sfrattata dalla
+     * memoria e nel frattempo e' passato l'aggiornamento notturno, quegli
+     * indici puntano a una linea diversa: il pannello si butta, e si riparte
+     * dalla mappa. Nel caso normale — rotazione, cambio di scheda — il
+     * bundle e' lo stesso e non succede niente.
+     */
+    var panelBuild by rememberSaveable { mutableStateOf(0L) }
+    LaunchedEffect(ready?.buildId) {
+        val id = ready?.buildId ?: return@LaunchedEffect
+        if (panelBuild != 0L && panelBuild != id) panel = null
+        panelBuild = id
+    }
 
     // Lo zoom corrente (a camera ferma): decide se i bus vivi si scaricano.
     //
@@ -491,7 +497,12 @@ fun MapScreen(
         )
     }
 
-    var journeyOrigin by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    // Da dove parte il viaggio, in coordinate. Salvabile come il pannello:
+    // senza, un pannello dei viaggi ripristinato non aveva piu' una partenza
+    // e restava a "Cerco i prossimi viaggi..." per sempre.
+    var journeyOrigin by rememberSaveable(stateSaver = LatLonSaver) {
+        mutableStateOf<Pair<Double, Double>?>(null)
+    }
 
     /**
      * Da dove parte il viaggio, detto a parole.
@@ -503,19 +514,23 @@ fun MapScreen(
      * partiva, correttamente, dal punto scelto. Il numero era giusto e la
      * frase era falsa, che e' il modo peggiore di sbagliare.
      */
-    var journeyFrom by remember { mutableStateOf("Dalla tua posizione") }
+    var journeyFrom by rememberSaveable { mutableStateOf("Dalla tua posizione") }
     var journeyTimeMode by rememberSaveable { mutableStateOf("now") } // now | depart | arrive
     var journeyTimeEpoch by rememberSaveable { mutableStateOf(0L) }
     var showTimeDialog by remember { mutableStateOf(false) }
 
     // Il pianificatore Da/A. `originRef` nullo vuol dire "da dove sei":
     // resta il caso normale, ma smette di essere l'unico possibile.
-    var plannerOpen by remember { mutableStateOf(false) }
-    var originRef by remember { mutableStateOf<PlaceRef?>(null) }
-    var destRef by remember { mutableStateOf<PlaceRef?>(null) }
+    var plannerOpen by rememberSaveable { mutableStateOf(false) }
+    var originRef by rememberSaveable(stateSaver = PlaceRefSaver) {
+        mutableStateOf<PlaceRef?>(null)
+    }
+    var destRef by rememberSaveable(stateSaver = PlaceRefSaver) {
+        mutableStateOf<PlaceRef?>(null)
+    }
 
     /** Quale delle due righe sta compilando la ricerca: "from", "to", o niente. */
-    var plannerField by remember { mutableStateOf<String?>(null) }
+    var plannerField by rememberSaveable { mutableStateOf<String?>(null) }
 
     /** Calcola, quando c'e' abbastanza per calcolare. */
     fun runPlanner() {

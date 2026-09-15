@@ -35,9 +35,7 @@ internal object Resolve {
         val reader = ctx.transit.reader ?: return null
         if (query != null) return ctx.transit.findStops(query, 1).firstOrNull()?.stopIndex
         val ref = ctx.reference ?: return null
-        return reader.stopsNear(ref.first, ref.second, 700.0).minByOrNull {
-            BundleReader.haversine(ref.first, ref.second, reader.stopLat(it), reader.stopLon(it))
-        }
+        return reader.stopsNear(ref.first, ref.second, 700.0).firstOrNull()
     }
 
     fun target(ctx: ToolContext, text: String?): Target? {
@@ -179,9 +177,8 @@ class NextDeparturesTool : AiTool {
         val query = args.str("fermata")
         val stopIndex = if (query == null) {
             val ref = ctx.reference ?: return "errore: non so dove ti trovi"
-            reader.stopsNear(ref.first, ref.second, 600.0).minByOrNull {
-                BundleReader.haversine(ref.first, ref.second, reader.stopLat(it), reader.stopLon(it))
-            } ?: return "nessuna fermata entro seicento metri"
+            reader.stopsNear(ref.first, ref.second, 600.0).firstOrNull()
+                ?: return "nessuna fermata entro seicento metri"
         } else {
             ctx.transit.findStops(query, 1).firstOrNull()?.stopIndex
                 ?: return "non trovo una fermata che si chiami \"$query\""

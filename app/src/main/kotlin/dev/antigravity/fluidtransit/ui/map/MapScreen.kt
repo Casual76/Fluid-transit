@@ -1007,12 +1007,9 @@ fun MapScreen(
         }
         val center = controller.cameraCenter() ?: return@produceState
         value = withContext(Dispatchers.Default) {
+            // `stopsNear` esce gia' dalla piu' vicina: prendere le prime
+            // cinque vuol dire prendere le cinque piu' vicine.
             reader.stopsNear(center.first, center.second, 700.0)
-                .sortedBy {
-                    dev.antigravity.fluidtransit.routing.BundleReader.haversine(
-                        center.first, center.second, reader.stopLat(it), reader.stopLon(it),
-                    )
-                }
                 .take(5)
                 .map { s ->
                     Suggestion(

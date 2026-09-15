@@ -220,6 +220,17 @@ class BundleReader(file: File, private val verifyCrcOnFirstUse: Boolean = true) 
      * sull'asse peggiore, cosi' anche i raggi grandi non perdono fermate
      * oltre il bordo est/ovest.
      */
+    /**
+     * Le fermate entro [radiusMeters] da un punto, **dalla piu' vicina**.
+     *
+     * L'ordine e' parte del contratto, e non lo era: la scansione va di
+     * cella in cella, quindi usciva un ordine che dipendeva dalla griglia.
+     * Chi prendeva le prime N si ritrovava N fermate qualsiasi del cerchio —
+     * in centro, dove dentro settecento metri ce ne sono decine, poteva
+     * restare fuori proprio quella sotto i piedi. Quattro chiamanti su
+     * cinque riordinavano per distanza subito dopo; il quinto se n'era
+     * dimenticato, ed era "Qui intorno".
+     */
     fun stopsNear(lat: Double, lon: Double, radiusMeters: Double): List<Int> {
         val g = sec(Ftb.S_STOP_GRID)
         val cellCount = g.getInt(0)
@@ -237,7 +248,7 @@ class BundleReader(file: File, private val verifyCrcOnFirstUse: Boolean = true) 
         val metersPerLonCell = 111_320.0 * Ftb.GRID_DEGREES * Math.cos(Math.toRadians(lat))
         val span = Math.ceil(radiusMeters / metersPerLonCell.coerceAtLeast(1.0)).toInt().coerceAtLeast(1)
 
-        val out = ArrayList<Int>()
+        val found = ArrayList<Near>()
         for (dLat in -span..span) {
             for (dLon in -span..span) {
                 val key = ((latCell + dLat).toLong() shl 32) or ((lonCell + dLon).toLong() and 0xffffffffL)
@@ -247,12 +258,19 @@ class BundleReader(file: File, private val verifyCrcOnFirstUse: Boolean = true) 
                 val to = g.getInt(startsBase + (at + 1) * 4)
                 for (p in from until to) {
                     val stop = g.getInt(valuesBase + p * 4)
-                    if (haversine(lat, lon, stopLat(stop), stopLon(stop)) <= radiusMeters) out.add(stop)
+                    val d = haversine(lat, lon, stopLat(stop), stopLon(stop))
+                    if (d <= radiusMeters) found.add(Near(stop, d))
                 }
             }
         }
-        return out
+        // La distanza e' gia' stata calcolata per il filtro: ordinare con
+        // quella non costa una misura in piu', e rende vero quello che il
+        // nome promette.
+        found.sortBy { it.meters }
+        return found.map { it.stop }
     }
+
+    private class Near(val stop: Int, val meters: Double)
 
     private fun binarySearchKeys(buf: ByteBuffer, base: Int, count: Int, key: Long): Int {
         var lo = 0

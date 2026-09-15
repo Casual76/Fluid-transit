@@ -206,11 +206,7 @@ class FluidTransitApp : Application() {
         val label = if (ready != null && here != null) {
             val r = ready.reader
             r.stopsNear(here.first, here.second, 700.0)
-                .minByOrNull {
-                    dev.antigravity.fluidtransit.routing.BundleReader.haversine(
-                        here.first, here.second, r.stopLat(it), r.stopLon(it),
-                    )
-                }
+                .firstOrNull()
                 ?.let { "vicino alla fermata ${r.stopName(it)}" }
         } else {
             null

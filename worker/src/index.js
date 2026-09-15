@@ -22,6 +22,7 @@ import { parseFeed } from './gtfsrt.js';
 import {
   SNAPSHOT_KEY, HEADER_LEN, buildSnapshot, readHeader, sliceSection,
 } from './snapshot.js';
+import { buildPredictions } from './predictions.js';
 
 const ORIGIN = 'https://regionetoscana.smartregion.toscana.it/mobility/artifacts/gtfs-rt';
 const UA = 'FluidTransit-RT/1.0 (+https://github.com/Casual76/Fluid-transit)';
@@ -60,6 +61,7 @@ const SECTION_KEYS = {
   1: 'rt/vehicles.gz',
   2: 'rt/updates.gz',
   3: 'rt/alerts.gz',
+  4: 'rt/predictions.gz',
 };
 const HEARTBEAT_KEY = 'rt/cron-heartbeat';
 
@@ -146,11 +148,16 @@ export default {
     switch (url.pathname) {
       case '/rt/v1/vehicles': return serveSection(request, env, ctx, 1);
       case '/rt/v1/updates': return serveSection(request, env, ctx, 2);
+      // Le previsioni per fermata. Percorso NUOVO e non versione nuova di
+      // /updates: quello resta congelato per sempre com'e', perche' il
+      // lettore installato sui telefoni pretende record da 32 byte e il
+      // Worker si deploya solo in avanti.
+      case '/rt/v1/predictions': return serveSection(request, env, ctx, 4);
       case '/rt/v1/alerts': return serveSection(request, env, ctx, 3);
       case '/rt/v1/health': return serveHealth(env, ctx);
       case '/rt/v1/refresh': return serveRefresh(request, env);
       default:
-        return new Response('Fluid Transit realtime proxy. Endpoints: /rt/v1/{vehicles,updates,alerts,health}\n', {
+        return new Response('Fluid Transit realtime proxy. Endpoints: /rt/v1/{vehicles,updates,predictions,alerts,health}\n', {
           status: url.pathname === '/' ? 200 : 404,
           headers: { 'content-type': 'text/plain; charset=utf-8' },
         });
@@ -280,8 +287,9 @@ async function refresh(env) {
     return 'parse fallito: ' + String(e);
   }
 
+  const generatedAt = Math.floor(Date.now() / 1000);
   const snapshot = buildSnapshot({
-    generatedAt: Math.floor(Date.now() / 1000),
+    generatedAt,
     vp,
     tu,
     alertsBytes: alBytes,
@@ -290,30 +298,45 @@ async function refresh(env) {
     alTimestamp,
     flags: 0,
   });
+  // Le previsioni per fermata stanno FUORI da rt/latest.bin: hanno record di
+  // lunghezza variabile, e quel formato ha sezioni di lunghezza fissa con gli
+  // offset scritti in un header da 64 byte gia' pieno. Allargarlo avrebbe
+  // voluto dire migrare uno snapshot che sta li' adesso, per guadagnare
+  // niente: la sezione si serve dal suo oggetto e basta.
+  const predictions = buildPredictions({ generatedAt, tu, flags: 0 });
   await env.RT.put(SNAPSHOT_KEY, snapshot);
-  await writeSections(env, snapshot);
-  return 'scritto: ' + vp.vehicles.length + ' veicoli, ' + tu.updates.length + ' update, ' + snapshot.length + ' B';
+  await writeSections(env, snapshot, predictions);
+  return 'scritto: ' + vp.vehicles.length + ' veicoli, ' + tu.updates.length + ' update, ' +
+    predictions.stats.points + '/' + predictions.stats.rawPoints + ' previsioni, ' +
+    snapshot.length + ' B';
 }
 
 /**
  * Le tre sezioni pronte da servire. I metadati viaggiano con l'oggetto:
  * servono a costruire ETag ed eta' senza rileggere niente altro.
  */
-async function writeSections(env, snapshot) {
+async function writeSections(env, snapshot, predictions) {
   const header = readHeader(snapshot);
   if (!header) return;
   const parts = [
-    [1, sliceSection(snapshot, header, 1), header.vpTimestamp],
-    [2, sliceSection(snapshot, header, 2), header.tuTimestamp],
-    [3, snapshot.subarray(header.alertsOff, header.alertsOff + header.alertsLen), header.alTimestamp],
+    [1, sliceSection(snapshot, header, 1), header.vpTimestamp, null],
+    [2, sliceSection(snapshot, header, 2), header.tuTimestamp, null],
+    [3, snapshot.subarray(header.alertsOff, header.alertsOff + header.alertsLen), header.alTimestamp, null],
   ];
-  await Promise.all(parts.map(async ([kind, body, feedTs]) => {
+  // I conteggi viaggiano coi metadati dell'oggetto: /health li riporta senza
+  // rileggere i byte, ed e' da li' che si capisce se il feed manda previsioni
+  // davvero diverse fermata per fermata o trenta copie dello stesso numero.
+  if (predictions) {
+    parts.push([4, predictions.bytes, header.tuTimestamp, predictions.stats]);
+  }
+  await Promise.all(parts.map(async ([kind, body, feedTs, stats]) => {
     const gz = await gzipBytes(body);
     await env.RT.put(SECTION_KEYS[kind], gz, {
       customMetadata: {
         feedTs: String(feedTs || 0),
         len: String(body.length),
         gen: String(header.generatedAt || 0),
+        ...(stats ? { stats: JSON.stringify(stats) } : {}),
       },
     });
   }));
@@ -369,6 +392,19 @@ async function serveSection(request, env, ctx, kind) {
       // Il refresh resta agganciato all'eta' dello snapshot, come prima.
       maybeLazyRefresh(env, ctx, generatedAt);
     }
+  }
+
+  // Le previsioni non stanno nello snapshot, quindi il ripiego qui sotto non
+  // le riguarda: finche' il primo cron non le ha scritte non ci sono, e si
+  // dice 404 invece di affettare la sezione sbagliata. L'app ripiega da se'
+  // su /rt/v1/updates, che e' esattamente cosa fa gia' oggi.
+  if (!response && kind === 4) {
+    const body = JSON.stringify({ error: 'previsioni non ancora generate' });
+    maybeLazyRefresh(env, ctx, 0);
+    return new Response(body, {
+      status: 404,
+      headers: { 'content-type': 'application/json', 'retry-after': '60' },
+    });
   }
 
   // Il ripiego: lo snapshot intero. Vale finche' le sezioni non sono state
@@ -503,6 +539,28 @@ async function serveHealth(env, ctx) {
   } catch {
     header = null;
   }
+  // I conteggi delle previsioni: stanno nei metadati dell'oggetto, quindi
+  // costano una HEAD e non la lettura dei byte. Sono la misura che dice se
+  // leggere tutte le StopTimeUpdate e' servito a qualcosa: se `points` e'
+  // vicino a `rawPoints` il feed manda previsioni diverse fermata per
+  // fermata; se e' una frazione minima, sta ripetendo lo stesso numero.
+  let predictions = null;
+  try {
+    const obj = await env.RT.head(SECTION_KEYS[4]);
+    if (obj) {
+      const meta = obj.customMetadata || {};
+      const feedTs = Number(meta.feedTs || 0);
+      predictions = {
+        bytesGzip: obj.size,
+        bytes: Number(meta.len || 0),
+        feedAgeSeconds: feedTs ? Math.floor(Date.now() / 1000) - feedTs : null,
+        stats: meta.stats ? JSON.parse(meta.stats) : null,
+      };
+    }
+  } catch {
+    predictions = null;
+  }
+
   const now = Math.floor(Date.now() / 1000);
   if (header) maybeLazyRefresh(env, ctx, header.generatedAt);
   const body = header
@@ -513,6 +571,7 @@ async function serveHealth(env, ctx) {
       vehicles: { count: header.vehicleCount, feedAgeSeconds: header.vpTimestamp ? now - header.vpTimestamp : null },
       updates: { count: header.delayCount, feedAgeSeconds: header.tuTimestamp ? now - header.tuTimestamp : null },
       alerts: { bytes: header.alertsLen, feedAgeSeconds: header.alTimestamp ? now - header.alTimestamp : null },
+      predictions,
       cron: heartbeat ? { ageSeconds: now - heartbeat.at, outcome: heartbeat.outcome } : null,
     }
     : { ok: false, error: 'snapshot non ancora generato' };

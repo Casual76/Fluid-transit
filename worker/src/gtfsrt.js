@@ -115,16 +115,61 @@ function parseVehicleDescriptor(buf, start, end) {
 
 /** StopTimeEvent: delay(1 int32), time(2 int64). */
 function parseStopTimeEvent(buf, start, end) {
-  const e = { delay: null };
+  const e = { delay: null, time: null };
   fields(buf, start, end, (field, wire, pos) => {
     if (field === 1 && wire === 0) {
       const v = varint(buf, pos);
       e.delay = v.lo | 0; // int32: i 32 bit bassi, reinterpretati con segno
       return v.pos;
     }
+    if (field === 2 && wire === 0) {
+      // L'orario assoluto. GTFS-RT permette di mandare `time` invece di
+      // `delay`, e per trasformarlo in un ritardo servirebbe l'orario di
+      // tabella, che qui non c'e'. Per ora si legge solo per CONTARLO: se
+      // l'origine lo usasse, lo si scoprirebbe da /health invece che da un
+      // tabellone vuoto.
+      const v = varint(buf, pos);
+      e.time = v.num;
+      return v.pos;
+    }
     return undefined;
   });
   return e;
+}
+
+/**
+ * StopTimeUpdate: stop_sequence(1), arrival(2), departure(3), stop_id(4),
+ * schedule_relationship(5).
+ *
+ * `stop_id` e `schedule_relationship` finora non venivano nemmeno letti.
+ * Il primo e' l'aggancio buono verso il bundle — `stop_sequence` e' un
+ * numero che GTFS lascia libero e che il bundle non conserva; il secondo e'
+ * l'unico modo di sapere che una fermata viene SALTATA, cioe' che quella
+ * partenza non ci sara' invece di essere in ritardo.
+ */
+function parseStopTimeUpdate(buf, start, end) {
+  let seq = null;
+  let stopId = null;
+  let arr = null;
+  let dep = null;
+  let rel = 0; // SCHEDULED
+  fields(buf, start, end, (f, w, p) => {
+    if (f === 1 && w === 0) { const v = varint(buf, p); seq = v.num; return v.pos; }
+    if (f === 2 && w === 2) { const s = subMessage(buf, p); arr = parseStopTimeEvent(buf, s.start, s.end); return s.end; }
+    if (f === 3 && w === 2) { const s = subMessage(buf, p); dep = parseStopTimeEvent(buf, s.start, s.end); return s.end; }
+    if (f === 4 && w === 2) { const s = stringAt(buf, p); stopId = s.value; return s.pos; }
+    if (f === 5 && w === 0) { const v = varint(buf, p); rel = v.num; return v.pos; }
+    return undefined;
+  });
+  // Departure prima di arrival: e' l'orario a cui il mezzo RIPARTE, che e'
+  // quello che interessa a chi sta alla fermata. La stessa preferenza che
+  // la proiezione a un numero solo ha sempre avuto.
+  const delay = (dep && dep.delay !== null) ? dep.delay
+    : (arr && arr.delay !== null ? arr.delay : null);
+  const from = (dep && dep.delay !== null) ? 1 : (arr && arr.delay !== null ? 0 : -1);
+  const time = (dep && dep.time !== null) ? dep.time
+    : (arr && arr.time !== null ? arr.time : null);
+  return { seq, stopId, delay, from, time, rel };
 }
 
 /**
@@ -215,13 +260,28 @@ function parseVehiclePosition(buf, view, start, end) {
 /**
  * TripUpdate: trip(1), stop_time_update(2 rip.), timestamp(4), delay(5).
  *
- * Del ventaglio di StopTimeUpdate si tiene il PRIMO che porta un delay —
- * gli update partono dalla prossima fermata, quindi il primo e' "il ritardo
- * adesso". Ripiego sul delay complessivo del TripUpdate se nessuno ce l'ha.
+ * Fino alla Fase 9 di questo ventaglio si teneva **solo il primo
+ * StopTimeUpdate con un delay**, e gli altri si saltavano senza entrarci.
+ * Era un risparmio vero (una corsa ne porta uno per ogni fermata rimanente),
+ * ma buttava via l'unica cosa che le app ufficiali hanno e noi no: la
+ * previsione fermata per fermata. Con quel numero solo, l'app doveva
+ * INVENTARSI come il ritardo si propaga lungo il percorso — e i suoi minuti
+ * potevano non coincidere con quelli ufficiali anche quando il feed era
+ * d'accordo.
+ *
+ * Adesso si leggono tutte. Il costo misurato dalla Fase 1 e' ~434 TripUpdate
+ * con una trentina di fermate ciascuno: qualche decina di millisecondi di CPU
+ * al minuto, dentro i 30 s di budget di un'invocazione cron.
+ *
+ * `delay` e `nextStopSeq` restano e valgono esattamente come prima: sono la
+ * proiezione a un numero solo che alimenta `/rt/v1/updates`, cioe' le
+ * versioni dell'app gia' installate. Derivandola dallo stesso elenco invece
+ * che da un parse parziale, le due non possono piu' divergere.
  */
 function parseTripUpdate(buf, start, end) {
-  const u = { trip: null, delay: null, nextStopSeq: null, canceled: false };
-  let firstStuDelay = null;
+  const u = {
+    trip: null, delay: null, nextStopSeq: null, canceled: false, stops: [],
+  };
   let overallDelay = null;
   fields(buf, start, end, (field, wire, pos) => {
     switch (field) {
@@ -232,39 +292,8 @@ function parseTripUpdate(buf, start, end) {
         return m.end;
       }
       case 2: {
-        // Serve SOLO il primo StopTimeUpdate che porta un delay (vedi il
-        // commento in testa alla funzione). Trovato quello, i successivi si
-        // saltano senza entrarci: una corsa ne porta uno per ogni fermata
-        // rimanente, quindi era l'85-90% del lavoro sui trip-updates —
-        // decodificato per intero e poi scartato dal controllo a valle.
-        if (firstStuDelay !== null) return subMessage(buf, pos).end;
         const m = subMessage(buf, pos);
-        // StopTimeUpdate: stop_sequence(1), arrival(2), departure(3)
-        let seq = null;
-        let dep = null;
-        let arr = null;
-        fields(buf, m.start, m.end, (f2, w2, p2) => {
-          if (f2 === 1 && w2 === 0) { const v = varint(buf, p2); seq = v.num; return v.pos; }
-          if (f2 === 2 && w2 === 2) {
-            const s = subMessage(buf, p2);
-            arr = parseStopTimeEvent(buf, s.start, s.end);
-            return s.end;
-          }
-          if (f2 === 3 && w2 === 2) {
-            const s = subMessage(buf, p2);
-            dep = parseStopTimeEvent(buf, s.start, s.end);
-            return s.end;
-          }
-          return undefined;
-        });
-        if (firstStuDelay === null) {
-          const d = (dep && dep.delay !== null) ? dep.delay
-            : (arr && arr.delay !== null ? arr.delay : null);
-          if (d !== null) {
-            firstStuDelay = d;
-            u.nextStopSeq = seq;
-          }
-        }
+        u.stops.push(parseStopTimeUpdate(buf, m.start, m.end));
         return m.end;
       }
       case 5: {
@@ -276,6 +305,16 @@ function parseTripUpdate(buf, start, end) {
       default: return undefined;
     }
   });
-  u.delay = firstStuDelay !== null ? firstStuDelay : overallDelay;
+  // La proiezione storica: il primo StopTimeUpdate che porta un ritardo.
+  // Gli update partono dalla prossima fermata, quindi il primo e' "il
+  // ritardo adesso".
+  const first = u.stops.find((s) => s.delay !== null);
+  if (first) {
+    u.delay = first.delay;
+    u.nextStopSeq = first.seq;
+  } else {
+    u.delay = overallDelay;
+  }
+  u.overallDelay = overallDelay;
   return u;
 }

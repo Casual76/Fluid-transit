@@ -165,7 +165,7 @@ class NextDeparturesTool : AiTool {
     override val group = ToolGroup.SCHEDULE
     override val description =
         "Quando passano i prossimi mezzi da una fermata, con linea, destinazione e minuti " +
-            "che mancano. Dice anche se il minuto e' un dato live dal bus o un orario previsto."
+            "che mancano. Dice anche se il minuto viene dal bus, e' una nostra stima o e' l'orario di tabella."
     override val parameters = Schema.obj(
         mapOf(
             "fermata" to Schema.str("nome della fermata; vuoto per la piu' vicina a dove si trova"),

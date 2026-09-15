@@ -456,19 +456,35 @@ fun JourneyDetailContent(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
-                        if (leg.live) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                                modifier = Modifier.padding(top = 2.dp),
-                            ) {
-                                LiveDot(liveGreen())
-                                Text(
-                                    text = delayLabel(leg.delaySeconds, canceled = false),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = liveGreen(),
-                                )
-                            }
+                        // La provenienza c'e' SEMPRE, come in ogni altro
+                        // posto dove l'app scrive un orario.
+                        //
+                        // Prima: pallino verde e ritardo quando il feed
+                        // seguiva la corsa, e assolutamente niente quando non
+                        // la seguiva. Il silenzio in un viaggio calcolato si
+                        // legge come "questo orario e' sicuro", che e' il
+                        // contrario di quello che vuol dire.
+                        //
+                        // Le parole e il grigio del sottotitolo sono gli
+                        // stessi della riga di un tabellone: e' lo stesso
+                        // fatto, scritto nello stesso modo.
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            modifier = Modifier.padding(top = 2.dp),
+                        ) {
+                            if (leg.live) LiveDot(liveGreen())
+                            Text(
+                                text = if (leg.live) {
+                                    "dal bus · " +
+                                        dev.antigravity.fluidtransit.routing.Times
+                                            .delayLabel(leg.delaySeconds)
+                                } else {
+                                    "orario da tabella"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 }

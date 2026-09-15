@@ -46,9 +46,16 @@ object Times {
      * Il ritardo detto a parole. Null quando non c'e' un dato live: e'
      * diverso da "in orario", e prima le due cose erano indistinguibili
      * perche' si guardava `delay != 0`.
+     *
+     * Il caso senza dati dice "orario da tabella", non "orario previsto".
+     * "Previsto" voleva dire due cose opposte nel vocabolario di prima —
+     * l'orario pubblicato e l'assenza di dati dal vivo — e questa era
+     * l'ultima riga rimasta a usarlo nel secondo senso: la si leggeva
+     * nella testata della scheda corsa, dove diceva "Orario previsto"
+     * proprio dove la scheda fermata scrive "orario da tabella".
      */
     fun delayLabel(delaySeconds: Int?): String = when {
-        delaySeconds == null -> "orario previsto"
+        delaySeconds == null -> "orario da tabella"
         toMinutes(delaySeconds) > 0 -> "+${toMinutes(delaySeconds)} min di ritardo"
         toMinutes(delaySeconds) < 0 -> "${-toMinutes(delaySeconds)} min in anticipo"
         else -> "in orario"

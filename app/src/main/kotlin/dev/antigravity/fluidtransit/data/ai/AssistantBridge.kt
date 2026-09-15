@@ -220,7 +220,7 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
         val source = when (status.source) {
             dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.PROXY -> "dal servizio Pampa"
             dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.DIRECT -> "dal feed ufficiale"
-            dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.SCHEDULE_ONLY -> "nessuno: solo orario previsto"
+            dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.SCHEDULE_ONLY -> "nessuno: solo orari di tabella"
         }
         val age = status.feedAgeSeconds?.let { "aggiornati ${it}s fa" } ?: "mai aggiornati"
         val counts = "${status.vehicleCount} mezzi, ${status.delayCount} ritardi"

@@ -38,10 +38,13 @@ class TimesTest {
     }
 
     @Test
-    fun `orario previsto e in orario sono due cose diverse`() {
+    fun `nessun dato e in orario sono due cose diverse`() {
         // Prima si guardava `delay != 0`, quindi una corsa monitorata e
         // puntuale era indistinguibile da una senza dati live.
-        assertEquals("orario previsto", Times.delayLabel(null))
+        //
+        // E le parole sono quelle del vocabolario comune: "da tabella", non
+        // "previsto", che nel vecchio vocabolario voleva dire due cose opposte.
+        assertEquals("orario da tabella", Times.delayLabel(null))
         assertEquals("in orario", Times.delayLabel(0))
         assertEquals("in orario", Times.delayLabel(20))
         assertEquals("+3 min di ritardo", Times.delayLabel(170))

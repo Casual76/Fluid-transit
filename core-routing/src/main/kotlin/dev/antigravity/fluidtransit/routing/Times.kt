@@ -61,6 +61,26 @@ object Times {
         else -> "in orario"
     }
 
+    /**
+     * Una durata detta come la direbbe una persona.
+     *
+     * "240 min" e' un numero che si deve convertire in testa prima di capirlo,
+     * e un viaggio notturno con tre ore di attesa in mezzo lo raggiunge senza
+     * sforzo. Sotto l'ora restano i minuti, che sono la grana giusta per un
+     * autobus; sopra, le ore davanti, e i minuti solo se ce ne sono.
+     *
+     * Si arrotonda al minuto piu' vicino come tutto il resto dell'app: un
+     * viaggio da 89 secondi e' "1 min", non "1 min" per troncamento e "2 min"
+     * da un'altra parte.
+     */
+    fun durationLabel(seconds: Int): String {
+        val minutes = toMinutes(seconds).coerceAtLeast(0)
+        if (minutes < 60) return "$minutes min"
+        val h = minutes / 60
+        val m = minutes % 60
+        return if (m == 0) "$h h" else "$h h $m min"
+    }
+
     /** L'orologio, sempre a due cifre: `07:05`, non `7:05`. */
     fun hhmm(epochSecond: Long, zone: ZoneId = Ftb.ROME): String {
         val t = ZonedDateTime.ofInstant(Instant.ofEpochSecond(epochSecond), zone)

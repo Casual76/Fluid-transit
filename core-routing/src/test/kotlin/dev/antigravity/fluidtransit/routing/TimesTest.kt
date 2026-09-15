@@ -70,4 +70,43 @@ class TimesTest {
         // bus passa domani mattina.
         assertEquals("01:30 (domani)", Times.serviceTime(25 * 3600 + 30 * 60))
     }
+    @Test
+    fun `una durata si dice come la direbbe una persona`() {
+        // Sotto l'ora i minuti, che sono la grana giusta per un autobus.
+        assertEquals("0 min", Times.durationLabel(0))
+        assertEquals("1 min", Times.durationLabel(60))
+        assertEquals("43 min", Times.durationLabel(43 * 60))
+        assertEquals("59 min", Times.durationLabel(59 * 60))
+    }
+
+    @Test
+    fun `sopra l'ora le ore vanno davanti`() {
+        // "240 min" e' un numero da convertire in testa prima di capirlo, e un
+        // viaggio notturno con tre ore di attesa in mezzo ci arriva senza
+        // sforzo: era la durata che l'app mostrava per un viaggio da quattro
+        // ore.
+        assertEquals("1 h", Times.durationLabel(60 * 60))
+        assertEquals("1 h 1 min", Times.durationLabel(61 * 60))
+        assertEquals("3 h 21 min", Times.durationLabel((3 * 60 + 21) * 60))
+        assertEquals("4 h", Times.durationLabel(240 * 60))
+    }
+
+    @Test
+    fun `si arrotonda al minuto, come tutto il resto`() {
+        // 89 secondi sono un minuto e mezzo: due posti dell'app che li
+        // scrivono in modo diverso sono due posti che non si fidano l'uno
+        // dell'altro.
+        assertEquals("1 min", Times.durationLabel(89))
+        assertEquals("2 min", Times.durationLabel(91))
+        assertEquals("1 h", Times.durationLabel(59 * 60 + 40))
+    }
+
+    @Test
+    fun `una durata negativa non esiste e non si stampa`() {
+        // Non dovrebbe capitare, ma "-3 min di viaggio" sarebbe peggio di
+        // "0 min": un orologio che va all'indietro e' esattamente il genere
+        // di cosa che fa smettere di credere a tutto il resto.
+        assertEquals("0 min", Times.durationLabel(-500))
+    }
+
 }

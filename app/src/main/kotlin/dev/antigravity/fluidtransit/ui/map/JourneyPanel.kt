@@ -40,6 +40,7 @@ import dev.antigravity.fluidengine.ui.theme.FluidEmptyState
 import dev.antigravity.fluidtransit.routing.BundleReader
 import dev.antigravity.fluidtransit.routing.Ftb
 import dev.antigravity.fluidtransit.routing.Raptor
+import dev.antigravity.fluidtransit.routing.Times
 import java.time.Instant
 import java.time.ZonedDateTime
 
@@ -47,7 +48,14 @@ import java.time.ZonedDateTime
 class UiJourney(
     val depTime: String,
     val arrTime: String,
-    val durationMin: Long,
+    /**
+     * La durata gia' detta a parole: "43 min", "4 h", "4 h 3 min".
+     *
+     * Prima erano minuti e basta, e un viaggio notturno con tre ore di attesa
+     * in mezzo si presentava come "240 min" — un numero che si deve
+     * convertire in testa prima di sapere se conviene.
+     */
+    val durationLabel: String,
     val transfers: Int,
     val walkMin: Int,
     val walkOnly: Boolean,
@@ -63,7 +71,7 @@ class UiJourney(
             /** Le corse che il realtime sta davvero seguendo. */
             liveTrips: Set<Int> = emptySet(),
         ): UiJourney {
-            val legs = j.legs.map { leg ->
+            val legs = j.legs.mapIndexed { i, leg ->
                 when (leg) {
                     is Raptor.Leg.Walk -> UiLeg.Walk(
                         minutes = (leg.seconds + 30) / 60,
@@ -72,6 +80,10 @@ class UiJourney(
                     )
 
                     is Raptor.Leg.Ride -> UiLeg.Ride(
+                        waitSeconds = j.legs.getOrNull(i - 1)?.let { prima ->
+                            (leg.departure.epochSecond - prima.arrival.epochSecond)
+                                .coerceAtLeast(0L).toInt()
+                        } ?: 0,
                         line = reader.routeShortName(leg.route)
                             .ifEmpty { reader.routeLongName(leg.route) },
                         colorRgb = reader.routeDisplayColor(leg.route),
@@ -89,7 +101,7 @@ class UiJourney(
             return UiJourney(
                 depTime = hm(j.departure),
                 arrTime = hm(j.arrival),
-                durationMin = (j.durationSeconds + 30) / 60,
+                durationLabel = Times.durationLabel(j.durationSeconds.toInt()),
                 transfers = j.transfers,
                 walkMin = (j.walkSeconds + 30) / 60,
                 walkOnly = j.isWalkOnly,
@@ -108,9 +120,28 @@ class UiJourney(
     }
 }
 
+/**
+ * Sotto questa attesa non vale la pena dirlo.
+ *
+ * Due minuti: e' il margine con cui si arriva a una fermata, non un'attesa.
+ * Sopra, invece, cambia cosa fai — se corri o se ti siedi.
+ */
+private const val WAIT_WORTH_SAYING_S = 120
+
 sealed class UiLeg {
     class Walk(val minutes: Int, val toName: String, val depTime: String) : UiLeg()
     class Ride(
+        /**
+         * Quanto si aspetta alla fermata prima di salire.
+         *
+         * Non era scritto da nessuna parte. Un viaggio notturno diceva
+         * "Cammina 12 min fino a LEOPOLDA 01:41" e poi "30 ... 05:02
+         * LEOPOLDA": in mezzo ci sono tre ore e ventuno di attesa a una
+         * pensilina, e per saperlo bisognava fare la sottrazione da soli.
+         * Anche i sette minuti di un'attesa normale sono un'informazione che
+         * cambia cosa fai — se corri o se prendi un caffe'.
+         */
+        val waitSeconds: Int,
         val line: String,
         val colorRgb: Int,
         val headsign: String,
@@ -322,7 +353,7 @@ private fun JourneyRow(j: UiJourney, onClick: () -> Unit) {
         }
         Column(horizontalAlignment = Alignment.End) {
             Text(
-                text = "${j.durationMin} min",
+                text = j.durationLabel,
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -370,7 +401,7 @@ fun JourneyDetailContent(
                 if (j.hasLive) LiveDot(liveGreen())
             }
             Text(
-                text = "${j.durationMin} min · ${
+                text = "${j.durationLabel} · ${
                     when (j.transfers) {
                         0 -> "diretto"
                         1 -> "1 cambio"
@@ -421,7 +452,15 @@ fun JourneyDetailContent(
                         modifier = Modifier.size(20.dp),
                     )
                     Text(
-                        text = "Cammina ${leg.minutes} min fino a ${leg.toName}",
+                        // Zero minuti a piedi non e' una camminata: quando la
+                        // partenza e' gia' sul marciapiede della fermata
+                        // usciva "Cammina 0 min fino a PORTA SAN FREDIANO",
+                        // che e' un'istruzione a non fare niente.
+                        text = if (leg.minutes == 0) {
+                            "Meno di un minuto a piedi fino a ${leg.toName}"
+                        } else {
+                            "Cammina ${leg.minutes} min fino a ${leg.toName}"
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),
@@ -433,7 +472,27 @@ fun JourneyDetailContent(
                     )
                 }
 
-                is UiLeg.Ride -> Row(
+                is UiLeg.Ride -> Column {
+                    if (leg.waitSeconds >= WAIT_WORTH_SAYING_S) {
+                        Row(
+                            modifier = Modifier.padding(top = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Schedule,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Text(
+                                text = "Aspetti ${Times.durationLabel(leg.waitSeconds)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Row(
                     modifier = Modifier.padding(vertical = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
@@ -507,6 +566,7 @@ fun JourneyDetailContent(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                    }
                     }
                 }
             }

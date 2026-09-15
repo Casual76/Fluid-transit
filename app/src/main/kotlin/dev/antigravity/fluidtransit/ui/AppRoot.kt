@@ -238,6 +238,7 @@ private fun AppShell(app: FluidTransitApp) {
                                 app,
                                 onOpenOnMap = openOnMap,
                                 onOpenAlerts = { above = RouteAlerts },
+                                onOpenDataStatus = { above = RouteDataStatus },
                             )
                             route == RouteFavorites -> FavoritesTab(app, onOpenOnMap = openOnMap)
                             route == RouteSettings ->

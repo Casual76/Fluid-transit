@@ -56,15 +56,24 @@ fun FavoritesTab(
     val bundleState by app.bundleManager.state.collectAsStateWithLifecycle()
     val reader = (bundleState as? dev.antigravity.fluidtransit.data.bundle.BundleManager.BundleState.Ready)
         ?.reader
-    val stopIndexes = remember(favVersion, localTick, reader) {
-        val r = reader ?: return@remember emptyList<Int>()
+    // Fermata stellata -> indice nel bundle, per HASH e non per posizione.
+    //
+    // Prima erano due liste parallele costruite con `mapNotNull`, che pero'
+    // salta: bastava una fermata stellata sparita dal feed — succede a ogni
+    // cambio d'orario — perche' la seconda lista si accorciasse e ogni riga
+    // successiva si prendesse gli orari della fermata dopo. Una fermata che
+    // mostra i passaggi di un'altra e' il peggior modo di sbagliare, perche'
+    // sembra funzionare.
+    val indexByHash = remember(favVersion, localTick, reader) {
+        val r = reader ?: return@remember emptyMap<String, Int>()
         stops.mapNotNull { s ->
             s.idHashHex.toULongOrNull(16)?.toLong()
                 ?.let { r.findStopByIdHash(it) }
                 ?.takeIf { it >= 0 }
-        }
+                ?.let { s.idHashHex to it }
+        }.toMap()
     }
-    val boards = stopIndexes.map { idx ->
+    val boards = indexByHash.values.map { idx ->
         idx to app.departureBoards.board(idx, limit = 2).collectAsStateWithLifecycle()
     }
     val byStop = boards.associate { (idx, state) -> idx to state.value }
@@ -148,10 +157,19 @@ fun FavoritesTab(
             item { FluidSectionTitle(eyebrow = "Fermate", title = "Le tue fermate") }
             item {
                 FluidListGroup {
-                    for ((i, s) in stops.withIndex()) {
-                        val board = stopIndexes.getOrNull(i)?.let { byStop[it] }
+                    for (s in stops) {
+                        val idx = indexByHash[s.idHashHex]
+                        val board = idx?.let { byStop[it] }
                         FluidListRow(
-                            title = s.name,
+                            // Il nome che vale e' quello del bundle: quello
+                            // salvato accanto alla stella e' un ripiego per
+                            // quando gli orari non ci sono ancora, e puo'
+                            // essere piu' vecchio. Misurato su questo
+                            // telefono: la stella diceva "SODERINI" e la
+                            // fermata si chiama "SODERINI TORRINO SANTA
+                            // ROSA". Due nomi per la stessa cosa, a seconda
+                            // di dove la guardi.
+                            title = idx?.let { reader?.stopName(it) }?.ifEmpty { null } ?: s.name,
                             // Tre stati distinti, e prima ce n'erano due: la
                             // riga partiva da "Nessun passaggio" e lo diceva
                             // per il primo fotogramma anche quando il bus

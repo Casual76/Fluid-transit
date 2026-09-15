@@ -51,7 +51,23 @@ fun TodayTab(
     app: FluidTransitApp,
     onOpenOnMap: (MapIntent) -> Unit,
     onOpenAlerts: () -> Unit = {},
+    onOpenDataStatus: () -> Unit = {},
 ) {
+    // "Perche' questo numero", anche qui.
+    //
+    // Sulla mappa la provenienza si tocca e si apre; in Oggi le stesse
+    // parole — "dal bus", "stimato", "orario da tabella" — erano un vicolo
+    // cieco. Lo stesso numero spiegabile da una parte e non dall'altra e'
+    // precisamente la sensazione che l'app si comporti in modo diverso a
+    // seconda di dove la guardi.
+    //
+    // Qui la riga e' una `FluidListRow`, che non ha un testo da sottolineare:
+    // l'appiglio e' il menu della tenuta premuta, che e' il modo in cui
+    // l'engine offre le azioni di una riga e che in questa scheda c'e' gia'.
+    var whyRow by remember {
+        mutableStateOf<dev.antigravity.fluidtransit.routing.NextDeparture?>(null)
+    }
+    var whyAt by remember { mutableStateOf(0L) }
     val bundleState by app.bundleManager.state.collectAsStateWithLifecycle()
     val ready = bundleState as? BundleState.Ready
     val favVersion by app.favorites.version.collectAsStateWithLifecycle()
@@ -140,7 +156,24 @@ fun TodayTab(
 
         val reader = ready?.reader
         if (favStops.isNotEmpty()) {
-            item { FluidSectionTitle(eyebrow = "Adesso", title = "Dalle tue fermate") }
+            // Con una fermata sola il nome sta nel titolo e non su ogni
+            // riga: ripeterlo otto volte in maiuscolo copriva la linea e la
+            // destinazione, che sono l'informazione. Con piu' di una fermata
+            // resta riga per riga, perche' li' dice quale.
+            // Il nome viene dal tabellone, cioe' dal bundle: quello salvato
+            // accanto alla stella e' un ripiego per quando gli orari non ci
+            // sono ancora, e puo' essere piu' vecchio.
+            val unicaFermata = if (favStops.size == 1) {
+                departures.firstOrNull()?.stopName?.ifEmpty { null } ?: favStops.first().name
+            } else {
+                null
+            }
+            item {
+                FluidSectionTitle(
+                    eyebrow = "Adesso",
+                    title = unicaFermata ?: "Dalle tue fermate",
+                )
+            }
             item {
                 FluidListGroup {
                     if (board.computedAtEpoch == 0L) {
@@ -157,7 +190,7 @@ fun TodayTab(
                         for (d in departures) {
                             val phrase = DepartureText.phrase(d, board.computedAtEpoch)
                             FluidListRow(
-                                eyebrow = d.stopName,
+                                eyebrow = if (unicaFermata == null) d.stopName else null,
                                 title = "${d.line} → ${d.destination}",
                                 subtitle = phrase.support,
                                 meta = phrase.headline,
@@ -176,6 +209,17 @@ fun TodayTab(
                                         MapIntent.Stop(
                                             java.lang.Long.toHexString(reader?.stopIdHash(d.stopIndex) ?: 0L),
                                             d.stopName,
+                                        ),
+                                    )
+                                },
+                                contextActions = {
+                                    listOf(
+                                        FluidContextAction(
+                                            label = "Perche' questo numero",
+                                            onClick = {
+                                                whyAt = board.computedAtEpoch
+                                                whyRow = d
+                                            },
                                         ),
                                     )
                                 },
@@ -288,6 +332,18 @@ fun TodayTab(
             }
         }
     }
+
+    // Il pop-up sta fuori dalla lista e alla radice della scheda: si apre
+    // sopra tutto, e senza un rettangolo da cui nascere — la tenuta premuta
+    // ha gia' il suo menu, e farlo partire da li' sarebbe una seconda
+    // animazione sopra la prima.
+    dev.antigravity.fluidtransit.ui.common.WhyThisNumberPortal(
+        row = whyRow,
+        nowEpoch = whyAt,
+        origin = { null },
+        onDismiss = { whyRow = null },
+        onOpenDataStatus = onOpenDataStatus,
+    )
 }
 
 private fun daysShort(days: Set<Int>): String {

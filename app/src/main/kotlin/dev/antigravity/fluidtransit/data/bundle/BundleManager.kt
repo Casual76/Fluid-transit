@@ -13,6 +13,7 @@ import java.security.MessageDigest
 import java.util.zip.GZIPInputStream
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -77,6 +78,9 @@ class BundleManager(
      */
     private val previousFile = File(dir, "active.previous.ftb")
     private val meta = File(dir, "active.meta.json")
+
+    /** Quanto vive ancora il lettore vecchio dopo lo scambio. */
+    private val RETIRE_GRACE_MS = 60_000L
     private val mutex = Mutex()
     private var wifiCallback: ConnectivityManager.NetworkCallback? = null
 
@@ -199,7 +203,14 @@ class BundleManager(
             _state.value = BundleState.AskMetered(EXPECTED_BYTES)
             return
         }
+        // Uscendo da Ready si perde il riferimento al lettore: se non lo si
+        // ritira, la sua mappa resta in piedi per sempre. Oggi ci si arriva
+        // solo quando un bundle non c'e' (primo avvio, riprova dopo un
+        // errore), quindi non e' un difetto che si vede — ma e' una riga per
+        // non farlo diventare tale il giorno che questa strada si apre.
+        val uscente = (state.value as? BundleState.Ready)?.reader
         _state.value = BundleState.Downloading(0f)
+        retire(uscente)
         try {
             val index = fetchIndex()
             installFrom(index) { done ->
@@ -242,8 +253,39 @@ class BundleManager(
         writeMeta(index)
         val reader = openAndSmoke(active)
         _state.value = BundleState.Ready(reader, reader.buildId, index.overlayUrl)
-        previous?.close()
+        retire(previous)
         previousFile.delete()
+    }
+
+    /**
+     * Il lettore vecchio si chiude dopo, non subito.
+     *
+     * Chiuderlo vuol dire smappare il file, e chi sta leggendo da quella
+     * mappa in quel momento non prende un'eccezione: prende un segnale dal
+     * sistema, cioe' il processo muore. E qualcuno sta quasi sempre leggendo:
+     * un tabellone si calcola sul pool di sfondo prendendo il lettore dallo
+     * stato e usandolo per qualche millisecondo, un giro di RAPTOR per
+     * qualche decimo di secondo, uno strumento dell'assistente anche di piu'.
+     * Fra il momento in cui lo stato pubblica il lettore nuovo e il momento
+     * in cui il vecchio viene smappato non c'era niente.
+     *
+     * Succede una volta al giorno, quando arriva il bundle della notte, e da
+     * quando l'app ricontrolla anche tornando in primo piano puo' succedere
+     * mentre la si sta guardando.
+     *
+     * Un minuto di grazia non e' una garanzia e non si spaccia per tale: e'
+     * quattro ordini di grandezza piu' del piu' lento dei lettori. La
+     * garanzia vera vorrebbe un conteggio dei riferimenti attraverso tutti i
+     * chiamanti, che e' un cambiamento molto piu' grosso di quello che il
+     * difetto merita. Il file si cancella subito lo stesso: su Android una
+     * mappa tiene vivo il contenuto anche dopo la cancellazione del nome.
+     */
+    private fun retire(previous: BundleReader?) {
+        if (previous == null) return
+        scope.launch {
+            delay(RETIRE_GRACE_MS)
+            runCatching { previous.close() }
+        }
     }
 
     private fun writeMeta(index: BundleIndex) {

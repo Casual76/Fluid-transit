@@ -106,7 +106,9 @@ class TransitToolHostProvider : AiToolHostProvider<ToolContext>() {
   private suspend fun ensureSearchIndex() {
     if (app.assistantBridge.searchIndex != null) return
     val reader = app.assistantBridge.reader ?: return
-    val index = withContext(Dispatchers.Default) { runCatching { SearchIndex.build(reader) }.getOrNull() }
+    val index = withContext(Dispatchers.Default) {
+      runCatching { SearchIndex.build(reader, app.stopGroups.value) }.getOrNull()
+    }
     if (index != null && app.assistantBridge.searchIndex == null) app.assistantBridge.searchIndex = index
   }
 

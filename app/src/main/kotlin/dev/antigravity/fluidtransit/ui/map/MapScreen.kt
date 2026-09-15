@@ -212,9 +212,13 @@ fun MapScreen(
     ) { }
 
     // L'indice di ricerca si costruisce una volta per bundle, fuori dal main.
-    val searchIndex by produceState<SearchIndex?>(initialValue = null, ready?.buildId) {
+    // Aspetta i gruppi di banchine: senza, uscirebbero le righe doppie che
+    // l'indice esiste per evitare.
+    val stopGroups by app.stopGroups.collectAsStateWithLifecycle()
+    val searchIndex by produceState<SearchIndex?>(initialValue = null, ready?.buildId, stopGroups) {
         val reader = ready?.reader ?: return@produceState
-        value = withContext(Dispatchers.Default) { SearchIndex.build(reader) }
+        val groups = stopGroups ?: return@produceState
+        value = withContext(Dispatchers.Default) { SearchIndex.build(reader, groups) }
     }
 
     // La geometria delle tratte, decodificata pigramente: e' quella che fa

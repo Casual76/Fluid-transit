@@ -78,6 +78,16 @@ tasks.register<JavaExec>("places") {
     maxHeapSize = "3g"
 }
 
+// Cosa sa il bundle delle fermate che si somigliano: e' la domanda da fare
+// prima di scrivere il codice che le raggruppa.
+tasks.register<JavaExec>("stopsSmoke") {
+    group = "verification"
+    description = "Fermate omonime e parent_station dentro un bundle .ftb."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "dev.antigravity.fluidtransit.bundler.StopsSmokeKt"
+    maxHeapSize = "1g"
+}
+
 tasks.register<JavaExec>("placesSmoke") {
     group = "verification"
     description = "Ricerche di prova contro un luoghi.bin reale."

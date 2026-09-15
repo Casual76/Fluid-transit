@@ -127,6 +127,16 @@ class FluidTransitApp : Application() {
         >(null)
 
     /**
+     * Le banchine della stessa fermata, riunite.
+     *
+     * Si ricostruisce a ogni bundle — dentro ci sono indici — e costa 133 ms
+     * misurati sulla Toscana intera, quindi fuori dal thread della UI.
+     */
+    val stopGroups = kotlinx.coroutines.flow.MutableStateFlow<
+        dev.antigravity.fluidtransit.routing.StopGroups?,
+        >(null)
+
+    /**
      * L'unica fonte delle prossime partenze.
      *
      * Vive qui per la stessa ragione del modello dei ritardi: due schermate
@@ -334,6 +344,20 @@ class FluidTransitApp : Application() {
                 // Per ultimo, quando tutto e' dentro: e' il segnale su cui i
                 // tabelloni si ricalcolano.
                 liveVersion.value += 1
+            }
+        }
+
+        // I gruppi di banchine, appena il bundle e' pronto.
+        applicationScope.launch {
+            bundleManager.state.collect { state ->
+                val reader = (state as? BundleManager.BundleState.Ready)?.reader
+                stopGroups.value = if (reader == null) {
+                    null
+                } else {
+                    runCatching {
+                        dev.antigravity.fluidtransit.routing.StopGroups.build(reader)
+                    }.getOrNull()
+                }
             }
         }
 

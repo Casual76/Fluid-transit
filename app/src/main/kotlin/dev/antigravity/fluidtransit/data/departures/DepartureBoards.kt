@@ -110,11 +110,29 @@ class DepartureBoards(private val app: FluidTransitApp) {
     private fun compute(key: Key, now: Instant): DepartureBoard {
         val reader = readerOrNull() ?: return empty(key, now)
         val live = liveTimes()
-        return if (key.stops.size == 1) {
-            Departures.build(reader, key.stops[0], now, key.limit, key.horizon, live)
-        } else {
-            Departures.merged(reader, key.stops, now, key.limit, key.horizon, live)
+        if (key.stops.size != 1) {
+            return Departures.merged(reader, key.stops, now, key.limit, key.horizon, live)
         }
+
+        // Il tabellone di UNA banchina e' il tabellone della fermata intera.
+        //
+        // Chi tocca una fermata sulla mappa vuole sapere cosa passa di li', non
+        // cosa passa da quel palo: le due direzioni sono due fermate separate
+        // nel feed (e senza `parent_station` che le leghi), e la destinazione
+        // in ogni riga dice gia' quale sia quale. Prima bisognava aprirle tutte
+        // e due per sapere quando passa il bus.
+        val stop = key.stops[0]
+        val siblings = app.stopGroups.value?.siblings(stop)
+        if (siblings == null || siblings.size <= 1) {
+            return Departures.build(reader, stop, now, key.limit, key.horizon, live)
+        }
+        val merged = Departures.merged(reader, siblings.toList(), now, key.limit, key.horizon, live)
+        return DepartureBoard(
+            stopIndex = stop,
+            stopName = reader.stopName(stop),
+            computedAtEpoch = merged.computedAtEpoch,
+            rows = merged.rows,
+        )
     }
 
     private fun readerOrNull(): BundleReader? =

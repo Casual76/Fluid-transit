@@ -23,6 +23,8 @@ class SearchIndex private constructor(
     private val stopNorm: Array<String>,
     private val stopLat: DoubleArray,
     private val stopLon: DoubleArray,
+    /** L'indice della banchina che rappresenta il gruppo. */
+    private val stopIndexes: IntArray,
     private val routeNames: Array<String>,
     private val routeNorm: Array<String>,
     private val routeNameEnd: IntArray,
@@ -107,7 +109,7 @@ class SearchIndex private constructor(
                 )
             } else {
                 val i = id - routeNorm.size
-                out.add(Hit.Stop(stopNames[i], score, i, stopLat[i], stopLon[i]))
+                out.add(Hit.Stop(stopNames[i], score, stopIndexes[i], stopLat[i], stopLon[i]))
             }
         }
         return out
@@ -126,12 +128,28 @@ class SearchIndex private constructor(
         private const val ROUTE_BONUS = 6
         private const val STOP_BONUS = 5
 
-        fun build(r: BundleReader): SearchIndex {
-            val nStops = r.stopCount
-            val stopNames = Array(nStops) { r.stopName(it) }
+        /**
+         * L'indice si costruisce sui GRUPPI, non sulle banchine.
+         *
+         * Cercando "TORRE GALLI" uscivano due righe identiche — stesso nome,
+         * stesso sottotitolo "Fermata" — e l'unico modo di scegliere era
+         * provarne una. Sulla rete vera le fermate omonime sono il 53% del
+         * totale, quindi non era un caso raro: era meta' delle ricerche.
+         *
+         * Una riga per gruppo, e toccandola si vede il tabellone di tutte le
+         * sue banchine.
+         */
+        fun build(r: BundleReader, groups: dev.antigravity.fluidtransit.routing.StopGroups?): SearchIndex {
+            val representatives = if (groups == null) {
+                IntArray(r.stopCount) { it }
+            } else {
+                IntArray(groups.size) { groups.members(it).first() }
+            }
+            val nStops = representatives.size
+            val stopNames = Array(nStops) { r.stopName(representatives[it]) }
             val stopNorm = Array(nStops) { Relevance.normalize(stopNames[it]) }
-            val stopLat = DoubleArray(nStops) { r.stopLat(it) }
-            val stopLon = DoubleArray(nStops) { r.stopLon(it) }
+            val stopLat = DoubleArray(nStops) { r.stopLat(representatives[it]) }
+            val stopLon = DoubleArray(nStops) { r.stopLon(representatives[it]) }
 
             val nRoutes = r.routeCount
             val routeShort = Array(nRoutes) { Relevance.normalize(r.routeShortName(it)) }
@@ -155,7 +173,7 @@ class SearchIndex private constructor(
                 r.patternsOfRoute(i).firstOrNull()?.let { p -> r.patternStop(p, 0) } ?: 0
             }
             return SearchIndex(
-                stopNames, stopNorm, stopLat, stopLon,
+                stopNames, stopNorm, stopLat, stopLon, representatives,
                 routeNames, routeNorm, routeNameEnd, routeDest, routeColor, routeFirstStop,
             )
         }

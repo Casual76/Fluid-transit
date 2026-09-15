@@ -219,7 +219,7 @@ fun JourneysContent(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 400.dp)
+                    .heightIn(max = panelListMax(400.dp))
                     .fadeVerticalEdges()
                     .padding(horizontal = 20.dp),
             ) {
@@ -365,7 +365,7 @@ fun JourneyDetailContent(
     LazyColumn(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(max = 380.dp)
+            .heightIn(max = panelListMax(380.dp))
             .fadeVerticalEdges()
             .padding(horizontal = 20.dp),
     ) {

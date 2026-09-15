@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material.icons.rounded.Explore
@@ -1147,6 +1148,7 @@ fun MapScreen(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
+                .widthIn(max = PanelMaxWidth)
                 .padding(horizontal = 14.dp)
                 .padding(top = 8.dp),
         ) {
@@ -1592,6 +1594,7 @@ fun MapScreen(
                         }
                     },
                     modifier = Modifier
+                        .widthIn(max = PanelMaxWidth)
                         .padding(horizontal = FluidTabBarDefaults.HorizontalMargin)
                         .padding(bottom = bottomPad),
                 ) {

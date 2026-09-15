@@ -207,7 +207,7 @@ fun StopPanelContent(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 340.dp)
+                    .heightIn(max = panelListMax(340.dp))
                     .fadeVerticalEdges()
                     .padding(horizontal = 20.dp),
             ) {

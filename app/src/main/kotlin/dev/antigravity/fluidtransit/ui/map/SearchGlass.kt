@@ -230,7 +230,7 @@ fun SearchGlass(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 480.dp)
+                    .heightIn(max = panelListMax(480.dp))
                     .imePadding()
                     .padding(bottom = 10.dp),
             ) {

@@ -178,7 +178,7 @@ fun NearbyPanelContent(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 380.dp)
+                    .heightIn(max = panelListMax(380.dp))
                     .fadeVerticalEdges()
                     .padding(horizontal = 20.dp),
                 verticalArrangement = Arrangement.Top,

@@ -385,7 +385,7 @@ fun RouteFullContent(
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 380.dp)
+                .heightIn(max = panelListMax(380.dp))
                 .padding(horizontal = 8.dp),
         ) {
             items(dir.stops.size) { i ->

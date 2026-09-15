@@ -20,6 +20,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import dev.antigravity.fluidengine.ui.fluid.ContinuousCornerShape
@@ -32,6 +35,55 @@ import dev.antigravity.fluidengine.ui.fluid.GlassRole
 import dev.antigravity.fluidengine.ui.fluid.glassSurface
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+
+/**
+ * Quanto puo' essere largo un pannello.
+ *
+ * In verticale su un telefono non cambia niente: lo schermo e' piu' stretto
+ * di cosi'. In orizzontale invece il pannello arrivava da bordo a bordo, e
+ * una riga larga duemila pixel mette il numero della linea a sinistra e i
+ * suoi minuti a duemila pixel di distanza — tecnicamente leggibile, di fatto
+ * da inseguire con gli occhi.
+ */
+internal val PanelMaxWidth = 520.dp
+
+/**
+ * Quanto puo' essere alto l'elenco dentro un pannello.
+ *
+ * Le altezze erano in dp fissi — 340, 380, 400, 480 — tarate sull'altezza di
+ * un telefono in verticale. Girato l'apparecchio, lo schermo e' alto quanto
+ * il solo elenco: il pannello si prendeva tutto, la tab bar gli galleggiava
+ * sopra le righe e sotto non restava mappa. Lo stesso succede su uno schermo
+ * piccolo anche in verticale.
+ *
+ * La regola: l'elenco prende quello che avanza dopo aver messo da parte
+ * tutto cio' che non e' elenco, e mai piu' dell'altezza pensata per quel
+ * pannello. Su un telefono in verticale avanza sempre abbastanza, quindi
+ * non cambia niente; e' in orizzontale che il minimo morde.
+ *
+ * Una riserva in dp e non una percentuale, perche' cio' che sta intorno
+ * all'elenco — testata, tasto, riga della provenienza, margini, tab bar —
+ * ha una sua altezza fissa, che non si rimpicciolisce con lo schermo.
+ */
+@Composable
+internal fun panelListMax(preferred: Dp): Dp {
+    val window = with(LocalDensity.current) {
+        LocalWindowInfo.current.containerSize.height.toDp()
+    }
+    return minOf(preferred, maxOf(window - AROUND_THE_LIST, LIST_FLOOR))
+}
+
+/**
+ * Quanto si mette da parte per cio' che non e' l'elenco.
+ *
+ * Misurato sulla scheda fermata, che e' la piu' carica: testata 64,
+ * "Parti da qui" 56, la riga della provenienza in fondo 36, i margini del
+ * vetro 24, la tab bar col suo scarto 86, la barra di stato 24.
+ */
+private val AROUND_THE_LIST = 290.dp
+
+/** Sotto questa altezza l'elenco non e' piu' un elenco: si sacrifica altro. */
+private val LIST_FLOOR = 120.dp
 
 /**
  * L'unico pannello dal basso della mappa: un pezzo di vetro staccato dai

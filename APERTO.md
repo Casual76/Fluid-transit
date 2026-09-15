@@ -48,12 +48,14 @@ identici a quelli delle schermate. Dopo la configurazione parte comunque una
 sveglia a due secondi, che e' il meccanismo giusto per riprovarci.
 — visto il 15/09/2026
 
-**Da verificare con il feed pieno: "Qui intorno" senza doppioni.** La regola
-"lo stesso autobus una riga sola" e' provata dai test e misurata sul bundle,
-ma a mezzanotte in Toscana non passa quasi niente e non si e' potuta vedere
-con una lista piena. Va guardata di mattina, insieme alle due gia' in attesa:
-le parole del pannello corsa con un bus vivo, e le righe "dal bus" su un
-tabellone. — aperto il 15/09/2026
+**Da verificare con un bus vivo: le parole del pannello corsa.** Le altre due
+verifiche in attesa sono state fatte all'una di notte, quando il feed si e'
+riempito abbastanza: un tabellone con righe "dal bus · da tabella alle 01:09"
+accanto a righe di tabella, e "Qui intorno" con cinque righe da quattro
+fermate e nessun doppione. Resta il pannello di una corsa aperto su un mezzo
+vivo: alle 00:50 nel raggio della mappa non ce n'era nessuno da toccare, e
+con duecentoquattordici mezzi in tutta la Toscana la strada e' aspettare le
+ore di servizio. — aggiornato il 16/09/2026
 
 **Le posizioni finte dell'emulatore non arrivano all'app.** `adb emu geo fix`
 risponde `OK` ma la posizione resta quella predefinita di Mountain View: per

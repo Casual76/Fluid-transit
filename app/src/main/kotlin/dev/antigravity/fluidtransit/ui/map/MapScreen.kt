@@ -437,8 +437,15 @@ fun MapScreen(
             value = null
             return@produceState
         }
+        // Il reader puo' chiudersi sotto: lo scambio notturno del bundle
+        // succede mentre l'app e' aperta, e questo calcolo gira fuori dal
+        // thread della UI. Un'eccezione qui dentro portava giu' l'app; adesso
+        // resta lo scheletro, e la chiave del produceState (il buildId) fa
+        // ripartire il calcolo col bundle nuovo.
         value = withContext(Dispatchers.Default) {
-            RouteInfo.build(reader, idx, Instant.now(), app.departureBoards.live())
+            runCatching {
+                RouteInfo.build(reader, idx, Instant.now(), app.departureBoards.live())
+            }.getOrNull()
         }
     }
 
@@ -469,15 +476,18 @@ fun MapScreen(
             return@produceState
         }
         val d = rtDelays?.byTripHash?.get(ref.tripHash)
+        // Come la scheda linea: il bundle puo' cambiare mentre si calcola.
         value = withContext(Dispatchers.Default) {
-            TripInfo.build(
-                reader = reader,
-                ref = ref,
-                now = Instant.now(),
-                delaySec = d?.takeIf { !it.noData }?.delaySec,
-                canceled = d?.canceled == true,
-                live = app.departureBoards.live(),
-            )
+            runCatching {
+                TripInfo.build(
+                    reader = reader,
+                    ref = ref,
+                    now = Instant.now(),
+                    delaySec = d?.takeIf { !it.noData }?.delaySec,
+                    canceled = d?.canceled == true,
+                    live = app.departureBoards.live(),
+                )
+            }.getOrNull()
         }
     }
 
@@ -760,6 +770,8 @@ fun MapScreen(
         is Panel.JourneyDetail -> p.to
         else -> null
     }
+    // Il calcolo e' fallito, che e' diverso da "non c'e' niente".
+    var journeysFailed by remember { mutableStateOf(false) }
     val journeys by produceState<List<UiJourney>?>(
         initialValue = null,
         journeysTarget, journeyTimeMode, journeyTimeEpoch, ready?.buildId,
@@ -783,10 +795,12 @@ fun MapScreen(
         } else {
             dev.antigravity.fluidtransit.routing.Raptor.Realtime.NONE
         }
+        journeysFailed = false
         val raw = withContext(app.routingDispatcher) {
             val raptor = app.raptorFor(reader)
             val fromPlace = dev.antigravity.fluidtransit.routing.Raptor.Place(from.first, from.second)
             val toPlace = dev.antigravity.fluidtransit.routing.Raptor.Place(to.lat, to.lon)
+            runCatching {
             when (journeyTimeMode) {
                 "arrive" -> raptor.planArriveBy(
                     fromPlace, toPlace, Instant.ofEpochSecond(journeyTimeEpoch), liveData,
@@ -798,12 +812,26 @@ fun MapScreen(
 
                 else -> raptor.plan(fromPlace, toPlace, Instant.now(), liveData)
             }
+            }.getOrNull()
+        }
+        // Un calcolo fallito non e' "nessun viaggio": il primo dice che non
+        // abbiamo saputo rispondere, il secondo che la risposta e' no. Erano
+        // la stessa schermata — "Nessun viaggio trovato, prova a cambiare
+        // orario" — e cambiare orario non serviva a niente.
+        if (raw == null) {
+            journeysFailed = true
+            value = emptyList()
+            return@produceState
         }
         value = withContext(Dispatchers.Default) {
             // Le corse davvero seguite dal feed: serve per distinguere
             // "monitorata e puntuale" da "non se ne sa niente".
             val liveTrips = rtNow?.delayByTrip?.keys.orEmpty()
-            raw.map { UiJourney.of(reader, it, liveTrips) }
+            runCatching { raw.map { UiJourney.of(reader, it, liveTrips) } }
+                .getOrElse {
+                    journeysFailed = true
+                    emptyList()
+                }
         }
     }
 
@@ -1723,6 +1751,8 @@ fun MapScreen(
                                 val info = routeInfo
                                 if (info != null && info.routeIndex == state.routeIndex) {
                                     RouteMiniContent(info, routeDirection)
+                                } else {
+                                    PanelLoading("Leggo la linea\u2026", compact = true)
                                 }
                             }
 
@@ -1754,6 +1784,8 @@ fun MapScreen(
                                             )
                                         },
                                     )
+                                } else {
+                                    PanelLoading("Leggo la linea\u2026")
                                 }
                             }
 
@@ -1768,6 +1800,8 @@ fun MapScreen(
                                 val info = tripInfo
                                 if (info != null && info.ref.vehKey == state.ref.vehKey) {
                                     TripMiniContent(info)
+                                } else {
+                                    PanelLoading("Leggo la corsa\u2026", compact = true)
                                 }
                             }
 
@@ -1815,6 +1849,8 @@ fun MapScreen(
                                             }
                                         },
                                     )
+                                } else {
+                                    PanelLoading("Leggo la corsa\u2026")
                                 }
                             }
 
@@ -1884,6 +1920,7 @@ fun MapScreen(
                                 JourneysContent(
                                     toName = state.to.name,
                                     journeys = journeys,
+                                    failed = journeysFailed,
                                     fromLabel = journeyFrom,
                                     timeLabel = when (journeyTimeMode) {
                                         "depart" -> "Parti alle ${hhmm(journeyTimeEpoch)}"

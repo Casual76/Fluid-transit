@@ -25,6 +25,9 @@ import dev.antigravity.fluidengine.ui.theme.FluidSectionTitle
 import dev.antigravity.fluidtransit.FluidTransitApp
 import dev.antigravity.fluidtransit.routing.DepartureText
 import dev.antigravity.fluidtransit.ui.map.MapIntent
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 
 /**
  * I preferiti, a sezioni come deciso: i tuoi posti, le fermate stellate, le
@@ -66,7 +69,35 @@ fun FavoritesTab(
     }
     val byStop = boards.associate { (idx, state) -> idx to state.value }
 
-    FluidScreen(title = "Preferiti") {
+    // Tira giu' per aggiornare.
+    //
+    // I numeri si rinfrescano da soli ogni trenta secondi, quindi questo
+    // gesto quasi non cambia niente — ed e' proprio per questo che serve. Una
+    // lista di orari che non si lascia tirare sembra ferma, e uno resta li' a
+    // chiedersi se stia guardando dati vivi. Qui la risposta e' un gesto.
+    val scope = rememberCoroutineScope()
+    var refreshing by remember { mutableStateOf(false) }
+    val refresh: () -> Unit = {
+        if (!refreshing) {
+            refreshing = true
+            scope.launch {
+                runCatching { app.realtime.refreshVehicles() }
+                runCatching { app.realtime.refreshDelays() }
+                runCatching { app.realtime.refreshPredictions() }
+                app.bundleManager.refreshOnForeground()
+                // Mezzo secondo di cortesia: un aggiornamento che sparisce
+                // prima di essere visto non e' una risposta.
+                kotlinx.coroutines.delay(500)
+                refreshing = false
+            }
+        }
+    }
+
+    FluidScreen(
+        title = "Preferiti",
+        isRefreshing = refreshing,
+        onRefresh = refresh,
+    ) {
         if (places.isEmpty() && stops.isEmpty() && routes.isEmpty()) {
             item {
                 FluidEmptyState(

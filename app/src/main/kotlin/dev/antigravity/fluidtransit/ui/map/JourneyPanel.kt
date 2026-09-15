@@ -138,6 +138,8 @@ sealed class UiLeg {
 fun JourneysContent(
     toName: String,
     journeys: List<UiJourney>?,
+    /** Il calcolo non e' riuscito: diverso da "non c'e' nessun viaggio". */
+    failed: Boolean = false,
     fromLabel: String,
     timeLabel: String,
     backdrop: GlassBackdropState,
@@ -204,6 +206,20 @@ fun JourneysContent(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+
+        // Un calcolo fallito non e' "nessun viaggio". Il primo dice che non
+        // abbiamo saputo rispondere, il secondo che la risposta e' no — ed
+        // erano la stessa schermata, che invitava a cambiare orario quando
+        // cambiare orario non poteva servire a niente.
+        failed -> {
+            FluidEmptyState(
+                title = "Non sono riuscito a calcolare il viaggio",
+                detail = "Non e' che non ci sia: e' che il calcolo si e' " +
+                    "interrotto. Riprova fra un momento.",
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+            Spacer(Modifier.height(12.dp))
         }
 
         journeys.isEmpty() -> {

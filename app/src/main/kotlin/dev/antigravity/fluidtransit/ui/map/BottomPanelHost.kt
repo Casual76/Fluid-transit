@@ -5,12 +5,18 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -27,7 +33,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import dev.antigravity.fluidengine.ui.fluid.ContinuousCornerShape
 import dev.antigravity.fluidengine.ui.fluid.FluidGrabber
+import dev.antigravity.fluidengine.ui.fluid.FluidLoadingBlock
 import dev.antigravity.fluidengine.ui.fluid.FluidRadius
+import dev.antigravity.fluidengine.ui.fluid.FluidSpinner
 import dev.antigravity.fluidengine.ui.fluid.GlassBackdropState
 import dev.antigravity.fluidengine.ui.fluid.GlassDefaults
 import dev.antigravity.fluidengine.ui.fluid.GlassEdge
@@ -35,6 +43,42 @@ import dev.antigravity.fluidengine.ui.fluid.GlassRole
 import dev.antigravity.fluidengine.ui.fluid.glassSurface
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+
+/**
+ * Il vetro che aspetta, invece del vetro vuoto.
+ *
+ * Le schede linea e corsa si calcolano fuori dal thread della UI, e finche'
+ * non arrivano il pannello si apriva VUOTO: un rettangolo di vetro grande
+ * come il contenuto che non c'e' ancora, che cresce di scatto quando arriva.
+ * Per chi guarda non e' "sto caricando", e' "si e' rotto qualcosa" — ed e'
+ * uno dei posti in cui l'app sembrava comportarsi in modo diverso ogni volta,
+ * perche' la durata di quel vuoto dipende da quanto e' grande la linea.
+ *
+ * `FluidLoadingBlock` esisteva nell'engine e non lo usava nessuno.
+ */
+@Composable
+internal fun PanelLoading(what: String, compact: Boolean = false) {
+    if (compact) {
+        // Il mini e' alto quanto una tab bar: un blocco da 180 dp lo
+        // gonfierebbe, e il gonfiore e' proprio la cosa da evitare.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            FluidSpinner()
+            Text(
+                text = what,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    } else {
+        FluidLoadingBlock(minHeight = 160.dp)
+    }
+}
 
 /**
  * Quanto puo' essere largo un pannello.

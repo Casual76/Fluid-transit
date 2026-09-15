@@ -55,6 +55,18 @@ class PlacesManager(
         }
     }
 
+    /**
+     * Il lettore vecchio si chiude dopo, non subito: un minuto, come per il
+     * bundle, perche' una ricerca in corso sta leggendo da quella mappa.
+     */
+    private fun retire(previous: PlacesReader?) {
+        if (previous == null) return
+        scope.launch {
+            kotlinx.coroutines.delay(60_000L)
+            runCatching { previous.close() }
+        }
+    }
+
     private fun open(sha: String) {
         val reader = PlacesReader(file)
         val search = PlacesSearch(reader)
@@ -91,13 +103,24 @@ class PlacesManager(
                 if (_state.value is State.Downloading) _state.value = State.Missing
                 return
             }
-            // Sostituzione atomica: prima si chiude la mappa vecchia.
-            (_state.value as? State.Ready)?.reader?.close()
+            // Prima si toglie di mezzo il lettore vecchio dallo stato, poi
+            // lo si ritira con calma: chiuderlo vuol dire smappare il file, e
+            // chi sta cercando un indirizzo in quel momento non prende
+            // un'eccezione ma un segnale dal sistema, cioe' il processo
+            // muore. Stessa ragione e stessa grazia del bundle.
+            val uscente = (_state.value as? State.Ready)?.reader
             _state.value = State.Missing
-            if (!part.renameTo(file)) {
-                file.delete()
-                part.renameTo(file)
-            }
+            retire(uscente)
+            // Sostituzione vera e propria: uno spostamento atomico, non una
+            // cancellazione seguita da una rinomina. Con la seconda, se la
+            // rinomina fallisce non resta niente — ed e' esattamente il
+            // difetto che per il bundle era gia' stato chiuso.
+            java.nio.file.Files.move(
+                part.toPath(),
+                file.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+            )
             // Troncata, questa scheda vale come assente, e l'app si
             // riscarica undici megabyte di luoghi che ha gia'.
             Durable.write(meta, JSONObject().put("sha256", actual).toString())

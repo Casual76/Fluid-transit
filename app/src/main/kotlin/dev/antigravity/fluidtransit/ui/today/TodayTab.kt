@@ -160,11 +160,18 @@ fun TodayTab(
             // riga: ripeterlo otto volte in maiuscolo copriva la linea e la
             // destinazione, che sono l'informazione. Con piu' di una fermata
             // resta riga per riga, perche' li' dice quale.
-            // Il nome viene dal tabellone, cioe' dal bundle: quello salvato
+            // Il nome viene dal bundle, non dalla stella: quello salvato
             // accanto alla stella e' un ripiego per quando gli orari non ci
             // sono ancora, e puo' essere piu' vecchio.
+            //
+            // E si chiede al lettore, non al tabellone: quando non passa
+            // niente il tabellone e' vuoto e non ha un nome da dare —
+            // succede ogni notte, ed era il momento in cui il nome vecchio
+            // tornava fuori.
             val unicaFermata = if (favStops.size == 1) {
-                departures.firstOrNull()?.stopName?.ifEmpty { null } ?: favStops.first().name
+                stopIndexes.firstOrNull()?.let { reader?.stopName(it) }?.ifEmpty { null }
+                    ?: departures.firstOrNull()?.stopName?.ifEmpty { null }
+                    ?: favStops.first().name
             } else {
                 null
             }

@@ -65,12 +65,18 @@ class DepartureBoards(private val app: FluidTransitApp) {
      *
      * E' quello che serve a "cosa passa qui intorno" e alla scheda Oggi: la
      * domanda non e' "cosa passa da ognuna di queste fermate".
+     *
+     * **L'ordine di [stops] conta**, quindi non si riordina per fare una
+     * chiave piu' compatta: e' l'ordine di preferenza con cui `Departures`
+     * decide da quale fermata mostrare un autobus che ne tocca piu' d'una.
+     * Riordinando, "qui intorno" tornava a mostrarlo dal palo con l'indice
+     * piu' basso invece che dal piu' vicino — cioe' da uno a caso.
      */
     fun merged(
         stops: List<Int>,
         limit: Int = 10,
         horizonSeconds: Int = DEFAULT_HORIZON,
-    ): StateFlow<DepartureBoard> = flowFor(Key(stops.sorted(), limit, horizonSeconds))
+    ): StateFlow<DepartureBoard> = flowFor(Key(stops, limit, horizonSeconds))
 
     /**
      * Un tabellone, una volta sola.
@@ -83,7 +89,7 @@ class DepartureBoards(private val app: FluidTransitApp) {
         limit: Int = 10,
         horizonSeconds: Int = DEFAULT_HORIZON,
     ): DepartureBoard = withContext(Dispatchers.Default) {
-        compute(Key(stops.sorted(), limit, horizonSeconds), Instant.now())
+        compute(Key(stops, limit, horizonSeconds), Instant.now())
     }
 
     // --------------------------------------------------------------- interni

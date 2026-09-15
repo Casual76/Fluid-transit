@@ -1055,27 +1055,16 @@ fun MapScreen(
             )
             recentsVersion++
         }
-        // I tre casi si nominano tutti e tre, e il ramo di riserva e' il
-        // luogo, non la linea.
-        //
-        // Prima "linea" era l'`else`, e ci finiva dentro qualunque tipo che
-        // non fosse fermata, luogo o posto salvato: cioe' i civici. La chiave
-        // di un civico sono le sue coordinate, `toULongOrNull(16)` su
-        // "43.77139,11.25417" da' null, e il tocco non faceva assolutamente
-        // niente. Cercare "via Pisana 5", vedere l'indirizzo giusto, toccarlo
-        // e ritrovarsi sulla mappa di prima senza spiegazioni — la ricerca dei
-        // civici era arrivata fino a un passo dalla fine e si fermava li'.
-        //
-        // Il luogo come riserva regge anche i tipi che verranno: un luogo ha
-        // bisogno solo di un nome e di due coordinate, e quelle ci sono sempre.
-        when (s.kind) {
-            "stop" -> {
+        // Dove porta un suggerimento sta in `SuggestionTarget`, con il
+        // perche' e il suo test: la riserva e' il luogo, non la linea.
+        when (targetOf(s.kind)) {
+            SuggestionTarget.STOP -> {
                 controller.exitRouteMode()
                 controller.flyTo(s.lat, s.lon, 16.2)
                 panel = Panel.Stop(StopTap(s.key, s.title))
             }
 
-            "route" -> {
+            SuggestionTarget.ROUTE -> {
                 // La chiave e' l'hash del route_id: stabile fra i bundle, al
                 // contrario dell'indice che ogni notte cambia.
                 val reader = ready?.reader
@@ -1086,7 +1075,7 @@ fun MapScreen(
                 }
             }
 
-            else -> showPlace(
+            SuggestionTarget.PLACE -> showPlace(
                 PlaceRef(
                     name = s.title,
                     context = s.subtitle

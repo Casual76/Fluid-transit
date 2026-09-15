@@ -103,8 +103,26 @@ class TransitMapController(private val context: Context) {
 
     private var desired: Desired? = null
 
+    /**
+     * L'ultima inquadratura chiesta prima che la mappa esistesse.
+     *
+     * Stessa storia di [desired], ma per la camera, e si vedeva: si tocca
+     * una fermata stellata nei Preferiti, l'app passa alla scheda Mappa, il
+     * pannello della fermata si apre — e dietro resta la Toscana intera a
+     * zoom 7. `getMapAsync` consegna la mappa DOPO che l'azione e' stata
+     * eseguita, e `animateCamera` su un riferimento nullo non fa niente e non
+     * lo dice.
+     *
+     * Quando arriva si applica di colpo e non in volo: la mappa sta
+     * comparendo adesso, e un volo da mezza Italia sarebbe un'animazione di
+     * un secondo verso un posto che l'utente non ha mai chiesto di lasciare.
+     */
+    private var pendingCamera: ((MapLibreMap) -> Unit)? = null
+
     fun bind(map: MapLibreMap) {
         this.map = map
+        pendingCamera?.let { it(map) }
+        pendingCamera = null
         applyOrnamentMargins(map)
         // Niente bussola di MapLibre in alto: quando serve, e' l'icona del
         // tasto posizione a fare da bussola — deciso guardando la build.
@@ -862,23 +880,33 @@ class TransitMapController(private val context: Context) {
     }
 
     fun flyTo(lat: Double, lon: Double, zoom: Double) {
-        map?.animateCamera(
-            CameraUpdateFactory.newCameraPosition(
-                CameraPosition.Builder().target(LatLng(lat, lon)).zoom(zoom).build(),
-            ),
-            900,
+        val update = CameraUpdateFactory.newCameraPosition(
+            CameraPosition.Builder().target(LatLng(lat, lon)).zoom(zoom).build(),
         )
+        val m = map
+        if (m == null) {
+            pendingCamera = { it.moveCamera(update) }
+            return
+        }
+        pendingCamera = null
+        m.animateCamera(update, 900)
     }
 
     /** Inquadra un riquadro geografico con un margine comodo. */
     fun flyToBounds(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) {
-        val m = map ?: return
         val bounds = org.maplibre.android.geometry.LatLngBounds.Builder()
             .include(LatLng(minLat, minLon))
             .include(LatLng(maxLat, maxLon))
             .build()
         val pad = (72 * context.resources.displayMetrics.density).toInt()
-        m.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, pad), 900)
+        val update = CameraUpdateFactory.newLatLngBounds(bounds, pad)
+        val m = map
+        if (m == null) {
+            pendingCamera = { it.moveCamera(update) }
+            return
+        }
+        pendingCamera = null
+        m.animateCamera(update, 900)
     }
 
     private var highlightedRoute: String? = null

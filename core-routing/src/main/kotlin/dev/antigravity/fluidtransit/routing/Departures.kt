@@ -24,9 +24,9 @@ import java.time.Instant
  * Quanto ci si puo' fidare dell'orario, e da dove viene.
  *
  * L'ordine non e' casuale: va dal piu' certo al meno certo, e la UI puo'
- * confrontarli. `DECLARED` esiste gia' anche se oggi nessuno lo produce: lo
- * produrra' il lettore delle previsioni per fermata, e definire il vocabolario
- * adesso vuol dire che quel giorno cambia una sola funzione.
+ * confrontarli. `DECLARED` era nato vuoto, in attesa delle previsioni per
+ * fermata; da quando ci sono, lo produce il loro lettore, e nessuna schermata
+ * ha dovuto cambiare — che era il punto di definire il vocabolario prima.
  */
 enum class Certainty {
     /** La fermata e' alle spalle del mezzo: quel ritardo non la riguarda piu'. */

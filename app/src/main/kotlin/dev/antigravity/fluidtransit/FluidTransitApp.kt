@@ -379,6 +379,21 @@ class FluidTransitApp : Application() {
                     }
                 }
         }
+        // E quando cambiano le ROUTINE, che e' l'altro dato di quel widget.
+        //
+        // Si creano dal dettaglio di un viaggio, si mettono in pausa e si
+        // cancellano dalla scheda Oggi e dall'assistente, e il widget non ne
+        // sapeva niente fino al giro seguente: cancellata una routine, sulla
+        // home restava scritta com'era — visto oggi, "Per oggi e' andata" su
+        // una routine che non esisteva piu'.
+        applicationScope.launch {
+            routines.version.drop(1).collect {
+                runCatching {
+                    dev.antigravity.fluidtransit.ui.widget.RoutineWidget()
+                        .updateAll(this@FluidTransitApp)
+                }
+            }
+        }
         // Un bundle nuovo azzera i ritardi. Gli indici di corsa cambiano a
         // ogni build, quindi tenersi le osservazioni vecchie vuol dire
         // attribuirle a corse a caso.

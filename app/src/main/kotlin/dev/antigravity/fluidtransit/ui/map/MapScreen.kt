@@ -1024,6 +1024,47 @@ fun MapScreen(
         }
     }
 
+    // Gli avvisi delle linee del viaggio aperto.
+    //
+    // Il motore calcola sul percorso di tabella: se una delle linee oggi e'
+    // deviata, il viaggio proposto puo' non esistere come e' scritto.
+    val currentJourneyRoutes = (panel as? Panel.JourneyDetail)
+        ?.let { journeys?.getOrNull(it.index) }
+        ?.raw?.legs
+        ?.filterIsInstance<dev.antigravity.fluidtransit.routing.Raptor.Leg.Ride>()
+        ?.map { it.route }
+        ?.distinct()
+    val avvisiDiViaggio by produceState(
+        initialValue = emptyList<String>(),
+        currentJourneyRoutes, ready?.buildId,
+    ) {
+        val reader = ready?.reader
+        val routes = currentJourneyRoutes
+        if (reader == null || routes.isNullOrEmpty()) {
+            value = emptyList()
+            return@produceState
+        }
+        val linee = routes.associate { r ->
+            reader.routeIdHash(r) to reader.routeShortName(r).ifEmpty { reader.routeLongName(r) }
+        }
+        val tutti = runCatching { app.realtime.fetchAlerts() }.getOrDefault(emptyList())
+        val adesso = java.time.Instant.now().epochSecond
+        value = tutti
+            .filter { a ->
+                a.routeHashes.any { it in linee.keys } &&
+                    dev.antigravity.fluidtransit.routing.AlertText
+                        .active(a.startEpoch, a.endEpoch, adesso)
+            }
+            .sortedByDescending { it.startEpoch }
+            .map { a ->
+                val quali = a.routeHashes.mapNotNull { linee[it] }.distinct().take(3)
+                val testo = a.header.ifEmpty {
+                    dev.antigravity.fluidtransit.routing.AlertText.body(a.description).take(80)
+                }
+                if (quali.isEmpty()) testo else quali.joinToString(", ") + " · " + testo
+            }
+    }
+
     // Il viaggio scelto si accende sulla mappa mentre lo stai SCEGLIENDO, e
     // la camera lo inquadra.
     //
@@ -2121,6 +2162,8 @@ fun MapScreen(
                                         toName = state.to.name,
                                         onDismiss = { panel = Panel.Journeys(state.to) },
                                         backdrop = backdrop,
+                                        alerts = avvisiDiViaggio,
+                                        onOpenAlerts = onOpenAlerts,
                                         onStart = {
                                             val plan = buildNavPlan(reader, j.raw, state.to.name)
                                             app.navigation.start(context, plan)

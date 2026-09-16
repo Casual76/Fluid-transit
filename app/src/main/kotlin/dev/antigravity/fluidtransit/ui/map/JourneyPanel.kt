@@ -382,6 +382,9 @@ fun JourneyDetailContent(
     /** (giorni 1-7, "arrive"|"depart", minuti dalla mezzanotte). */
     onCreateRoutine: ((Set<Int>, String, Int) -> Unit)? = null,
     onStart: (() -> Unit)? = null,
+    /** Gli avvisi in corso sulle linee di QUESTO viaggio, gia' filtrati. */
+    alerts: List<String> = emptyList(),
+    onOpenAlerts: (() -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
@@ -430,6 +433,15 @@ fun JourneyDetailContent(
                 .padding(8.dp),
         )
     }
+
+    // Gli avvisi delle linee di questo viaggio, prima delle tappe.
+    //
+    // Il motore calcola sul percorso di tabella: se una delle linee oggi e'
+    // deviata, il viaggio proposto puo' non esistere come e' scritto. E'
+    // l'unica cosa che puo' rendere sbagliato tutto quello che c'e' sotto.
+    dev.antigravity.fluidtransit.ui.common.AlertRows(
+        alerts, onOpenAlerts, tail = "sulle linee di questo viaggio",
+    )
 
     LazyColumn(
         modifier = Modifier

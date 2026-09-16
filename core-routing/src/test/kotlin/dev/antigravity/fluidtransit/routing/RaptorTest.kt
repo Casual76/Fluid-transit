@@ -283,4 +283,139 @@ class RaptorTest {
             assertEquals(day + 8 * 3600 + 1200, bus.arrival.epochSecond - bus.legs.last().let { (it as Raptor.Leg.Walk).seconds })
         }
     }
+    // --- gli invarianti -----------------------------------------------
+    //
+    // Gli otto casi qui sopra sono scenari: ognuno controlla una risposta
+    // precisa a una domanda precisa, e per scriverli bisogna gia' sapere
+    // cosa deve venire fuori. Questi sette invece sono regole che devono
+    // valere per QUALUNQUE risposta, e sono la rete che prende i difetti
+    // che nessuno ha pensato di cercare: un viaggio che parte prima di
+    // adesso, una tappa che finisce prima di cominciare, due tappe che si
+    // sovrappongono, due proposte identiche.
+
+    /** Tutti i viaggi che il motore sa produrre su questa rete. */
+    private fun tuttiIViaggi(r: BundleReader): List<Raptor.Journey> {
+        val raptor = Raptor(r)
+        val posti = listOf(nearA, nearB, nearC, nearD)
+        val momenti = listOf(
+            epochAt(feedStart, 7, 50),
+            epochAt(feedStart, 8, 5),
+            epochAt(feedStart, 9, 0),
+            epochAt(feedStart.plusDays(1), 1, 15),
+            epochAt(feedStart.plusDays(3), 8, 20),
+        )
+        val out = ArrayList<Raptor.Journey>()
+        for (da in posti) {
+            for (a in posti) {
+                if (da === a) continue
+                for (quando in momenti) out += raptor.plan(da, a, quando)
+            }
+        }
+        return out
+    }
+
+    @Test
+    fun `nessun viaggio parte prima di adesso`() {
+        BundleReader(writeBundle()).use { r ->
+            val raptor = Raptor(r)
+            for (quando in listOf(
+                epochAt(feedStart, 7, 50),
+                epochAt(feedStart, 8, 5),
+                epochAt(feedStart.plusDays(1), 1, 15),
+            )) {
+                for (j in raptor.plan(nearA, nearD, quando)) {
+                    assertTrue(
+                        j.departure.epochSecond >= quando.epochSecond,
+                        "un viaggio che parte prima di adesso: ${j.departure} < $quando",
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `nessuna tappa finisce prima di cominciare`() {
+        BundleReader(writeBundle()).use { r ->
+            for (j in tuttiIViaggi(r)) {
+                for (l in j.legs) {
+                    assertTrue(
+                        l.arrival.epochSecond >= l.departure.epochSecond,
+                        "tappa al contrario: ${l.departure} -> ${l.arrival}",
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `le tappe di un viaggio non si sovrappongono`() {
+        // E' l'invariante che prenderebbe una coincidenza impossibile: si
+        // scende alle 08:14 e il test direbbe che si e' saliti alle 08:10.
+        BundleReader(writeBundle()).use { r ->
+            for (j in tuttiIViaggi(r)) {
+                for (i in 1 until j.legs.size) {
+                    assertTrue(
+                        j.legs[i].departure.epochSecond >= j.legs[i - 1].arrival.epochSecond,
+                        "tappa ${i} parte prima che finisca la precedente",
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `l'arrivo non e' mai prima della partenza`() {
+        BundleReader(writeBundle()).use { r ->
+            for (j in tuttiIViaggi(r)) {
+                assertTrue(j.durationSeconds >= 0, "durata negativa: ${j.durationSeconds}s")
+            }
+        }
+    }
+
+    @Test
+    fun `due proposte dello stesso viaggio non si presentano insieme`() {
+        // Una lista che offre due volte la stessa cosa fa dubitare di tutta
+        // la lista, e non costa niente accorgersene.
+        BundleReader(writeBundle()).use { r ->
+            val raptor = Raptor(r)
+            for (quando in listOf(epochAt(feedStart, 7, 50), epochAt(feedStart, 8, 5))) {
+                val js = raptor.plan(nearA, nearD, quando)
+                val firme = js.map { j ->
+                    j.legs.joinToString("|") { l ->
+                        when (l) {
+                            is Raptor.Leg.Ride -> "R${l.trip}@${l.departure.epochSecond}"
+                            is Raptor.Leg.Walk -> "W${l.seconds}@${l.departure.epochSecond}"
+                        }
+                    }
+                }
+                assertEquals(firme.size, firme.toSet().size, "viaggi ripetuti: $firme")
+            }
+        }
+    }
+
+    @Test
+    fun `i viaggi escono in ordine di partenza`() {
+        // L'ordine e' quello che una persona legge come "il prossimo": se
+        // non fosse crescente, la prima riga non sarebbe la prima cosa che
+        // passa, e nessuno andrebbe a controllare.
+        BundleReader(writeBundle()).use { r ->
+            val js = Raptor(r).plan(nearA, nearD, epochAt(feedStart, 7, 50))
+            val partenze = js.filter { !it.isWalkOnly }.map { it.departure.epochSecond }
+            assertEquals(partenze.sorted(), partenze, "viaggi fuori ordine: $partenze")
+        }
+    }
+
+    @Test
+    fun `fuori dalla validita' del feed non si inventa niente`() {
+        // Il bundle copre ventuno giorni. Oltre, gli orari che abbiamo non
+        // dicono niente su quel giorno, e un viaggio proposto li' sarebbe
+        // inventato di sana pianta.
+        BundleReader(writeBundle()).use { r ->
+            val js = Raptor(r).plan(nearA, nearD, epochAt(feedStart.plusDays(60), 8, 0))
+            assertTrue(
+                js.none { !it.isWalkOnly },
+                "viaggi in bus fuori dalla validita' del feed: ${js.size}",
+            )
+        }
+    }
 }

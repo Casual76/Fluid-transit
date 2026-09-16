@@ -274,7 +274,13 @@ fun SearchGlass(
                     if (results.isEmpty()) {
                         item {
                             Text(
-                                text = if (placesReady) {
+                                text = if (query.length == 1) {
+                                    // "Prova con meno lettere" con una lettera
+                                    // sola non vuol dire niente, e con un
+                                    // carattere si cercano solo le sigle.
+                                    "Nessuna linea si chiama cosi'. Per le fermate " +
+                                        "e i luoghi servono almeno due lettere."
+                                } else if (placesReady) {
                                     "Niente con questo nome. Prova con meno lettere."
                                 } else {
                                     "Fermate e linee non ne hanno. Gli indirizzi e i " +

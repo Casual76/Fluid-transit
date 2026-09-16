@@ -49,7 +49,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Test JVM e compilazione debug
-        run: ./gradlew --no-daemon :core-routing:test :app:testDebugUnitTest :app:assembleDebug
+        run: >-
+          ./gradlew --no-daemon
+          :core-routing:test :bundler:test :app:testDebugUnitTest :app:assembleDebug
 
       # Lint di Android: gli errori fermano la build, gli avvisi no. Il primo
       # che ha trovato era una chiamata alla posizione senza controllo del

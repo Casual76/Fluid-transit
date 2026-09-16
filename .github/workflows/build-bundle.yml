@@ -176,6 +176,13 @@ jobs:
             docker logs valhalla 2>&1 | tail -20 || true
           fi
 
+      # Prima di costruire, non dopo: se il costruttore e' rotto, un bundle
+      # sbagliato si riconosce dopo ore di lavoro e a volte non si riconosce
+      # affatto. Qui ci sono le regole che il builder applica ai dati —
+      # per esempio la pulizia dei nomi delle fermate.
+      - name: Test del costruttore
+        run: ./gradlew --no-daemon :bundler:test --console=plain
+
       - name: Costruisci il bundle
         run: |
           ./gradlew --no-daemon :bundler:run --console=plain --args="$GITHUB_WORKSPACE/work/gtfs $GITHUB_WORKSPACE/work/toscana.ftb - $GITHUB_WORKSPACE/work/fragment.json"

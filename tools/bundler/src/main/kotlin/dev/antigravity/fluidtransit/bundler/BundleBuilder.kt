@@ -171,6 +171,44 @@ class BundleBuilder(
         val size: Int get() = ids.size
     }
 
+    /**
+     * Il nome di una fermata, ripulito dalle code che nessuno voleva.
+     *
+     * Misurato sul feed del 16/09/2026, su 33.930 fermate: 212 nomi hanno
+     * uno spazio doppio — quasi tutte all'Elba, nella forma "San Piero,  Via
+     * San Francesco" — e 17 finiscono con un trattino o un trattino basso,
+     * tipo "ANTELLA_". Sono lo 0,7% delle fermate, ma si vedono: uno spazio
+     * doppio in mezzo a un nome e un trattino basso in fondo si leggono come
+     * un difetto dell'app, non della fonte, perche' l'app e' l'unica cosa
+     * che la persona vede.
+     *
+     * Si pulisce QUI e non nel lettore per due ragioni. La prima e' che il
+     * dato sbagliato e' il dato, non il modo di leggerlo, e il lettore deve
+     * restare una mappatura di byte senza opinioni. La seconda e' che
+     * `stopName` sta dentro le liste che si ridisegnano: farlo li' vorrebbe
+     * dire una stringa nuova per ogni riga, ogni volta.
+     *
+     * Il punto finale NON si tocca: 125 nomi finiscono con un punto, e sono
+     * abbreviazioni vere — "Monsummano T.", "Serravalle P.se" — dove
+     * togliere il punto cambierebbe la parola.
+     */
+    internal fun pulisciNome(raw: String): String {
+        var s = raw.trim()
+        while (s.isNotEmpty() && (s.last() == '_' || s.last() == '-')) {
+            s = s.substring(0, s.length - 1).trimEnd()
+        }
+        if (!s.contains("  ")) return s
+        val sb = StringBuilder(s.length)
+        var spazio = false
+        for (c in s) {
+            val e = c == ' ' || c == '	'
+            if (e && spazio) continue
+            sb.append(if (e) ' ' else c)
+            spazio = e
+        }
+        return sb.toString().trim()
+    }
+
     private fun readStops(): Stops {
         val s = Stops()
         CsvCursor.open(File(gtfsDir, "stops.txt")) { csv ->
@@ -190,7 +228,7 @@ class BundleBuilder(
                 s.ids.add(id)
                 s.lat.add(Math.round(lat * Ftb.COORD_SCALE).toInt())
                 s.lon.add(Math.round(lon * Ftb.COORD_SCALE).toInt())
-                s.name.add(csv.string(cName))
+                s.name.add(pulisciNome(csv.string(cName)))
                 s.code.add(csv.string(cCode))
                 s.parent.add(csv.string(cParent))
                 s.area.add(csv.string(cArea))

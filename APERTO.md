@@ -130,6 +130,22 @@ esattamente quello che ordina il nostro cron. Chi conoscesse l'URL non
 ottiene una leva su qualcun altro, solo su di noi, e nemmeno tanta.
 — aperto dal 15/09/2026, ridotto il 16/09/2026
 
+**E nemmeno i cron di GitHub sono un metronomo, su questo repo.** Misurato
+il 16/09 sui run veri: `rt-keepalive` chiede di girare ogni cinque minuti e
+negli ultimi avvii e' partito alle 05:57, 01:09, 23:00 e 20:28 — uno ogni due
+o cinque ore; il bundle notturno, che chiede le 03:40 UTC, e' partito alle
+08:49 (e il giorno prima alle 08:57); il banco di fedelta', che chiede le
+08:15 UTC, alle 09:07 UTC non era ancora partito. Non sono ritardi di minuti:
+sono ore, e la maggior parte delle occorrenze viene saltata.
+
+Tre sintomi diversi hanno quindi la stessa causa: il proxy che non viene
+svegliato, gli orari nuovi che arrivano a meta' mattina invece che all'alba,
+e il verdetto del banco che nell'app resta fermo a quello della notte. Niente
+di tutto questo si aggiusta da qui — e' come GitHub pianifica i lavori
+gratuiti — ma va saputo prima di cercare la causa altrove. L'app intanto fa
+la cosa giusta: dice sempre di QUANDO e' il dato che mostra, invece di
+promettere una frequenza. — misurato il 16/09/2026
+
 **Il Cron Trigger di Cloudflare non e' un metronomo, e adesso si vede anche
 nell'app.** `crons = ["* * * * *"]` e' configurato, ma `/rt/v1/health` ha
 riportato battiti a 26 e a 102 minuti di distanza; stamattina alle 07:40, in

@@ -7,10 +7,19 @@ name: RT keepalive
 # scoperto — il primo utente dopo un periodo di quiete, che altrimenti
 # vedrebbe posizioni vecchie per un giro di poll.
 #
-# GitHub non garantisce la puntualita' dei cron (ritardi di minuti sono
-# normali): come rete di sicurezza va benissimo, come metronomo no. Se un
-# giorno il cron di Cloudflare si sveglia, /rt/v1/health mostrera' il campo
-# `cron` e questo workflow si potra' spegnere.
+# GitHub non garantisce la puntualita' dei cron, e su questo repo la
+# differenza fra la pianificazione e la realta' e' enorme. Misurato il
+# 16/09/2026 sui run veri: questo cron chiede di girare ogni cinque minuti e
+# gli ultimi quattro avvii sono stati alle 05:57, 01:09, 23:00 e 20:28 —
+# cioe' uno ogni due o cinque ore, con il 98% delle occorrenze semplicemente
+# saltate. Nello stesso giorno il bundle notturno, che chiede le 03:40 UTC,
+# e' partito alle 08:49; il giorno prima alle 08:57. Non sono ritardi di
+# minuti: sono ore, e la maggior parte degli avvii non avviene affatto.
+#
+# Quindi: come rete di sicurezza ogni tanto va bene, come metronomo no —
+# e nessun conto sulla freschezza deve dipendere da qui. Se un giorno il
+# cron di Cloudflare si sveglia, /rt/v1/health mostrera' il campo `cron` e
+# questo workflow si potra' spegnere.
 
 on:
   schedule:

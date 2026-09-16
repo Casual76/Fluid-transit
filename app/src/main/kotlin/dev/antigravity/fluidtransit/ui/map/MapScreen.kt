@@ -93,6 +93,7 @@ fun MapScreen(
     intent: MapIntent? = null,
     onIntentConsumed: () -> Unit = {},
     onOpenDataStatus: () -> Unit = {},
+    onOpenAlerts: () -> Unit = {},
 ) {
     val context = LocalContext.current
     // Lo scuro della mappa segue il tema DELL'APP, non quello di sistema:
@@ -497,6 +498,42 @@ fun MapScreen(
                 RouteInfo.build(reader, idx, Instant.now(), app.departureBoards.live())
             }.getOrNull()
         }
+    }
+
+    // Gli avvisi di servizio della linea aperta.
+    //
+    // L'app li aveva e non li diceva dove servono: aprendo la 12 mentre e'
+    // deviata, il pannello raccontava orari e fermate come se niente fosse.
+    // Un avviso di servizio e' l'unica cosa che puo' rendere sbagliato tutto
+    // il resto di quel pannello, e saperlo dopo non serve.
+    //
+    // Si chiedono solo quando una scheda linea e' davvero aperta, e il
+    // recupero ha cinque minuti di cache: aprirne una seconda non ricarica
+    // niente.
+    val avvisiDiLinea by produceState(
+        initialValue = emptyList<String>(),
+        currentRouteIndex, ready?.buildId,
+    ) {
+        val reader = ready?.reader
+        val idx = currentRouteIndex
+        if (reader == null || idx == null) {
+            value = emptyList()
+            return@produceState
+        }
+        val hash = runCatching { reader.routeIdHash(idx) }.getOrNull()
+        val tutti = runCatching { app.realtime.fetchAlerts() }.getOrDefault(emptyList())
+        val adesso = java.time.Instant.now().epochSecond
+        value = tutti
+            .filter { a ->
+                hash != null && a.routeHashes.contains(hash) &&
+                    dev.antigravity.fluidtransit.routing.AlertText
+                        .active(a.startEpoch, a.endEpoch, adesso)
+            }
+            .map { a ->
+                a.header.ifEmpty {
+                    dev.antigravity.fluidtransit.routing.AlertText.body(a.description).take(90)
+                }
+            }
     }
 
     // I dati della scheda corsa: si ricalcolano anche quando arriva un
@@ -1803,6 +1840,8 @@ fun MapScreen(
                                             )
                                         },
                                         onDismiss = ::exitRouteMode,
+                                        alerts = avvisiDiLinea,
+                                        onOpenAlerts = onOpenAlerts,
                                     )
                                 } else {
                                     PanelLoading("Leggo la linea\u2026")

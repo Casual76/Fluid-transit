@@ -251,6 +251,7 @@ private fun AppShell(app: FluidTransitApp) {
                                 intent = mapIntent,
                                 onIntentConsumed = { mapIntent = null },
                                 onOpenDataStatus = { above = RouteDataStatus },
+                                onOpenAlerts = { above = RouteAlerts },
                             )
                         }
                     }

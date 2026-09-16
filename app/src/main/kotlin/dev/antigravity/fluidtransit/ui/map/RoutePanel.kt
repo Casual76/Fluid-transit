@@ -35,6 +35,7 @@ import dev.antigravity.fluidtransit.routing.Times
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Info
 
 /**
  * Tutto quello che la scheda linea sa dire, calcolato dal bundle in un
@@ -317,6 +318,16 @@ fun RouteFullContent(
     isFavorite: Boolean = false,
     onToggleFavorite: () -> Unit = {},
     onDismiss: (() -> Unit)? = null,
+    /**
+     * Gli avvisi in corso su QUESTA linea, gia' filtrati.
+     *
+     * L'app li aveva e non li diceva dove servono: aprendo la 12 mentre e'
+     * deviata dal 20 agosto, il pannello raccontava orari e fermate come se
+     * niente fosse. Un avviso di servizio e' l'unica cosa che puo' rendere
+     * sbagliato tutto il resto di quel pannello.
+     */
+    alerts: List<String> = emptyList(),
+    onOpenAlerts: (() -> Unit)? = null,
 ) {
     val dir = info.directions.getOrNull(direction) ?: info.directions.firstOrNull() ?: return
 
@@ -387,6 +398,36 @@ fun RouteFullContent(
                             onClick = onDismiss,
                         )
                         .padding(7.dp),
+                )
+            }
+        }
+
+        // --- gli avvisi di questa linea ----------------------------------
+        //
+        // In cima, sotto la testata: se questa linea oggi e' deviata o
+        // sostituita, tutto quello che c'e' sotto — orari, fermate, minuti —
+        // puo' essere sbagliato, e saperlo dopo non serve a niente.
+        for (a in alerts.take(2)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .let { m -> if (onOpenAlerts != null) m.clickable { onOpenAlerts() } else m }
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                androidx.compose.material3.Icon(
+                    imageVector = Icons.Rounded.Info,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    text = a,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }

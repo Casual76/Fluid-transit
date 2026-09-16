@@ -178,6 +178,11 @@ dependencies {
     // in dipendenza: serve a mettere RealtimeClient davanti a un proxy che
     // sbaglia, che tace, o che risponde 304, senza toccare la rete vera.
     testImplementation("junit:junit:4.13.2")
+    // La rete di prova di :core-routing: quattro fermate, una linea, due
+    // corse, scritte in un vero .ftb. Serve ai test che devono agganciare il
+    // realtime a degli orari, e senza questa riga l'unica strada era una
+    // seconda copia del formato scritto a mano.
+    testImplementation(testFixtures(project(":core-routing")))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     // `org.json` vero nei test unitari.

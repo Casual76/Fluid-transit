@@ -11,6 +11,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.setValue
@@ -222,9 +231,44 @@ fun TodayTab(
             } else {
                 null
             }
+            // Il prossimo passaggio, grande e del colore della sua linea.
+            //
+            // Oggi era una lista e basta: otto righe tutte uguali, e quella
+            // che conta — la prima — si doveva cercare. Questa e' la scheda
+            // che si apre per prima, e la domanda che ci si fa aprendola e'
+            // una sola: "quanto manca al prossimo?".
+            //
+            // La carta satura e' il vocabolario dell'engine per l'elemento
+            // che sta da solo nella pagina, e prende il colore della linea:
+            // il 6 arancione si riconosce prima di aver letto una parola.
+            // Il ritardo, qui, si dice a parole — su una superficie colorata
+            // il verde e l'ambra non si leggerebbero.
+            val prossimo = departures.firstOrNull()
+            if (prossimo != null && board.computedAtEpoch > 0L) {
+                item {
+                    ProssimoPassaggio(
+                        row = prossimo,
+                        nowEpoch = board.computedAtEpoch,
+                        mostraFermata = unicaFermata == null,
+                        onClick = {
+                            onOpenOnMap(
+                                MapIntent.Stop(
+                                    java.lang.Long.toHexString(
+                                        reader?.stopIdHash(prossimo.stopIndex) ?: 0L,
+                                    ),
+                                    prossimo.stopName,
+                                ),
+                            )
+                        },
+                    )
+                }
+            }
             item {
                 FluidSectionTitle(
-                    eyebrow = "Adesso",
+                    // "Poi" in maiuscolo diventa "POI", che in mezzo a
+                    // un'app di mappe si legge come l'acronimo inglese dei
+                    // punti di interesse.
+                    eyebrow = if (prossimo != null) "Dopo" else "Adesso",
                     title = unicaFermata ?: "Dalle tue fermate",
                 )
             }
@@ -270,7 +314,8 @@ fun TodayTab(
                         // a destra. Due grammatiche visive per lo stesso
                         // dato, e questa era quella della schermata che si
                         // apre per prima.
-                        for ((i, d) in departures.withIndex()) {
+                        // La prima e' gia' nella carta qui sopra.
+                        for ((i, d) in departures.drop(1).withIndex()) {
                             if (i > 0) {
                                 dev.antigravity.fluidengine.ui.theme.FluidListDivider()
                             }
@@ -500,4 +545,62 @@ private fun daysShort(days: Set<Int>): String {
     if (days == setOf(1, 2, 3, 4, 5)) return "Lun–Ven"
     val names = listOf("Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom")
     return days.sorted().joinToString(" ") { names[it - 1] }
+}
+
+/**
+ * Il prossimo passaggio, in una carta sola.
+ *
+ * Prende il colore della linea perche' e' l'unico elemento della pagina che
+ * sta da solo — la regola dell'engine e' proprio questa: dentro una lista
+ * raggruppata il colore resta sulla piastrella, fuori puo' prendersi tutta
+ * la superficie. Il contrasto del testo lo sceglie `FluidVividColors.from`
+ * contro l'estremo peggiore del gradiente, cosi' una linea gialla non
+ * diventa bianco su giallo.
+ */
+@Composable
+private fun ProssimoPassaggio(
+    row: dev.antigravity.fluidtransit.routing.NextDeparture,
+    nowEpoch: Long,
+    mostraFermata: Boolean,
+    onClick: () -> Unit,
+) {
+    val phrase = DepartureText.phrase(row, nowEpoch)
+    val tinta = Color(0xFF000000 or row.colorRgb.toLong())
+    dev.antigravity.fluidengine.ui.fluid.FluidVividCard(
+        colors = dev.antigravity.fluidengine.ui.fluid.FluidVividColors.from(tinta),
+        effect = dev.antigravity.fluidengine.ui.fluid.FluidVividEffect.Sheen,
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = row.line,
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            Text(
+                text = "→ ${row.destination}",
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = phrase.headline,
+            style = MaterialTheme.typography.displaySmall,
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            // La provenienza c'e' anche qui: un numero grande senza da dove
+            // viene e' esattamente il genere di cosa che non si puo' piu'
+            // fare in quest'app.
+            text = if (mostraFermata) "da ${row.stopName} · ${phrase.support}" else phrase.support,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }

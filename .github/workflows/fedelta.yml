@@ -46,9 +46,12 @@ jobs:
           set -e
           case "$esito" in
             0) echo "::notice::i minuti dell'app sono quelli della Regione" ;;
-            # I due lati vengono da due generazioni diverse: non e' un
-            # difetto nostro, e fallire qui sarebbe un allarme falso.
-            2) echo "::warning::confronto non conclusivo (sfasamento fra i due feed)" ;;
+            # Due casi in cui il confronto non dice niente, e nessuno dei due
+            # e' un difetto nostro: i due lati vengono da generazioni diverse,
+            # oppure l'origine non pubblica abbastanza corse da confrontare.
+            # Fallire qui sarebbe un allarme falso; dichiarare vittoria
+            # sarebbe peggio.
+            2) echo "::warning::confronto non conclusivo (sfasamento, o troppe poche corse)" ;;
             1) echo "::error::i nostri minuti NON sono quelli della fonte"; exit 1 ;;
             *) echo "::error::il banco non e' riuscito a girare"; exit 1 ;;
           esac

@@ -42,6 +42,20 @@ const PROXY = 'https://fluid-transit-rt.fluid-transit.workers.dev/rt/v1';
 const DEFAULT_MAX_SKEW_SECONDS = 180;
 
 /**
+ * Sotto questi punti confrontati il banco non ha visto abbastanza.
+ *
+ * Alle due di notte la Regione pubblica ZERO corse, e il banco confrontava
+ * zero punti, trovava zero differenze e dichiarava "i minuti che l'app legge
+ * sono quelli che la Regione pubblica". E' vero e non vuol dire niente: con
+ * la stessa logica, un proxy completamente rotto che serve una sezione vuota
+ * passerebbe. Un cancello che non puo' fallire non e' un cancello.
+ *
+ * Cinquanta punti sono pochi perfino per la notte fonda e tantissimi perche'
+ * un difetto sistematico si veda.
+ */
+const MIN_POINTS = 50;
+
+/**
  * Quante differenze si tollerano, in parti per mille.
  *
  * Non zero, e non per pigrizia: i due lati si leggono in due istanti diversi,
@@ -212,6 +226,15 @@ async function main() {
   console.log(`corse solo nell'origine: ${soloOrigine}`);
   console.log(`corse solo nel proxy:    ${soloProxy}`);
   for (const e of esempi) console.log(`  ${e}`);
+
+  const minPoints = arg('min-punti', MIN_POINTS);
+  if (confrontati < minPoints) {
+    console.log(`
+Solo ${confrontati} punti da confrontare, meno di ${minPoints}.`);
+    console.log("Non e' un via libera: e' che non c'era niente da guardare.");
+    console.log('Di notte la Regione pubblica zero corse. Riprova nelle ore di servizio.');
+    process.exit(2);
+  }
 
   if (perMille > maxPerMille) {
     console.log(`\nOltre la soglia di ${maxPerMille}‰: i nostri minuti non sono quelli della fonte.`);

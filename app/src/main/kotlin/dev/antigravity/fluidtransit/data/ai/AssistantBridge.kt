@@ -19,6 +19,7 @@ import dev.antigravity.fluidtransit.routing.BundleReader
 import dev.antigravity.fluidtransit.routing.DelayModel
 import dev.antigravity.fluidtransit.routing.PlacesSearch
 import dev.antigravity.fluidtransit.routing.Raptor
+import dev.antigravity.fluidtransit.routing.Words
 import dev.antigravity.fluidtransit.ui.map.ResolvedRt
 import dev.antigravity.fluidtransit.ui.map.SearchIndex
 import java.time.Instant
@@ -223,7 +224,8 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
             dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.SCHEDULE_ONLY -> "nessuno: solo orari di tabella"
         }
         val age = status.feedAgeSeconds?.let { "aggiornati ${it}s fa" } ?: "mai aggiornati"
-        val counts = "${status.vehicleCount} mezzi, ${status.delayCount} ritardi"
+        val counts = Words.count(status.vehicleCount, "mezzo", "mezzi") + ", " +
+            Words.count(status.delayCount, "ritardo", "ritardi")
         val error = status.lastError?.takeIf { it.isNotBlank() }?.let { " · ultimo errore: $it" } ?: ""
         return "$source · $age · $counts$error"
     }

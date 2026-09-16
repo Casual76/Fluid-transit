@@ -5,6 +5,7 @@ import dev.antigravity.fluidtransit.routing.BundleReader
 import dev.antigravity.fluidtransit.routing.DelayModel
 import dev.antigravity.fluidtransit.routing.PlacesSearch
 import dev.antigravity.fluidtransit.routing.Raptor
+import dev.antigravity.fluidtransit.routing.Words
 import java.time.ZoneId
 import java.util.Locale
 import kotlinx.serialization.json.JsonArray
@@ -361,7 +362,8 @@ object ToolText {
             count++
         }
         val missing = lines.size - count
-        return kept.toString().trimEnd() + "\n… (altre $missing righe omesse)"
+        return kept.toString().trimEnd() + "\n… (" +
+            Words.count(missing, "altra riga omessa", "altre righe omesse") + ")"
     }
 
     class Builder {

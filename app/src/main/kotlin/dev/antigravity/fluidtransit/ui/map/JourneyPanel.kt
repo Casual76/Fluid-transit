@@ -41,6 +41,7 @@ import dev.antigravity.fluidtransit.routing.BundleReader
 import dev.antigravity.fluidtransit.routing.Ftb
 import dev.antigravity.fluidtransit.routing.Raptor
 import dev.antigravity.fluidtransit.routing.Times
+import dev.antigravity.fluidtransit.routing.Words
 import java.time.Instant
 import java.time.ZonedDateTime
 
@@ -526,7 +527,7 @@ fun JourneyDetailContent(
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
-                            text = if (leg.stops == 1) "1 fermata" else "${leg.stops} fermate",
+                            text = Words.count(leg.stops, "fermata", "fermate"),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(vertical = 2.dp),

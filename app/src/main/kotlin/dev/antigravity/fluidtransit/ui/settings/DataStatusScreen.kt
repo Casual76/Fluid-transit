@@ -11,6 +11,7 @@ import dev.antigravity.fluidengine.ui.theme.FluidListRow
 import dev.antigravity.fluidengine.ui.theme.FluidSectionTitle
 import dev.antigravity.fluidtransit.FluidTransitApp
 import dev.antigravity.fluidtransit.data.bundle.BundleManager.BundleState
+import dev.antigravity.fluidtransit.routing.Words
 import java.time.Instant
 import kotlin.system.measureNanoTime
 
@@ -157,7 +158,8 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
                         "una nostra stima e l'app lo dice",
                     meta = predictions?.let { set ->
                         val punti = set.byTripHash.values.sumOf { it.points.size }
-                        "${set.byTripHash.size} corse · $punti punti" +
+                        Words.count(set.byTripHash.size, "corsa", "corse") + " · " +
+                            Words.count(punti, "punto", "punti") +
                             if (set.truncated) " · ridotte" else ""
                     } ?: "—",
                 )

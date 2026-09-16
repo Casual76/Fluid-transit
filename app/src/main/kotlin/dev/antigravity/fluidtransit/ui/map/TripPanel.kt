@@ -40,6 +40,7 @@ import dev.antigravity.fluidtransit.routing.LiveTimes
 import dev.antigravity.fluidtransit.routing.Ftb
 import dev.antigravity.fluidtransit.routing.StopTimes
 import dev.antigravity.fluidtransit.routing.Times
+import dev.antigravity.fluidtransit.routing.Words
 import dev.antigravity.fluidtransit.ui.common.toneColor
 import java.time.Instant
 import java.time.ZonedDateTime
@@ -258,7 +259,10 @@ fun TripMiniContent(info: TripInfo) {
                 Text(
                     text = buildString {
                         append(delayLabel(info.delaySec, info.canceled))
-                        if (info.stops.isNotEmpty()) append(" · ${info.stops.size} fermate rimaste")
+                        if (info.stops.isNotEmpty()) {
+                            append(" · ")
+                            append(Words.count(info.stops.size, "fermata rimasta", "fermate rimaste"))
+                        }
                     },
                     style = MaterialTheme.typography.labelMedium,
                     color = when {

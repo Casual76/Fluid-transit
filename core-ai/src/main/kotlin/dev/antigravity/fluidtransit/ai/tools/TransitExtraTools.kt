@@ -190,7 +190,9 @@ class StopDayScheduleTool : AiTool {
     return h * 60 + (m.groupValues[2].toIntOrNull() ?: 0)
   }
 
-  private fun label(minutes: Int): String = "%02d:%02d".format(minutes / 60 % 24, minutes % 60)
+  // `parseMinutes` accetta fino alle 29, perche' "fino alle 25" e' una cosa
+  // che si dice: l'eco non deve rispondere "01:00" come se fosse stamattina.
+  private fun label(minutes: Int): String = Times.serviceTime(minutes * 60)
 }
 
 /** "Quando passa il prossimo per il centro": la linea giusta scelta dalla destinazione. */

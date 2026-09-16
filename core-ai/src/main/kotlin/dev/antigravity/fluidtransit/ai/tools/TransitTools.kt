@@ -250,7 +250,10 @@ class RouteScheduleTool : AiTool {
             }
         }
         if (count == 0) return "la linea ${hit.shortName} oggi non ha corse"
-        fun hm(sec: Int) = "%02d:%02d".format((sec / 3600) % 24, (sec % 3600) / 60)
+        // Non un modulo 24 in casa: l'ultima corsa di una linea urbana parte
+        // spesso dopo la mezzanotte, e "01:13" senza altro fa credere che sia
+        // passata stamattina.
+        fun hm(sec: Int) = Times.serviceTime(sec)
         return ToolText.build {
             line("linea", hit.shortName)
             line("destinazione", hit.headsign)

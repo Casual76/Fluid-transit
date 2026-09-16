@@ -68,7 +68,12 @@ class TimesTest {
         assertEquals("07:05", Times.serviceTime(7 * 3600 + 5 * 60))
         // La scheda linea stampava le 25:30 come "1:30", senza dire che quel
         // bus passa domani mattina.
-        assertEquals("01:30 (domani)", Times.serviceTime(25 * 3600 + 30 * 60))
+        assertEquals("01:30 di notte", Times.serviceTime(25 * 3600 + 30 * 60))
+        // L'ultima corsa del feed vero finisce alle 30:10: modulo 24 secco
+        // diventerebbe "06:10", cioe' un'ora fa invece che fra sei.
+        assertEquals("06:10 di notte", Times.serviceTime(30 * 3600 + 10 * 60))
+        assertEquals("00:00 di notte", Times.serviceTime(24 * 3600))
+        assertEquals("23:59", Times.serviceTime(23 * 3600 + 59 * 60))
     }
     @Test
     fun `una durata si dice come la direbbe una persona`() {

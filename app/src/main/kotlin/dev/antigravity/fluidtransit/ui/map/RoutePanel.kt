@@ -31,6 +31,7 @@ import dev.antigravity.fluidengine.ui.fluid.FluidHairline
 import dev.antigravity.fluidengine.ui.fluid.FluidRadius
 import dev.antigravity.fluidengine.ui.fluid.FluidSegmentedControl
 import dev.antigravity.fluidtransit.routing.BundleReader
+import dev.antigravity.fluidtransit.routing.Times
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import androidx.compose.material.icons.rounded.Close
@@ -206,16 +207,10 @@ class RouteInfo(
                 null
             }
 
-            /**
-             * L'orologio di una corsa, con due cifre e senza bugie sulle
-             * notturne: negli orari GTFS l'ultima corsa del feed finisce
-             * alle 30:10, e stampata con un modulo 24 secco diventava
-             * "6:10" — cioe' stamattina invece di stanotte.
-             */
-            fun fmt(sec: Int): String {
-                val label = "%02d:%02d".format((sec / 3600) % 24, (sec % 3600) / 60)
-                return if (sec >= 24 * 3600) "$label di notte" else label
-            }
+            // L'orologio di una corsa sta in `Times`, dove stava gia': queste
+            // parole sono nate qui e adesso le usano anche gli strumenti
+            // dell'assistente.
+            fun fmt(sec: Int): String = Times.serviceTime(sec)
 
             return RouteInfo(
                 routeIndex = routeIndex,

@@ -90,14 +90,20 @@ object Times {
     /**
      * L'orologio di un orario espresso in secondi dal giorno di servizio.
      *
-     * Le corse oltre le 24:00 esistono e sono 2.709 nel feed: stamparle
-     * modulo 24 senza dirlo — che e' quello che faceva la scheda linea,
-     * dove le 25:30 diventavano "1:30" — nasconde all'utente che quel bus
-     * passa domani mattina.
+     * Le corse oltre le 24:00 esistono e sono 2.709 nel feed, e l'ultima
+     * finisce alle 30:10. Stamparle modulo 24 senza dirlo fa credere che
+     * l'ultima corsa sia passata stamattina invece che stanotte: "30:10"
+     * diventa "06:10", che e' un'ora fa invece che fra sei.
+     *
+     * Questa funzione esisteva gia', con i suoi test, e non la chiamava
+     * nessuno: la scheda linea si era riscritta la stessa cosa in casa e
+     * l'assistente se l'era riscritta male, senza il "di notte". Le parole
+     * sono quelle della scheda linea, che erano le migliori delle tre.
      */
     fun serviceTime(secondsFromServiceDay: Int): String {
         val h = secondsFromServiceDay / 3600
         val m = (secondsFromServiceDay % 3600) / 60
-        return if (h >= 24) "%02d:%02d (domani)".format(h - 24, m) else "%02d:%02d".format(h, m)
+        val orologio = "%02d:%02d".format(h % 24, m)
+        return if (h >= 24) "$orologio di notte" else orologio
     }
 }

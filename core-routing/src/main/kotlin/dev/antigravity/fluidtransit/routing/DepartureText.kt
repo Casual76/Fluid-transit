@@ -330,4 +330,101 @@ object DepartureText {
         }
     }
 
+    /**
+     * Perche' un tabellone non ha niente da mostrare.
+     *
+     * Un tabellone vuoto e' la cosa piu' facile da raccontare male, perche'
+     * cinque situazioni diverse finiscono tutte nella stessa lista vuota: la
+     * fermata non l'hai ancora scelta, gli orari non sono ancora aperti, la
+     * fermata salvata non esiste piu' in quelli di oggi, gli orari sono
+     * scaduti, oppure e' semplicemente notte. Le prime tre sono nostre e si
+     * risolvono; le ultime due no. Dirle tutte con le parole della quinta —
+     * "Nessun passaggio a breve" — fa sembrare fermo il servizio quando a
+     * essere ferma e' l'app, ed e' esattamente la frase che il widget
+     * mostrava per tutte e cinque.
+     */
+    enum class Trouble {
+        /** Nessuna fermata scelta: solo un widget puo' trovarsi cosi'. */
+        NESSUNA_FERMATA,
+
+        /** Gli orari non erano aperti in tempo per questo disegno. */
+        ORARI_NON_PRONTI,
+
+        /**
+         * La fermata salvata non compare negli orari di oggi.
+         *
+         * Succede davvero: i preferiti e i widget salvano l'hash dell'id, che
+         * sopravvive allo scambio notturno, ma una fermata tolta o rinominata
+         * dalla fonte no. Prima il widget diceva "Nessun passaggio", che e'
+         * la lettura piu' sbagliata possibile di una fermata sparita.
+         */
+        FERMATA_SCONOSCIUTA,
+
+        /** Gli orari ci sono ma non coprono piu' oggi. */
+        ORARI_SCADUTI,
+
+        /** Tutto a posto: da li' non parte niente a breve. */
+        NIENTE_A_BREVE,
+    }
+
+    /**
+     * Le parole di un tabellone vuoto.
+     *
+     * [detail] e' la frase intera, per una schermata; [short] e' la riga
+     * corta del widget, che ha lo spazio di un sottotitolo.
+     */
+    class Empty(val title: String, val detail: String, val short: String)
+
+    /**
+     * @param oneStop se il tabellone e' di una fermata sola. Cambia solo il
+     *   soggetto della frase — "da questa fermata" contro "dalle tue
+     *   fermate" — ma e' la differenza fra una frase scritta per te e una
+     *   frase generica.
+     */
+    fun empty(trouble: Trouble, oneStop: Boolean = true): Empty = when (trouble) {
+        Trouble.NESSUNA_FERMATA -> Empty(
+            "Scegli una fermata preferita",
+            "Questo widget mostra i passaggi di una fermata che hai messo fra i preferiti.",
+            "dalla configurazione del widget",
+        )
+
+        Trouble.ORARI_NON_PRONTI -> Empty(
+            "Orari non ancora pronti",
+            "Gli orari si stanno ancora aprendo. Non vuol dire che non passi niente: " +
+                "vuol dire che non l'abbiamo ancora letto.",
+            "tocca per aprire l'app",
+        )
+
+        Trouble.FERMATA_SCONOSCIUTA -> Empty(
+            "Questa fermata non c'e' piu'",
+            "Negli orari di oggi non compare: puo' essere stata rinominata o tolta " +
+                "dalla fonte. Sceglierne un'altra rimette a posto.",
+            "non compare negli orari di oggi",
+        )
+
+        Trouble.ORARI_SCADUTI -> Empty(
+            "Gli orari sono scaduti",
+            "Quelli che abbiamo non coprono piu' oggi, e non ne arrivano di nuovi. " +
+                "Non vuol dire che i bus non passino: vuol dire che non sappiamo quando.",
+            "non coprono piu' oggi",
+        )
+
+        Trouble.NIENTE_A_BREVE -> Empty(
+            "Nessun passaggio a breve",
+            if (oneStop) {
+                "Da questa fermata non parte niente nelle prossime due ore."
+            } else {
+                "Dalle tue fermate non parte niente nelle prossime due ore."
+            },
+            "nelle prossime due ore",
+        )
+    }
+
+    /**
+     * Il guaio di un tabellone gia' calcolato e senza righe.
+     *
+     * Le altre tre situazioni le conosce solo chi ha provato a costruirlo.
+     */
+    fun trouble(board: DepartureBoard): Trouble =
+        if (board.outsideValidity) Trouble.ORARI_SCADUTI else Trouble.NIENTE_A_BREVE
 }

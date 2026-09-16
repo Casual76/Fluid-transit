@@ -202,19 +202,15 @@ fun TodayTab(
                         // sbagliato e' il difetto che i Preferiti avevano.
                         FluidListRow(title = "Un attimo…", subtitle = "Leggo gli orari")
                     } else if (departures.isEmpty()) {
-                        FluidListRow(
-                            title = if (board.outsideValidity) {
-                                "Gli orari sono scaduti"
-                            } else {
-                                "Nessun passaggio a breve"
-                            },
-                            subtitle = if (board.outsideValidity) {
-                                "Quelli che abbiamo non coprono piu' oggi, e non " +
-                                    "ne arrivano di nuovi"
-                            } else {
-                                "Dalle tue fermate non parte niente nelle prossime due ore"
-                            },
+                        // Le stesse parole della scheda fermata, dallo stesso
+                        // posto: qui erano una copia quasi uguale, e "quasi"
+                        // e' il modo in cui due schermate finiscono per
+                        // spiegare la stessa cosa in due modi.
+                        val parole = dev.antigravity.fluidtransit.routing.DepartureText.empty(
+                            dev.antigravity.fluidtransit.routing.DepartureText.trouble(board),
+                            oneStop = unicaFermata != null,
                         )
+                        FluidListRow(title = parole.title, subtitle = parole.detail)
                     } else {
                         for (d in departures) {
                             val phrase = DepartureText.phrase(d, board.computedAtEpoch)

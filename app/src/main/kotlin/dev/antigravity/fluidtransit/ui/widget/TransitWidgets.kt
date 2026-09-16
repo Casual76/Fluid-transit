@@ -78,6 +78,28 @@ class RoutineWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = RoutineWidget()
 }
 
+/**
+ * Come e' andata la costruzione del tabellone di un widget.
+ *
+ * Un widget vive il tempo di disegnarsi e non puo' chiedere niente a
+ * nessuno: se torna indietro un tabellone nullo e basta, l'unica frase
+ * possibile e' quella generica, e "Nessun passaggio a breve" e' la lettura
+ * piu' sbagliata di una fermata che non esiste piu'. Qui il motivo viaggia
+ * insieme al risultato.
+ */
+private sealed interface StopBoard {
+    /** Il widget non e' stato configurato. */
+    data object NoStop : StopBoard
+
+    /** Gli orari non si sono aperti entro il budget del disegno. */
+    data object NoTimetable : StopBoard
+
+    /** La fermata salvata non compare negli orari di oggi. */
+    data object UnknownStop : StopBoard
+
+    class Ready(val board: DepartureBoard) : StopBoard
+}
+
 class StopWidget : GlanceAppWidget() {
 
     override val sizeMode: SizeMode = SizeMode.Exact
@@ -91,7 +113,8 @@ class StopWidget : GlanceAppWidget() {
         val prefs = getAppWidgetState(context, PreferencesGlanceStateDefinition, id)
         val stopHash = prefs[KEY_STOP_HASH]
         val stopName = prefs[KEY_STOP_NAME] ?: ""
-        val board = loadBoard(app, stopHash)
+        val esito = loadBoard(app, stopHash)
+        val board = (esito as? StopBoard.Ready)?.board
         val rows = board?.rows
         // Il nome che vale e' quello degli orari.
         //
@@ -118,30 +141,40 @@ class StopWidget : GlanceAppWidget() {
                     layout = layout,
                     subtitle = when {
                         stopHash == null -> "Tocca per configurare"
-                        rows == null -> "Orari in arrivo…"
-                        // Un widget dice sempre di quando sono i suoi numeri:
-                        // e' l'unico posto dove l'utente non puo' chiedere.
+                        board == null -> "Orari in arrivo…"
                         // Un widget dice sempre di quando sono i suoi
-                        // numeri con le stesse parole del resto dell'app.
+                        // numeri con le stesse parole del resto dell'app:
+                        // e' l'unico posto dove l'utente non puo' chiedere.
                         else -> "Prossimi passaggi · " + DepartureText.boardSource(board)
                     },
                 )
                 Spacer(GlanceModifier.height(if (layout.compact) 6.dp else 8.dp))
                 EngineWidgetGroup(palette) {
                     when {
-                        stopHash == null -> EngineWidgetRow(
-                            title = "Scegli una fermata preferita",
-                            subtitle = "dalla configurazione del widget",
-                            palette = palette,
-                            layout = layout,
-                        )
-
-                        rows.isNullOrEmpty() -> EngineWidgetRow(
-                            title = "Nessun passaggio a breve",
-                            subtitle = "nelle prossime due ore",
-                            palette = palette,
-                            layout = layout,
-                        )
+                        // Cinque situazioni diverse finivano tutte in
+                        // "Nessun passaggio a breve": nessuna fermata scelta,
+                        // orari non aperti in tempo, fermata sparita dagli
+                        // orari di oggi, orari scaduti, e il caso vero. Le
+                        // parole sono le stesse del resto dell'app.
+                        rows.isNullOrEmpty() -> {
+                            val guaio = if (board != null) {
+                                DepartureText.trouble(board)
+                            } else {
+                                when (esito) {
+                                    is StopBoard.NoStop -> DepartureText.Trouble.NESSUNA_FERMATA
+                                    is StopBoard.UnknownStop ->
+                                        DepartureText.Trouble.FERMATA_SCONOSCIUTA
+                                    else -> DepartureText.Trouble.ORARI_NON_PRONTI
+                                }
+                            }
+                            val parole = DepartureText.empty(guaio)
+                            EngineWidgetRow(
+                                title = parole.title,
+                                subtitle = parole.short,
+                                palette = palette,
+                                layout = layout,
+                            )
+                        }
 
                         else -> {
                             rows.take(layout.rowLimit).forEachIndexed { i, r ->
@@ -172,14 +205,14 @@ class StopWidget : GlanceAppWidget() {
      * l'unica superficie che mostrava i minuti nudi, senza dire da dove
      * venissero se non nel titolo.
      */
-    private suspend fun loadBoard(app: FluidTransitApp, stopHashHex: String?): DepartureBoard? {
-        if (stopHashHex == null) return null
+    private suspend fun loadBoard(app: FluidTransitApp, stopHashHex: String?): StopBoard {
+        if (stopHashHex == null) return StopBoard.NoStop
         val ready = withTimeoutOrNull(BUNDLE_WAIT_MS) {
             app.bundleManager.state.filterIsInstance<BundleManager.BundleState.Ready>().first()
-        } ?: return null
-        val hash = stopHashHex.toULongOrNull(16)?.toLong() ?: return null
+        } ?: return StopBoard.NoTimetable
+        val hash = stopHashHex.toULongOrNull(16)?.toLong() ?: return StopBoard.UnknownStop
         val stop = ready.reader.findStopByIdHash(hash)
-        if (stop < 0) return null
+        if (stop < 0) return StopBoard.UnknownStop
 
         // I ritardi, che il widget prima non guardava affatto: mostrava gli
         // orari di tabella come se fossero certi, e per mezz'ora di fila.
@@ -202,7 +235,7 @@ class StopWidget : GlanceAppWidget() {
                 }
             }
         }
-        return app.departureBoards.snapshot(listOf(stop), limit = 5)
+        return StopBoard.Ready(app.departureBoards.snapshot(listOf(stop), limit = 5))
     }
 
     private companion object {

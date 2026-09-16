@@ -207,20 +207,14 @@ fun StopPanelContent(
         board.rows.isEmpty() -> {
             // Un tabellone vuoto perche' gli orari sono scaduti non e' un
             // tabellone vuoto perche' e' notte, e dirlo con le stesse parole
-            // fa sembrare rotto il servizio invece dell'app.
+            // fa sembrare rotto il servizio invece dell'app. Le due frasi
+            // stanno con le altre del tabellone, non qui: erano scritte
+            // anche in Oggi, quasi uguali ma non uguali.
+            val parole = dev.antigravity.fluidtransit.routing.DepartureText
+                .empty(dev.antigravity.fluidtransit.routing.DepartureText.trouble(board))
             FluidEmptyState(
-                title = if (board.outsideValidity) {
-                    "Gli orari sono scaduti"
-                } else {
-                    "Nessun passaggio nelle prossime due ore"
-                },
-                detail = if (board.outsideValidity) {
-                    "Quelli che abbiamo non coprono piu' oggi, e non ne " +
-                        "arrivano di nuovi. Non vuol dire che i bus non " +
-                        "passino: vuol dire che non sappiamo quando."
-                } else {
-                    "Da questa fermata non parte niente a breve."
-                },
+                title = parole.title,
+                detail = parole.detail,
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
             Spacer(Modifier.height(16.dp))

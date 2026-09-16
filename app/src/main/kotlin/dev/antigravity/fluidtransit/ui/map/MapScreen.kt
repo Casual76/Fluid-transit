@@ -2483,9 +2483,9 @@ fun MapScreen(
 private fun RecentSearches.Entry.toSuggestion(riferimento: Pair<Double, Double>?): Suggestion {
     val sub = if (kind == "stop") {
         riferimento?.let { (la, lo) ->
-            "Fermata · a " + dev.antigravity.fluidtransit.routing.Words.distance(
+            dev.antigravity.fluidtransit.routing.Words.distanceNear(
                 dev.antigravity.fluidtransit.routing.BundleReader.haversine(la, lo, lat, lon),
-            )
+            )?.let { "Fermata · a $it" }
         } ?: "Fermata"
     } else {
         subtitle

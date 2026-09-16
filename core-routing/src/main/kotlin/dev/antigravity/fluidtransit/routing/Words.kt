@@ -31,8 +31,27 @@ object Words {
         // e' sempre piu' lunga, e di quanto non lo sappiamo. Sotto i dieci
         // metri si dice dieci: "a 0 m" non aiuta nessuno.
         if (meters < 1000) return "${(Math.round(meters / 10.0) * 10).coerceAtLeast(10)} m"
-        return "%.1f km".format(meters / 1000).replace('.', ',')
+        // Il decimale vale finche' aggiunge qualcosa: "2,3 km" dice qualcosa
+        // piu' di "2 km", "23,4 km" no — e "9836,2 km", che e' quello che si
+        // leggeva aprendo l'app fuori regione, ha cinque cifre significative
+        // su una misura in linea d'aria.
+        if (meters < 10_000) return "%.1f km".format(meters / 1000).replace('.', ',')
+        return "${Math.round(meters / 1000)} km"
     }
+
+    /**
+     * La distanza, oppure niente quando e' talmente grande da non dire piu'
+     * niente.
+     *
+     * Serve dove la distanza e' un contesto — "quale delle sei fermate con
+     * questo nome?" — e non un dato: a novemila chilometri non aiuta a
+     * scegliere, occupa una riga e fa sembrare che l'app non sappia dove si
+     * trova. Succede davvero: il riferimento e' il centro della mappa quando
+     * la posizione e' spenta, e basta aver lasciato la mappa dall'altra parte
+     * del mondo.
+     */
+    fun distanceNear(meters: Double, maxMeters: Double = 100_000.0): String? =
+        if (meters < 0 || meters > maxMeters) null else distance(meters)
 
     /**
      * L'eta' di un dato: "18s", "6 min", "1 h 12 min".

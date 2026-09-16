@@ -2,6 +2,7 @@ package dev.antigravity.fluidtransit.routing
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -49,7 +50,26 @@ class WordsTest {
         // in italiano si legge male.
         assertEquals("1,0 km", Words.distance(1000.0))
         assertEquals("2,4 km", Words.distance(2437.0))
-        assertEquals("78,2 km", Words.distance(78_240.0))
+    }
+
+    @Test
+    fun `oltre i dieci chilometri il decimale non aggiunge niente`() {
+        // Diceva "78,2 km", e su una misura in linea d'aria quel decimale e'
+        // finta precisione: la strada vera e' piu' lunga, di quanto non si
+        // sa. Il caso che ha fatto notare la cosa era peggio: aprendo l'app
+        // fuori regione la ricerca scriveva "a 9836,2 km".
+        assertEquals("78 km", Words.distance(78_240.0))
+        assertEquals("9836 km", Words.distance(9_836_200.0))
+    }
+
+    @Test
+    fun `una distanza enorme non si mostra affatto`() {
+        // Dove la distanza serve a scegliere fra due fermate omonime, a
+        // novemila chilometri non aiuta: occupa una riga e fa sembrare che
+        // l'app non sappia dove si trova.
+        assertNull(Words.distanceNear(9_836_200.0))
+        assertEquals("2,4 km", Words.distanceNear(2437.0))
+        assertNull(Words.distanceNear(-1.0))
     }
 
     @Test

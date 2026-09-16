@@ -81,10 +81,10 @@ internal fun rememberSearchResults(
                         // contesto che l'app puo' dare senza inventarsi
                         // niente.
                         subtitle = if (ref != null) {
-                            "Fermata · a " + dev.antigravity.fluidtransit.routing.Words.distance(
+                            dev.antigravity.fluidtransit.routing.Words.distanceNear(
                                 dev.antigravity.fluidtransit.routing.BundleReader
                                     .haversine(rLat, rLon, hit.lat, hit.lon),
-                            )
+                            )?.let { "Fermata · a $it" } ?: "Fermata"
                         } else {
                             "Fermata"
                         },

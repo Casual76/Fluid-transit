@@ -12,7 +12,11 @@ import org.json.JSONObject
  * Niente Room per dieci righe: quando in Fase 6 arrivera' il database dei
  * preferiti, questa lista puo' traslocarci senza cambiare chi la usa.
  */
-class RecentSearches(context: Context) {
+class RecentSearches(private val file: File) {
+
+    /** Quello di tutti i giorni; l'altro prende il file, e si puo' provare. */
+    constructor(context: Context) : this(File(context.filesDir, "recent-searches.json"))
+
 
     class Entry(
         val kind: String, // "stop" | "route"
@@ -24,7 +28,6 @@ class RecentSearches(context: Context) {
         val lon: Double,
     )
 
-    private val file = File(context.filesDir, "recent-searches.json")
 
     fun load(): List<Entry> = runCatching {
         if (!file.isFile) return emptyList()

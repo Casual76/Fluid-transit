@@ -14,7 +14,11 @@ import org.json.JSONObject
  * File JSON come le ricerche recenti: quando in Fase 6 arrivera' il
  * database dei preferiti, trasloca senza cambiare chi lo usa.
  */
-class SavedPlaces(context: Context) {
+class SavedPlaces(private val file: File) {
+
+    /** Quello di tutti i giorni; l'altro prende il file, e si puo' provare. */
+    constructor(context: Context) : this(File(context.filesDir, "saved-places.json"))
+
 
     class Entry(
         val id: Long,
@@ -23,7 +27,6 @@ class SavedPlaces(context: Context) {
         val lon: Double,
     )
 
-    private val file = File(context.filesDir, "saved-places.json")
 
     fun load(): List<Entry> = runCatching {
         if (!file.isFile) return emptyList()

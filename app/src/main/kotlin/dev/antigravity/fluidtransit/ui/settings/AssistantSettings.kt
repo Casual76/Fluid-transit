@@ -53,7 +53,7 @@ fun AssistantSettingsGroup(app: FluidTransitApp) {
 
     FluidListGroup {
         FluidListRow(
-            title = "Assistente",
+            title = "Attiva l'assistente",
             subtitle = if (states.values.any { it.verified }) {
                 "Chiedi a voce o scrivendo: cerca, calcola viaggi, dice dove sono i bus"
             } else {

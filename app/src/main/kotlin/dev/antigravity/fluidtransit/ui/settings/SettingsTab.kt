@@ -40,7 +40,7 @@ fun SettingsTab(app: FluidTransitApp, onOpenDataStatus: () -> Unit = {}) {
         .collectAsStateWithLifecycle(initialValue = EngineSettings())
 
     FluidScreen(title = "Impostazioni") {
-        item { FluidSectionTitle(eyebrow = "Aspetto", title = "Tema") }
+        item { FluidSectionTitle(eyebrow = "Aspetto", title = "Come si vede l'app") }
         item {
             FluidListGroup {
                 // Il segmented control e' un SubcomposeLayout: non puo' stare

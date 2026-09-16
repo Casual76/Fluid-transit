@@ -298,5 +298,38 @@ fun FavoritesTab(
                 }
             }
         }
+
+        // Cosa manca, e come si aggiunge.
+        //
+        // Con una sola fermata stellata questa scheda era per tre quarti
+        // vuota: le sezioni "Posti" e "Linee" semplicemente non comparivano,
+        // e niente diceva che esistessero. Lo spiegone completo c'e' solo
+        // quando non c'e' NIENTE, cioe' l'unico momento in cui non serve
+        // piu': chi ha gia' salvato qualcosa ha capito il meccanismo, ma non
+        // per forza sa che vale anche per i luoghi e per le linee.
+        val mancanti = buildList {
+            if (places.isEmpty()) {
+                add("Un posto" to "Cercalo e usa Salva: casa, lavoro, la palestra")
+            }
+            if (stops.isEmpty()) {
+                add("Una fermata" to "La stella nella scheda della fermata")
+            }
+            if (routes.isEmpty()) {
+                add("Una linea" to "La stella nella scheda della linea")
+            }
+        }
+        if (mancanti.isNotEmpty() && (places.isNotEmpty() || stops.isNotEmpty() ||
+                routes.isNotEmpty())
+        ) {
+            item { FluidSectionTitle(eyebrow = "Altro", title = "Puoi salvare anche") }
+            item {
+                FluidListGroup {
+                    for ((i, m) in mancanti.withIndex()) {
+                        if (i > 0) dev.antigravity.fluidengine.ui.theme.FluidListDivider()
+                        FluidListRow(title = m.first, subtitle = m.second)
+                    }
+                }
+            }
+        }
     }
 }

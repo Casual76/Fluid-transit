@@ -616,10 +616,41 @@ private fun ProssimoPassaggio(
             )
         }
         Spacer(Modifier.height(6.dp))
-        Text(
-            text = phrase.headline,
-            style = MaterialTheme.typography.displaySmall,
-        )
+        Row(
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = phrase.headline,
+                style = MaterialTheme.typography.displaySmall,
+            )
+            // La puntualita' detta a parole, perche' qui il colore e' preso.
+            //
+            // Dappertutto nell'app il colore del numero dice se il bus e' in
+            // orario: verde entro i cinque minuti, ambra fino al quarto
+            // d'ora, rosso oltre. Questa carta invece e' tinta della LINEA —
+            // il 37 e' verde, il 6 arancione — e le due cose si
+            // contraddicono: una carta arancione perche' la linea e'
+            // arancione si legge come un bus in ritardo. Dove il colore e'
+            // gia' impegnato, la puntualita' si dice a parole.
+            if (row.delaySeconds != null && !row.canceled) {
+                Text(
+                    text = dev.antigravity.fluidtransit.routing.Times
+                        .delayLabel(row.delaySeconds),
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier
+                        .padding(bottom = 6.dp)
+                        .background(
+                            color = androidx.compose.material3.LocalContentColor.current
+                                .copy(alpha = 0.14f),
+                            shape = dev.antigravity.fluidengine.ui.fluid.ContinuousCornerShape(
+                                dev.antigravity.fluidengine.ui.fluid.FluidRadius.Small,
+                            ),
+                        )
+                        .padding(horizontal = 9.dp, vertical = 4.dp),
+                )
+            }
+        }
         Spacer(Modifier.height(2.dp))
         Text(
             // La provenienza c'e' anche qui: un numero grande senza da dove

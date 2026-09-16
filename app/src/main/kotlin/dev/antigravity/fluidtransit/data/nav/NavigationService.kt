@@ -374,7 +374,13 @@ class NavigationService : Service() {
                             destName = p.destName,
                             phase = "wait",
                             headline = "Aspetta la ${leg.lineName}",
-                            detail = "parte tra ${((boardTime - now) / 60 + 1)} min" +
+                            // Arrotondato e non troncato-per-eccesso, e con
+                            // un nome per lo zero: con il bus in arrivo fra
+                            // pochi secondi qui usciva "parte tra 1 min", e
+                            // con il bus gia' partito da un minuto "parte tra
+                            // 0 min" — che e' la stessa frase vuota che gli
+                            // itinerari avevano e che e' stata tolta li'.
+                            detail = attesa(boardTime - now) +
                                 // Le parole del tabellone anche qui: "ritardo
                                 // live" non voleva dire niente altrove.
                                 (
@@ -415,7 +421,10 @@ class NavigationService : Service() {
                                     if (remaining == 1) {
                                         "alla PROSSIMA fermata"
                                     } else {
-                                        "$remaining fermate · ${((alightTime - now) / 60 + 1)} min"
+                                        dev.antigravity.fluidtransit.routing.Words
+                                            .count(remaining, "fermata", "fermate") +
+                                            " · " + dev.antigravity.fluidtransit.routing.Times
+                                            .durationLabel((alightTime - now).toInt())
                                     },
                                 )
                                 // Sotto il chilometro la distanza vera dice
@@ -587,5 +596,23 @@ class NavigationService : Service() {
 
         /** Entro questo raggio dalla fermata di discesa, e' ora di alzarsi. */
         const val ALIGHT_RADIUS_M = 300
+
+        /**
+         * "parte ora" / "parte tra 4 min" / "e' gia' partita".
+         *
+         * Il conto era `secondi / 60 + 1`, cioe' troncato e poi alzato di
+         * uno: con il bus in arrivo fra dieci secondi diceva "parte tra 1
+         * min", e con il bus partito da un minuto "parte tra 0 min" — la
+         * stessa frase vuota che gli itinerari avevano e che li' e' gia'
+         * stata tolta. Qui si arrotonda come ovunque nell'app, e i due
+         * estremi hanno un nome invece di un numero.
+         */
+        internal fun attesa(seconds: Long): String = when {
+            seconds < -dev.antigravity.fluidtransit.routing.Times.NOW_SECONDS ->
+                "e' gia' partita"
+            seconds <= dev.antigravity.fluidtransit.routing.Times.NOW_SECONDS -> "parte ora"
+            else -> "parte tra " +
+                dev.antigravity.fluidtransit.routing.Times.durationLabel(seconds.toInt())
+        }
     }
 }

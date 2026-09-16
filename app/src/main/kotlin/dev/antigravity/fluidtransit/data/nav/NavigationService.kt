@@ -13,6 +13,7 @@ import androidx.core.app.NotificationCompat
 import dev.antigravity.fluidtransit.FluidTransitApp
 import dev.antigravity.fluidtransit.MainActivity
 import dev.antigravity.fluidtransit.routing.Ftb
+import dev.antigravity.fluidtransit.routing.Times
 import java.time.Instant
 import java.time.ZonedDateTime
 import kotlinx.coroutines.CoroutineScope
@@ -252,7 +253,36 @@ class NavigationService : Service() {
                 is NavLeg.Walk -> {
                     if (now < leg.startEpoch + leg.seconds) {
                         val meters = metersTo(leg.toLat, leg.toLon)
-                        val minutes = (leg.startEpoch + leg.seconds - now) / 60 + 1
+                        val quanto = if (meters >= 0) "$meters m · " else ""
+
+                        // Camminare adesso e camminare fra tre ore sono due
+                        // cose diverse, e si dicevano con le stesse parole.
+                        //
+                        // Il conto era "quanto manca alla fine della
+                        // camminata", che mentre cammini e' giusto — sono i
+                        // minuti che ti restano — ma prima di partire e' il
+                        // tempo che manca alla partenza, e usciva etichettato
+                        // "a piedi". Avviando alle 02:21 un viaggio che parte
+                        // alle 05:27 si leggeva "190 min a piedi" per una
+                        // camminata di quattro minuti.
+                        if (now < leg.startEpoch) {
+                            val fra = Times.durationLabel((leg.startEpoch - now).toInt())
+                            val cammino = Times.durationLabel(leg.seconds)
+                            return NavState(
+                                kind = p.kind,
+                                destName = p.destName,
+                                phase = "walk",
+                                headline = "Parti alle ${Times.hhmm(leg.startEpoch)}",
+                                detail = "$quanto fra $fra, poi $cammino a piedi " +
+                                    "fino a ${leg.toName}",
+                                stopsRemaining = totalStops,
+                                totalStops = totalStops,
+                                etaEpoch = 0,
+                                metersToGo = meters,
+                            )
+                        }
+
+                        val restano = Times.durationLabel((leg.startEpoch + leg.seconds - now).toInt())
                         return NavState(
                             kind = p.kind,
                             destName = p.destName,
@@ -261,11 +291,7 @@ class NavigationService : Service() {
                             // Con la posizione si dice quanto manca DAVVERO,
                             // non quanto mancherebbe secondo il piano fatto
                             // dieci minuti fa.
-                            detail = if (meters >= 0) {
-                                "$meters m · $minutes min a piedi"
-                            } else {
-                                "$minutes min a piedi"
-                            },
+                            detail = "$quanto$restano a piedi",
                             stopsRemaining = totalStops,
                             totalStops = totalStops,
                             etaEpoch = 0,

@@ -49,4 +49,16 @@ class WordsTest {
         assertEquals("", Words.distance(-1.0))
     }
 
+    @Test
+    fun `l'eta' di un dato — secondi sotto il minuto, minuti sopra`() {
+        // Sotto il minuto la differenza conta: "18s" vuol dire adesso.
+        assertEquals("0s", Words.age(0))
+        assertEquals("18s", Words.age(18))
+        assertEquals("59s", Words.age(59))
+        // Sopra, "342s" e' un numero da dividere prima di capirlo: era
+        // scritto cosi' nella scheda di un bus.
+        assertEquals("6 min", Words.age(342))
+        assertEquals("1 h 12 min", Words.age(72 * 60))
+    }
+
 }

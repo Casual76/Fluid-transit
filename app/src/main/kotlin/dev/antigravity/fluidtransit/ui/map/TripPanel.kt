@@ -324,7 +324,8 @@ fun TripFullContent(
                 )
                 Text(
                     text = if (fixAgeSec != null && fixAgeSec >= 0) {
-                        "Posizione live · aggiornata ${fixAgeSec}s fa"
+                        "Posizione live · aggiornata " +
+                            dev.antigravity.fluidtransit.routing.Words.age(fixAgeSec) + " fa"
                     } else {
                         "Posizione live"
                     },

@@ -300,7 +300,13 @@ class LiveBusesTool : AiTool {
                     "verso ${b.headsign}${if (d != null) ", a $d da te" else ""}" +
                         (b.nextStopName?.let { ", prossima fermata $it" } ?: "") +
                         ", ${Times.delayLabel(b.delaySeconds)}" +
-                        (if (b.fixAgeSeconds > 180) " (posizione di ${b.fixAgeSeconds / 60} min fa)" else ""),
+                        (
+                            if (b.fixAgeSeconds > 180) {
+                                " (posizione di ${Words.age(b.fixAgeSeconds)} fa)"
+                            } else {
+                                ""
+                            }
+                            ),
                 )
             }
         }

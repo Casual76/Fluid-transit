@@ -29,4 +29,15 @@ object Words {
         if (meters < 1000) return "${meters.toInt()} m"
         return "%.1f km".format(meters / 1000).replace('.', ',')
     }
+
+    /**
+     * L'eta' di un dato: "18s", "6 min", "1 h 12 min".
+     *
+     * Sotto il minuto i secondi, perche' e' li' che la differenza conta —
+     * "18s" vuol dire adesso, "50s" vuol dire quasi adesso. Sopra, i minuti:
+     * la scheda di un bus scriveva "aggiornata 342s fa", e trecentoquarantadue
+     * secondi sono un numero che si deve dividere prima di capirlo.
+     */
+    fun age(seconds: Int): String =
+        if (seconds < 60) "${seconds.coerceAtLeast(0)}s" else Times.durationLabel(seconds)
 }

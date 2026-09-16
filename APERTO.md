@@ -106,15 +106,10 @@ l'origine non pubblicava da diciotto minuti — mentre il nostro snapshot aveva
 104 secondi. Non e' il proxy: e' la fonte. L'app se ne accorge e lo dice
 ("Il feed della Regione e' fermo" sulla mappa), e questo e' giusto.
 
-Quello che resta aperto e' cosa fare dei ritardi gia' noti. Oggi, passati
-dieci minuti dall'ultimo aggiornamento, si buttano tutti e ogni riga torna a
-"orario da tabella": la regola e' scritta e voluta ("un'osservazione vecchia
-non e' il ritardo di adesso"), ma un bus che quindici minuti fa aveva mezz'ora
-di ritardo ce l'ha quasi certamente ancora, e in quella finestra l'app e' meno
-utile delle ufficiali. La terza strada — tenere il numero e DIRE quanto e'
-vecchio, "dal bus - visto 15 min fa" — l'app avrebbe gia' le parole per
-dirla. E' una decisione da prendere con Alessio, non da prendere da soli:
-cambia cosa si vede in tutte e quattro le superfici.
+Cosa fare dei ritardi gia' noti e' stato deciso: si tengono, dicendo quanto
+sono vecchi ("dal bus - visto 15 min fa"), e si buttano solo oltre i tre
+quarti d'ora. Prima si buttavano dopo dieci minuti, e in quella finestra
+l'app sapeva meno delle ufficiali.
 — misurato il 16/09/2026
 
 
@@ -188,18 +183,12 @@ oppure dare a ogni app un nome di permesso suo. Va deciso li' e committato
 nel repo dell'engine: il codice dentro `engine/` non e' codice di quest'app.
 — diagnosticato il 16/09/2026
 
-**Da decidere con Alessio: il verde di un ritardo grosso.** Nella capsula di
-un bus vivo si legge "+33 min di ritardo" in VERDE, col pallino verde
-accanto. Il verde qui vuol dire "lo dice il mezzo" — e' la provenienza, non
-un giudizio — ed e' una scelta scritta e deliberata (`toneColor`: "ESTIMATED
-non e' verde: il verde vuol dire 'lo dice il mezzo'"). Ma chiunque legga un
-numero verde ci legge "tutto bene", e mezz'ora di ritardo non e' tutto bene.
-
-Le strade sono due e sono tutt'e due un cambio di linguaggio visivo, quindi
-non si prendono da soli: o il colore del testo passa a dire la puntualita'
-(e allora la provenienza resta solo al pallino), oppure il verde resta la
-provenienza e il ritardo grosso si segnala in un altro modo. Visto sul
-telefono il 16/09 sulla linea 23. — da decidere
+**Il verde di un ritardo grosso: deciso.** Si leggeva "+33 min di ritardo"
+in verde, perche' il verde diceva la provenienza. Deciso con Alessio il
+16/09: il colore passa a dire la puntualita' — verde entro cinque minuti,
+ambra fino a un quarto d'ora, rosso oltre — e la provenienza resta al pallino
+che pulsa e alle parole. Fatto, e verificato su tre bus veri.
+— deciso e fatto il 16/09/2026
 
 ## Deciso di non fare
 

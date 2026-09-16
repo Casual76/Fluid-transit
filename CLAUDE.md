@@ -224,6 +224,7 @@ riscritta in casa da qualcuno, la copia e' divergita:
 | `FidelityText` | il confronto con la fonte |
 | `BundleFailure` (in `:app`) | perche' gli orari non sono arrivati, senza inglese |
 | `TripProgress` | dov'e' arrivato un mezzo: qual e' la sua prossima fermata |
+| `DepartureText.Tone` | il colore di un orario: verde, ambra, rosso — la PUNTUALITA' |
 | `Times.durationBetween` | la durata fra due orari scritti: torna con la sottrazione |
 | `Reference` | da dove si misura "vicino": dove sei, o la mappa se l'hai portata lontano |
 
@@ -250,6 +251,25 @@ lontana e' in media 78 s e supera il minuto su un terzo delle corse — cioe'
 la scheda e l'itinerario dicevano due orari diversi per lo stesso bus.
 Chiunque aggiunga una superficie che mostra orari chiede a `LiveTimes`: e' la
 stessa regola del vocabolario, applicata ai numeri invece che alle parole.
+
+**Il colore dice la puntualita', il pallino dice la provenienza.** Verde
+entro cinque minuti di ritardo, ambra fino a un quarto d'ora, rosso oltre; il
+colore del testo tace quando un ritardo non lo sappiamo. Fino al 16/09 il
+colore diceva la PROVENIENZA — verde uguale "lo dice il mezzo" — ed era
+coerente col resto dell'app e sbagliato per chi guarda: su un bus con mezz'ora
+di ritardo usciva "+33 min di ritardo" scritto in verde. La provenienza ha
+gia' due modi di dirsi che non si fraintendono, il pallino che pulsa e le
+parole sotto. Verde, ambra e rosso stanno accanto a `liveGreen` e non nella
+palette dell'engine perche' sono semafori: devono restare quei tre colori
+anche se l'accento dell'app diventa arancione.
+
+**Un numero vecchio si mostra, ma dice di quando e'.** L'origine della Regione
+si ferma per quarti d'ora anche di mattina (misurato). Fino al 16/09 dopo
+dieci minuti il ritardo si buttava e tutte le righe tornavano all'orario di
+tabella: in quella finestra l'app sapeva meno delle ufficiali. Adesso il
+numero resta e la riga della provenienza dice "dal bus - visto 15 min fa";
+oltre i tre quarti d'ora si butta davvero. L'eta' viaggia dentro
+`LiveTimes.At`, prodotta da chi sa quando e' stata fatta l'osservazione.
 
 **E anche "dov'e' arrivato" si chiede a uno solo.** `TripProgress` risponde a
 "qual e' la prossima fermata di questa corsa" per la scheda della corsa, per

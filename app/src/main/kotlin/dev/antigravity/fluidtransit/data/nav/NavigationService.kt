@@ -279,14 +279,32 @@ class NavigationService : Service() {
                         // alle 05:27 si leggeva "190 min a piedi" per una
                         // camminata di quattro minuti.
                         if (now < leg.startEpoch) {
-                            val fra = Times.durationLabel((leg.startEpoch - now).toInt())
-                            val cammino = Times.durationLabel(leg.seconds)
+                            // "fra 0 min" e' la stessa frase vuota tolta
+                            // dagli itinerari e dalla notifica dell'attesa:
+                            // sotto il mezzo minuto la risposta e' "adesso".
+                            val mancano = (leg.startEpoch - now).toInt()
+                            val fra = if (mancano <= Times.NOW_SECONDS) {
+                                "adesso"
+                            } else {
+                                "fra " + Times.durationLabel(mancano)
+                            }
+                            // Anche la camminata puo' essere di pochi passi:
+                            // "poi 0 min a piedi" e' la stessa frase vuota.
+                            val cammino = if (leg.seconds <= Times.NOW_SECONDS) {
+                                "meno di un minuto"
+                            } else {
+                                Times.durationLabel(leg.seconds)
+                            }
                             return NavState(
                                 kind = p.kind,
                                 destName = p.destName,
                                 phase = "walk",
                                 headline = "Parti alle ${Times.hhmm(leg.startEpoch)}",
-                                detail = "$quanto fra $fra, poi $cammino a piedi " +
+                                // `quanto` finisce gia' col suo puntino e lo
+                                // spazio, o e' vuoto: uno spazio in piu' qui
+                                // dava " fra 9 min" senza GPS e "350 m .
+                                // fra 9 min" con — visto sull'emulatore.
+                                detail = quanto + "$fra, poi $cammino a piedi " +
                                     "fino a ${leg.toName}",
                                 stopsRemaining = totalStops,
                                 totalStops = totalStops,
@@ -295,7 +313,12 @@ class NavigationService : Service() {
                             )
                         }
 
-                        val restano = Times.durationLabel((leg.startEpoch + leg.seconds - now).toInt())
+                        val secondiAPiedi = (leg.startEpoch + leg.seconds - now).toInt()
+                        val restano = if (secondiAPiedi <= Times.NOW_SECONDS) {
+                            "Meno di un minuto"
+                        } else {
+                            Times.durationLabel(secondiAPiedi)
+                        }
                         return NavState(
                             kind = p.kind,
                             destName = p.destName,
@@ -423,8 +446,7 @@ class NavigationService : Service() {
                                     } else {
                                         dev.antigravity.fluidtransit.routing.Words
                                             .count(remaining, "fermata", "fermate") +
-                                            " · " + dev.antigravity.fluidtransit.routing.Times
-                                            .durationLabel((alightTime - now).toInt())
+                                            " · " + attesaBreve((alightTime - now).toInt())
                                     },
                                 )
                                 // Sotto il chilometro la distanza vera dice
@@ -607,6 +629,14 @@ class NavigationService : Service() {
          * stata tolta. Qui si arrotonda come ovunque nell'app, e i due
          * estremi hanno un nome invece di un numero.
          */
+        /** Una durata che puo' essere quasi zero: "meno di un minuto". */
+        internal fun attesaBreve(seconds: Int): String =
+            if (seconds <= dev.antigravity.fluidtransit.routing.Times.NOW_SECONDS) {
+                "meno di un minuto"
+            } else {
+                dev.antigravity.fluidtransit.routing.Times.durationLabel(seconds)
+            }
+
         internal fun attesa(seconds: Long): String = when {
             seconds < -dev.antigravity.fluidtransit.routing.Times.NOW_SECONDS ->
                 "e' gia' partita"

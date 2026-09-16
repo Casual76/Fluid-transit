@@ -40,4 +40,13 @@ class NavWordsTest {
         // dividere prima di capirlo.
         assertEquals("parte tra 1 h 12 min", NavigationService.attesa(72 * 60))
     }
+
+    @Test
+    fun `una durata quasi zero si dice a parole`() {
+        // Le camminate di pochi passi e le discese imminenti finivano in
+        // "0 min", che e' la stessa frase vuota di "parte tra 0 min".
+        assertEquals("meno di un minuto", NavigationService.attesaBreve(0))
+        assertEquals("meno di un minuto", NavigationService.attesaBreve(20))
+        assertEquals("2 min", NavigationService.attesaBreve(100))
+    }
 }

@@ -505,19 +505,25 @@ class TransitMapController(private val context: Context) {
                 PropertyFactory.iconRotationAlignment("map"),
                 PropertyFactory.iconAllowOverlap(true),
                 PropertyFactory.iconIgnorePlacement(true),
+                // La dimensione: cresce con lo zoom, e il mezzo toccato e'
+                // piu' grande degli altri.
+                //
+                // L'ingrandimento sta DENTRO ogni gradino e non moltiplicato
+                // fuori, e non e' una preferenza di stile: `zoom` puo' stare
+                // solo come ingresso diretto di un `interpolate` o di uno
+                // `step` di primo livello. Messo dentro un prodotto, MapLibre
+                // rifiutava l'intera proprieta' — "icon-size \"zoom\"
+                // expression may only be used as input to a top-level
+                // \"step\" or \"interpolate\" expression", nei log e in
+                // nessun altro posto — e i bus restavano tutti alla misura
+                // di default a ogni zoom, col mezzo toccato indistinguibile
+                // dagli altri.
                 PropertyFactory.iconSize(
-                    Expression.product(
-                        Expression.interpolate(
-                            Expression.linear(), Expression.zoom(),
-                            Expression.stop(MapCatalog.BUS_MIN_ZOOM, 0.6f),
-                            Expression.stop(13f, 0.85f),
-                            Expression.stop(16f, 1.05f),
-                        ),
-                        Expression.switchCase(
-                            Expression.toBool(Expression.get("sel")),
-                            Expression.literal(1.35f),
-                            Expression.literal(1f),
-                        ),
+                    Expression.interpolate(
+                        Expression.linear(), Expression.zoom(),
+                        Expression.stop(MapCatalog.BUS_MIN_ZOOM, selezionabile(0.6f)),
+                        Expression.stop(13f, selezionabile(0.85f)),
+                        Expression.stop(16f, selezionabile(1.05f)),
                     ),
                 ),
                 // Sfumano dentro come le tratte: niente pop-in.
@@ -535,6 +541,21 @@ class TransitMapController(private val context: Context) {
         applyBusFilter(style)
         pushBusFeatures(style)
     }
+
+    /**
+     * Quanto e' piu' grande il mezzo toccato.
+     *
+     * Un terzo abbondante: abbastanza da trovarlo in mezzo agli altri senza
+     * coprire la strada.
+     */
+    private val selectedBusScale = 1.35f
+
+    /** La misura a questo zoom, ingrandita se il mezzo e' quello toccato. */
+    private fun selezionabile(base: Float): Expression = Expression.switchCase(
+        Expression.toBool(Expression.get("sel")),
+        Expression.literal(base * selectedBusScale),
+        Expression.literal(base),
+    )
 
     private fun applyBusFilter(style: Style) {
         val layer = style.getLayer(MapCatalog.LAYER_BUS) as? SymbolLayer ?: return

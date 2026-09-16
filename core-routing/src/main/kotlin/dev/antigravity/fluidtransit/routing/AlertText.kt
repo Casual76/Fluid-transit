@@ -47,8 +47,12 @@ object AlertText {
      * Oggi e domani si dicono per nome, la settimana col giorno, oltre con la
      * data. L'ora si aggiunge solo quando il giorno da solo non basta a
      * decidere se uscire adesso.
+     *
+     * Pubblica perche' serve anche altrove: qualunque cosa l'app dica con un
+     * "quando" dovrebbe dirlo con le stesse parole, e due formati diversi per
+     * la stessa idea sono due cose da imparare invece di una.
      */
-    private fun moment(epoch: Long, nowEpoch: Long): String {
+    fun moment(epoch: Long, nowEpoch: Long): String {
         val zone = Ftb.ROME
         val t = ZonedDateTime.ofInstant(Instant.ofEpochSecond(epoch), zone)
         val now = ZonedDateTime.ofInstant(Instant.ofEpochSecond(nowEpoch), zone)

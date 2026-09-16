@@ -25,7 +25,9 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  # Serve a posare il verdetto accanto agli orari, sulla release a tag fisso
+  # `dati`: e' da li' che l'app lo legge.
+  contents: write
 
 jobs:
   confronta:
@@ -41,7 +43,7 @@ jobs:
         working-directory: worker
         run: |
           set +e
-          node tools/fedelta.mjs | tee fedelta.txt
+          node tools/fedelta.mjs --json fedelta.json | tee fedelta.txt
           esito=${PIPESTATUS[0]}
           set -e
           case "$esito" in
@@ -56,10 +58,27 @@ jobs:
             *) echo "::error::il banco non e' riuscito a girare"; exit 1 ;;
           esac
 
+      # Il verdetto va dove l'app puo' leggerlo.
+      #
+      # Il confronto risponde alla domanda "non so nemmeno se i dati sono
+      # accurati", e una risposta che vive solo nei log di un workflow non la
+      # legge nessuno. Si posa accanto a `index.json` sulla release a tag
+      # fisso `dati`, che e' l'unico posto da cui l'app scarica gia'.
+      #
+      # Anche quando il confronto non e' stato conclusivo: "alle due di notte
+      # non c'era niente da confrontare" e' un'informazione, "silenzio" no.
+      - name: Posa il verdetto accanto agli orari
+        if: always() && hashFiles('worker/fedelta.json') != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload dati worker/fedelta.json --clobber
+
       - name: Il rapporto, se serve guardarlo
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: fedelta
-          path: worker/fedelta.txt
+          path: |
+            worker/fedelta.txt
+            worker/fedelta.json
           retention-days: 14

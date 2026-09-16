@@ -19,12 +19,19 @@
  * Uso:
  *   node tools/fedelta.mjs                    # contro il proxy in produzione
  *   node tools/fedelta.mjs --max-eta 300      # tollera 5 minuti di sfasamento
+ *   node tools/fedelta.mjs --json fuori.json  # scrive anche il verdetto
  *
  * Esce con 1 se le differenze superano la soglia: cosi' puo' fare da cancello.
+ *
+ * Con `--json` scrive anche il verdetto in un file. Serve a farlo arrivare
+ * all'utente: il confronto risponde alla domanda "non so nemmeno se i dati
+ * sono accurati", e una risposta che vive solo nei log di un workflow non la
+ * legge nessuno.
  */
 
 import { gunzipSync } from 'node:zlib';
 import { Buffer } from 'node:buffer';
+import { writeFileSync } from 'node:fs';
 
 import { parseFeed } from '../src/gtfsrt.js';
 import { fnv64 } from '../src/snapshot.js';
@@ -68,6 +75,39 @@ const DEFAULT_MAX_DIFF_PER_MILLE = 5;
 function arg(name, fallback) {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 && process.argv[i + 1] ? Number(process.argv[i + 1]) : fallback;
+}
+
+function argText(name) {
+  const i = process.argv.indexOf(`--${name}`);
+  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : null;
+}
+
+/**
+ * Il verdetto su file, per chi non legge i log di un workflow.
+ *
+ * Le chiavi sono corte perche' questo file lo scarica un telefono, e sono
+ * quelle che servono a una riga di schermata: quando, quanti punti, quante
+ * differenze, e come e' andata.
+ */
+/**
+ * Il codice di uscita si imposta, non si spara.
+ *
+ * `process.exit()` chiamato subito dopo una scrittura su stdout fa crollare
+ * Node su Windows con un'asserzione di libuv, e il codice che esce e' 127
+ * invece di quello scelto: cioe' il banco, lanciato a mano, mentiva sul
+ * proprio verdetto. Impostare `exitCode` e tornare lascia che il processo
+ * finisca di scrivere e chiuda con il numero giusto ovunque.
+ */
+function adesso() {
+  return Math.floor(Date.now() / 1000);
+}
+
+function scriviVerdetto(percorso, dati) {
+  if (!percorso) return;
+  writeFileSync(percorso, `${JSON.stringify(dati, null, 2)}
+`);
+  console.log(`
+verdetto scritto in ${percorso}`);
 }
 
 /**
@@ -155,6 +195,7 @@ function rawDelays(tu) {
 async function main() {
   const maxSkew = arg('max-eta', DEFAULT_MAX_SKEW_SECONDS);
   const maxPerMille = arg('max-diff', DEFAULT_MAX_DIFF_PER_MILLE);
+  const jsonOut = argText('json');
 
   const [rawBytes, predBytes] = await Promise.all([
     fetchBytes(`${ORIGIN}/trip-updates`),
@@ -172,7 +213,9 @@ async function main() {
   if (skew > maxSkew) {
     console.log(`\nI due lati vengono da due generazioni diverse (oltre ${maxSkew}s):`);
     console.log('il confronto non direbbe niente. Riprova fra un minuto.');
-    process.exit(2);
+    scriviVerdetto(jsonOut, { at: adesso(), esito: 'sfasato', punti: 0, diversi: 0 });
+    process.exitCode = 2;
+    return;
   }
 
   let confrontati = 0;
@@ -233,17 +276,35 @@ async function main() {
 Solo ${confrontati} punti da confrontare, meno di ${minPoints}.`);
     console.log("Non e' un via libera: e' che non c'era niente da guardare.");
     console.log('Di notte la Regione pubblica zero corse. Riprova nelle ore di servizio.');
-    process.exit(2);
+    scriviVerdetto(jsonOut, {
+      at: adesso(),
+      esito: 'poco',
+      punti: confrontati,
+      diversi,
+    });
+    process.exitCode = 2;
+    return;
   }
+
+  scriviVerdetto(jsonOut, {
+    at: adesso(),
+    esito: perMille > maxPerMille ? 'diverso' : 'uguale',
+    punti: confrontati,
+    diversi,
+    perMille,
+    soloOrigine,
+    soloProxy,
+  });
 
   if (perMille > maxPerMille) {
     console.log(`\nOltre la soglia di ${maxPerMille}‰: i nostri minuti non sono quelli della fonte.`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
   console.log('\nI minuti che l\'app legge sono quelli che la Regione pubblica.');
 }
 
 main().catch((e) => {
   console.error('banco di fedelta\' fallito:', e.message);
-  process.exit(3);
+  process.exitCode = 3;
 });

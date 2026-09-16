@@ -2,6 +2,7 @@ package dev.antigravity.fluidtransit.ui.settings
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.antigravity.fluidengine.ui.fluid.FluidScreen
@@ -165,6 +166,35 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
                     subtitle = "Quanti bus del feed live combaciano con gli orari del bundle. " +
                         "Le due generazioni di dati non sono mai sincronizzate del tutto",
                     meta = resolvedPct?.let { "$it%" } ?: "—",
+                )
+            }
+        }
+
+        // --- il confronto con la fonte ------------------------------------
+        //
+        // Tutto quello che c'e' sopra l'app lo sa di se stessa: quanti mezzi
+        // ha scaricato, quante corse ha agganciato, quanto e' vecchio il
+        // dato. Nessuna di quelle righe puo' rispondere a "e questi numeri
+        // sono giusti?", perche' per rispondere bisogna guardare da fuori.
+        //
+        // Due volte al giorno un banco fa proprio questo: scarica il feed
+        // grezzo della Regione e la sezione che il proxy serve all'app, e
+        // confronta i ritardi uno per uno. Il verdetto viveva nei log di un
+        // workflow; adesso arriva qui.
+        item { FluidSectionTitle(eyebrow = "Fonte", title = "I numeri, confrontati") }
+        item {
+            val nowEpoch = remember { System.currentTimeMillis() / 1000 }
+            val verdetto by produceState<dev.antigravity.fluidtransit.routing.FidelityText.Verdict?>(
+                initialValue = null,
+            ) {
+                value = dev.antigravity.fluidtransit.data.fidelity.FidelityCheck.fetch()
+            }
+            val parole = dev.antigravity.fluidtransit.routing.FidelityText
+                .words(verdetto, nowEpoch)
+            FluidListGroup {
+                FluidListRow(
+                    title = parole.title,
+                    subtitle = parole.detail,
                 )
             }
         }

@@ -1181,6 +1181,10 @@ fun MapScreen(
         controller.onCameraIdle = {
             savedCamera.value = it
             cameraZoom = it[2]
+            // Anche sul disco, per la prossima apertura: senza posizione la
+            // mappa ripartiva dalla Toscana intera, che e' una vista da cui
+            // non si fa niente.
+            mapPrefs.camera = it
         }
         // Letta SENZA osservarla.
         //
@@ -1192,6 +1196,7 @@ fun MapScreen(
         // un valore iniziale, non uno stato.
         val cameraDiPartenza = androidx.compose.runtime.snapshots.Snapshot
             .withoutReadObservation { savedCamera.value }
+            ?: remember { mapPrefs.camera }
         Box(
             modifier = Modifier
                 .fillMaxSize()

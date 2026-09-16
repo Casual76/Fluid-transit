@@ -174,12 +174,22 @@ object DepartureText {
      */
     fun compact(row: NextDeparture, nowEpoch: Long): String {
         if (row.canceled) return "${row.line} cancellata"
-        val when_ = if (Times.minutesUntil(nowEpoch, row.effectiveEpoch) < CLOCK_AFTER_MINUTES) {
-            Times.minutesLabel(nowEpoch, row.effectiveEpoch)
-        } else {
-            Times.hhmm(row.effectiveEpoch)
+        // "fra" e "alle" non sono ornamenti: senza, la linea e il numero si
+        // toccano e si leggono come uno solo. Nei Preferiti c'era scritto
+        // "6 3 min - 12 3 min", che sono la 6 fra tre minuti e la 12 fra
+        // tre minuti, ma si legge come due numeri appiccicati. Le linee a
+        // una cifra sono fra le piu' usate di Firenze, quindi il caso non e'
+        // raro: e' quello di tutti i giorni.
+        if (Times.minutesUntil(nowEpoch, row.effectiveEpoch) >= CLOCK_AFTER_MINUTES) {
+            return "${row.line} alle ${Times.hhmm(row.effectiveEpoch)}"
         }
-        return "${row.line} $when_"
+        val label = Times.minutesLabel(nowEpoch, row.effectiveEpoch)
+        return if (label.firstOrNull()?.isDigit() == true) {
+            "${row.line} fra $label"
+        } else {
+            // "ora" sta da solo: "la 6 fra ora" non lo dice nessuno.
+            "${row.line} $label"
+        }
     }
 
     /** La spiegazione di UN orario: cosa ha detto il feed, e cosa ci mettiamo noi. */

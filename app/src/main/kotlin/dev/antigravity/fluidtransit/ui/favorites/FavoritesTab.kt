@@ -189,9 +189,14 @@ fun FavoritesTab(
                                 board.rows.isEmpty() ->
                                     DepartureText.empty(DepartureText.trouble(board))
                                         .let { "${it.title} · ${it.short}" }
-                                else -> board.rows.joinToString(" · ") {
+                                // I passaggi su una riga, la provenienza
+                                // sull'altra. Erano tutt'e tre unite dallo
+                                // stesso puntino — "C4 8 min - 37 9 min - in
+                                // parte dal bus" — e l'ultimo pezzo si
+                                // leggeva come un terzo passaggio.
+                                else -> board.rows.joinToString("  ·  ") {
                                     DepartureText.compact(it, board.computedAtEpoch)
-                                } + " · " + DepartureText.boardSource(board)
+                                } + "\n" + DepartureText.boardSource(board)
                             },
                             leading = {
                                 Icon(

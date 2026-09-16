@@ -158,7 +158,10 @@ class DepartureTextTest {
 
     @Test
     fun `la forma corta usa le stesse parole`() {
-        assertEquals("23 5 min", DepartureText.compact(row(300), now))
+        assertEquals("23 fra 5 min", DepartureText.compact(row(300), now))
+        // Senza "fra", "6 3 min" si legge come un numero solo: le linee a
+        // una cifra sono fra le piu' usate, e "ora" invece sta da sola.
+        assertEquals("23 ora", DepartureText.compact(row(10), now))
         assertEquals("23 cancellata", DepartureText.compact(row(300, canceled = true), now))
     }
 
@@ -166,6 +169,7 @@ class DepartureTextTest {
     fun `la forma corta passa all'orologio come quella lunga`() {
         val compact = DepartureText.compact(row(2 * 3600), now)
         assertTrue(compact.contains(":"), compact)
+        assertTrue(compact.contains("alle "), "l'orologio si presenta con 'alle': $compact")
     }
 
     // ------------------------------------------------ la provenienza globale

@@ -304,24 +304,53 @@ fun TodayTab(
                                 isToday -> "oggi"
                                 else -> "attiva"
                             },
+                            // Il tocco apre IL VIAGGIO di questa routine.
+                            //
+                            // Prima metteva in pausa la routine, e non lo
+                            // diceva da nessuna parte: chi toccava la riga
+                            // per vedere il viaggio si spegneva la sveglia
+                            // senza accorgersene, e se ne accorgeva il
+                            // giorno dopo alla fermata. La pausa e'
+                            // un'azione, e le azioni di questa app stanno
+                            // nel menu della tenuta premuta, dove sta gia'
+                            // "Elimina".
                             onClick = {
-                                app.routines.update(r.id) {
-                                    Routines.Routine(
-                                        it.id, it.label, it.fromLat, it.fromLon, it.toLat,
-                                        it.toLon, it.toName, it.days, it.anchor,
-                                        it.anchorMinutes, !it.enabled,
-                                        it.lastAdviceEpoch, it.lastAdviceText,
-                                    )
-                                }
-                                val updated = app.routines.list().first { it.id == r.id }
-                                if (updated.enabled) {
-                                    RoutineScheduler.scheduleNextCompute(app, updated)
-                                } else {
-                                    RoutineScheduler.cancel(app, r.id)
-                                }
+                                onOpenOnMap(
+                                    MapIntent.Journey(
+                                        fromLat = r.fromLat,
+                                        fromLon = r.fromLon,
+                                        toLat = r.toLat,
+                                        toLon = r.toLon,
+                                        toName = r.toName.ifEmpty { r.label.ifEmpty { "Arrivo" } },
+                                    ),
+                                )
                             },
                             contextActions = {
                                 listOf(
+                                    FluidContextAction(
+                                        label = if (r.enabled) {
+                                            "Metti in pausa"
+                                        } else {
+                                            "Riattiva"
+                                        },
+                                        onClick = {
+                                            app.routines.update(r.id) {
+                                                Routines.Routine(
+                                                    it.id, it.label, it.fromLat, it.fromLon,
+                                                    it.toLat, it.toLon, it.toName, it.days,
+                                                    it.anchor, it.anchorMinutes, !it.enabled,
+                                                    it.lastAdviceEpoch, it.lastAdviceText,
+                                                )
+                                            }
+                                            val updated = app.routines.list()
+                                                .first { it.id == r.id }
+                                            if (updated.enabled) {
+                                                RoutineScheduler.scheduleNextCompute(app, updated)
+                                            } else {
+                                                RoutineScheduler.cancel(app, r.id)
+                                            }
+                                        },
+                                    ),
                                     FluidContextAction(
                                         label = "Elimina la routine",
                                         destructive = true,

@@ -160,7 +160,7 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
 
         if (tuoi.isNotEmpty()) {
             item { FluidSectionTitle(eyebrow = "Avvisi", title = "Sulle tue linee") }
-            item { AlertGroup(tuoi, reader, now) }
+            item { AlertGroup(tuoi, reader, now, mine) }
         }
         if (altri.isNotEmpty()) {
             item {
@@ -169,11 +169,11 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
                     title = if (tuoi.isEmpty()) "In corso" else "Sul resto della rete",
                 )
             }
-            item { AlertGroup(altri, reader, now) }
+            item { AlertGroup(altri, reader, now, mine) }
         }
         if (futuri.isNotEmpty()) {
             item { FluidSectionTitle(eyebrow = "Avvisi", title = "Nei prossimi giorni") }
-            item { AlertGroup(futuri, reader, now) }
+            item { AlertGroup(futuri, reader, now, mine) }
         }
     }
 }
@@ -186,11 +186,12 @@ private fun AlertGroup(
     alerts: List<GtfsRtLite.RtAlert>,
     reader: dev.antigravity.fluidtransit.routing.BundleReader?,
     nowEpoch: Long,
+    mine: Set<Long>,
 ) {
     FluidListGroup {
         for ((i, a) in alerts.withIndex()) {
             if (i > 0) dev.antigravity.fluidengine.ui.theme.FluidListDivider()
-            AlertCard(a, reader, nowEpoch)
+            AlertCard(a, reader, nowEpoch, mine)
         }
     }
 }
@@ -200,19 +201,30 @@ private fun AlertCard(
     alert: GtfsRtLite.RtAlert,
     reader: dev.antigravity.fluidtransit.routing.BundleReader?,
     nowEpoch: Long,
+    mine: Set<Long>,
 ) {
     // Le linee toccate, coi loro nomi e i loro colori: l'avviso arriva con
     // gli hash, che da soli non dicono niente a nessuno.
-    val linee = remember(alert, reader) {
+    val linee = remember(alert, reader, mine) {
         val r = reader ?: return@remember emptyList()
-        alert.routeHashes.mapNotNull { h ->
-            val idx = r.findRouteByIdHash(h)
-            if (idx < 0) {
-                null
-            } else {
-                r.routeShortName(idx).ifEmpty { r.routeLongName(idx) } to r.routeDisplayColor(idx)
-            }
-        }.distinct()
+        alert.routeHashes
+            // Le tue davanti.
+            //
+            // Un avviso in cima a "Sulle tue linee" nomina anche sei linee, e
+            // solo due sono tue: sapere quale delle sei ti riguarda voleva
+            // dire ricordarsi a memoria cosa passa dalla fermata che hai
+            // stellato. L'ordine non lo dice a parole, ma mette al primo
+            // posto quella per cui la scheda si e' aperta.
+            .sortedByDescending { it in mine }
+            .mapNotNull { h ->
+                val idx = r.findRouteByIdHash(h)
+                if (idx < 0) {
+                    null
+                } else {
+                    r.routeShortName(idx).ifEmpty { r.routeLongName(idx) } to
+                        r.routeDisplayColor(idx)
+                }
+            }.distinct()
     }
     val periodo = AlertText.period(alert.startEpoch, alert.endEpoch, nowEpoch)
 

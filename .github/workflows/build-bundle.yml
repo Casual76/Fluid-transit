@@ -32,7 +32,17 @@ concurrency:
 jobs:
   bundle:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Novanta minuti, non sessanta.
+    #
+    # Il lavoro vero misurato dura circa mezz'ora e lo scarico del feed
+    # poco piu' di cinque minuti, quindi sessanta sembravano larghi. Ma i
+    # tentativi di curl, sommati, potevano da soli sfiorare l'ora: il 16/09
+    # la sorgente e' andata lenta e il job e' rimasto nello scarico per
+    # piu' di cinquanta minuti, per poi essere ucciso dal timeout senza
+    # aver costruito niente. Adesso il tetto dello scarico e' molto piu'
+    # stretto (sotto) e quello del job piu' largo: se la sorgente e' lenta
+    # si fallisce presto e con un motivo, invece di morire a meta' strada.
+    timeout-minutes: 90
     steps:
       # Senza submodule: al bundler servono solo :core-routing e :bundler,
       # e il settings.gradle esclude :app quando l'engine non c'e'.
@@ -79,9 +89,17 @@ jobs:
           set -euo pipefail
           # Il server non supporta Range (verificato in Fase 1): un download
           # interrotto riparte da zero, quindi --retry sull'intero file.
+          #
+          # I numeri vengono da una misura: in un giro sano questo passo dura
+          # cinque minuti e ventitre' secondi. Dieci minuti per tentativo sono
+          # il doppio abbondante, e tre tentativi in tutto fanno al massimo
+          # una mezz'ora: sta nel budget del job insieme al resto. Con
+          # --retry 4 e --max-time 900, com'era prima, il solo scarico poteva
+          # arrivare a sessantuno minuti — piu' del tetto dell'intero job,
+          # cioe' non poteva fallire in tempo per lasciar lavorare il resto.
           curl --fail --silent --show-error \
-               --retry 4 --retry-delay 20 --retry-all-errors \
-               --max-time 900 \
+               --retry 2 --retry-delay 20 --retry-all-errors \
+               --max-time 600 \
                -A "FluidTransit-Bundler/0.1 (+https://github.com/Casual76/Fluid-transit)" \
                -o gtfs.zip \
                "https://regionetoscana.smartregion.toscana.it/mobility/artifacts/gtfs"

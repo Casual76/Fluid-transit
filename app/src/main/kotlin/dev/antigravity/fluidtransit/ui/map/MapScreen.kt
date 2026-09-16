@@ -2086,6 +2086,23 @@ fun MapScreen(
                                     board = nearbyBoard,
                                     onDismiss = { panel = null },
                                     onRouteTap = ::showRoute,
+                                    // Da dove si guarda: dov'e' la persona,
+                                    // o il centro della mappa se il GPS e'
+                                    // spento. La stessa regola della ricerca.
+                                    distanceOf = { stop ->
+                                        val r = ready?.reader
+                                        val da = controller.lastLocation()
+                                            ?: controller.cameraCenter()
+                                        if (r == null || da == null || stop < 0) {
+                                            null
+                                        } else {
+                                            dev.antigravity.fluidtransit.routing.BundleReader
+                                                .haversine(
+                                                    da.first, da.second,
+                                                    r.stopLat(stop), r.stopLon(stop),
+                                                )
+                                        }
+                                    },
                                     onWhyTap = { r, rect ->
                                         whyRow = r
                                         whyOrigin = rect

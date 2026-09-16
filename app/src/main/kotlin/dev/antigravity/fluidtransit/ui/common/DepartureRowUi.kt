@@ -46,8 +46,15 @@ fun DepartureRowUi(
     modifier: Modifier = Modifier,
     /** Il tocco sulla pillola della linea, dove ha senso andarci. */
     onLineTap: (() -> Unit)? = null,
-    /** Da che fermata parte: serve quando la lista ne mescola piu' di una. */
-    showStopName: Boolean = false,
+    /**
+     * Da che fermata parte: serve quando la lista ne mescola piu' di una.
+     *
+     * Null quando la fermata e' gia' il titolo della scheda. Chi lo passa
+     * puo' aggiungerci la distanza — "XXVII APRILE SAN ZANOBI - a 250 m" —
+     * che e' l'informazione che manca per decidere se conviene camminare
+     * fin li' o aspettare il prossimo qui.
+     */
+    stopLabel: String? = null,
     /** Un'azione a destra del testo, per esempio "vola sul bus". */
     trailing: @Composable (() -> Unit)? = null,
     /**
@@ -91,9 +98,9 @@ fun DepartureRowUi(
         // piu' da dire. Il numero a destra resta corto, la spiegazione ha
         // tutta la riga.
         Column(modifier = Modifier.weight(1f)) {
-            if (showStopName && row.stopName.isNotEmpty()) {
+            if (!stopLabel.isNullOrEmpty()) {
                 Text(
-                    text = row.stopName,
+                    text = stopLabel,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,

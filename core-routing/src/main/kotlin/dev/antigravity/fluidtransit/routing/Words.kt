@@ -26,7 +26,11 @@ object Words {
      */
     fun distance(meters: Double): String {
         if (meters < 0) return ""
-        if (meters < 1000) return "${meters.toInt()} m"
+        // Arrotondati alla decina: la distanza e' in linea d'aria, e "a 296
+        // m" promette una precisione che quel numero non ha — la strada vera
+        // e' sempre piu' lunga, e di quanto non lo sappiamo. Sotto i dieci
+        // metri si dice dieci: "a 0 m" non aiuta nessuno.
+        if (meters < 1000) return "${(Math.round(meters / 10.0) * 10).coerceAtLeast(10)} m"
         return "%.1f km".format(meters / 1000).replace('.', ',')
     }
 

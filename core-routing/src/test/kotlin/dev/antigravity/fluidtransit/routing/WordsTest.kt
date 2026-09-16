@@ -30,10 +30,17 @@ class WordsTest {
         assertEquals("0 corse", Words.count(0, "corsa", "corse"))
     }
     @Test
-    fun `sotto il chilometro si dicono i metri`() {
-        assertEquals("0 m", Words.distance(0.0))
+    fun `sotto il chilometro si dicono i metri, alla decina`() {
+        // In linea d'aria: "a 296 m" promette una precisione che quel numero
+        // non ha, perche' la strada vera e' sempre piu' lunga e di quanto
+        // non lo sappiamo.
         assertEquals("350 m", Words.distance(350.4))
-        assertEquals("999 m", Words.distance(999.9))
+        assertEquals("300 m", Words.distance(296.0))
+        assertEquals("1000 m", Words.distance(999.9))
+        // Sotto i dieci metri si dice dieci: "a 0 m" non aiuta nessuno, e
+        // "sei gia' li'" lo dice gia' un'altra riga.
+        assertEquals("10 m", Words.distance(0.0))
+        assertEquals("10 m", Words.distance(4.0))
     }
 
     @Test

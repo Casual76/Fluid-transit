@@ -136,6 +136,8 @@ fun NearbyPanelContent(
     onDismiss: () -> Unit,
     onStopTap: (stopIndex: Int) -> Unit,
     onRouteTap: (routeIndex: Int) -> Unit,
+    /** Quanto dista una fermata da dove si guarda. Null = non si sa. */
+    distanceOf: (stopIndex: Int) -> Double? = { null },
     /** Il tocco sulla provenienza: "perche' questo numero", come nella scheda fermata. */
     onWhyTap: (
         dev.antigravity.fluidtransit.routing.NextDeparture,
@@ -168,6 +170,13 @@ fun NearbyPanelContent(
                 )
                 .padding(8.dp),
         )
+    }
+
+    fun etichettaFermata(row: dev.antigravity.fluidtransit.routing.NextDeparture): String {
+        if (row.stopName.isEmpty()) return ""
+        val m = distanceOf(row.stopIndex) ?: return row.stopName
+        return row.stopName + " · a " +
+            dev.antigravity.fluidtransit.routing.Words.distance(m)
     }
 
     when {
@@ -210,7 +219,11 @@ fun NearbyPanelContent(
                     DepartureRowUi(
                         row = row,
                         nowEpoch = board.computedAtEpoch,
-                        showStopName = true,
+                        // Il nome della fermata e quanto dista: senza la
+                        // distanza, sapere da quale fermata parte aiuta solo
+                        // chi conosce gia' la zona, e "qui intorno" serve
+                        // soprattutto a chi non la conosce.
+                        stopLabel = etichettaFermata(row),
                         onLineTap = { onRouteTap(row.routeIndex) },
                         onSupportTap = { rect -> onWhyTap(row, rect) },
                         modifier = Modifier.clickable(

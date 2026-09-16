@@ -113,6 +113,15 @@ fun SearchGlass(
     /** Se c'e', accanto a RECENTI compare "Cancella". */
     onClearRecents: (() -> Unit)? = null,
     /**
+     * L'indice degli indirizzi e' pronto.
+     *
+     * Al primo avvio arriva dopo il resto — sono undici megabyte — e finche'
+     * non c'e' gli indirizzi semplicemente non si trovano. Dire "Niente con
+     * questo nome" in quel momento e' falso: il nome c'e', e' l'app che non
+     * ha ancora finito di scaricare dove guardare.
+     */
+    placesReady: Boolean = true,
+    /**
      * Cosa si sta cercando, quando non e' "qualcosa".
      *
      * La stessa barra serve a trovare un posto sulla mappa e a compilare una
@@ -260,7 +269,13 @@ fun SearchGlass(
                     if (results.isEmpty()) {
                         item {
                             Text(
-                                text = "Niente con questo nome. Prova con meno lettere.",
+                                text = if (placesReady) {
+                                    "Niente con questo nome. Prova con meno lettere."
+                                } else {
+                                    "Fermate e linee non ne hanno. Gli indirizzi e i " +
+                                        "luoghi si stanno ancora scaricando: ci vuole " +
+                                        "qualche minuto, la prima volta."
+                                },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),

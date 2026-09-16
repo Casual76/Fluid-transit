@@ -1298,6 +1298,8 @@ fun MapScreen(
                 backdrop = backdrop,
                 open = searchOpen,
                 query = query,
+                placesReady = placesState is
+                    dev.antigravity.fluidtransit.data.places.PlacesManager.State.Ready,
                 // I civici arrivano dopo, ma entrano nella stessa lista e si
                 // ordinano insieme agli altri: stessa scala di pertinenza.
                 results = risultati,

@@ -180,6 +180,20 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
                             if (set.truncated) " · ridotte" else ""
                     } ?: "—",
                 )
+                val agganciate by app.livePredictions.collectAsStateWithLifecycle()
+                FluidListRow(
+                    title = "Previsioni agganciate",
+                    subtitle = "Una previsione serve solo se si sa a quale corsa e a quale " +
+                        "fermata appartiene: la corsa si riconosce dall'identificatore, la " +
+                        "fermata confrontando le due estremita' della sequenza con quelle " +
+                        "degli orari. Quelle che non si agganciano tornano a essere una " +
+                        "nostra stima, e finche' questo numero non c'era la cosa non si " +
+                        "vedeva da nessuna parte",
+                    meta = agganciate?.let { p ->
+                        val dal = predictions?.byTripHash?.size ?: p.risolte
+                        "${p.agganciate} di $dal"
+                    } ?: "—",
+                )
                 FluidListRow(
                     title = "Corse riconosciute",
                     subtitle = "Quanti bus del feed live combaciano con gli orari del bundle. " +

@@ -49,6 +49,22 @@ class LiveFromPredictions(
         val offset: Int?,
     )
 
+    /** Quante corse del feed si sono agganciate a una corsa del bundle. */
+    val risolte: Int = byTrip.size
+
+    /**
+     * Quante di quelle sono davvero utilizzabili.
+     *
+     * Una previsione agganciata alla corsa giusta ma senza lo scarto delle
+     * sequenze verificato non si puo' usare: non si sa a QUALE fermata si
+     * riferisca, e applicarla a caso sposterebbe i minuti di una fermata.
+     * Quelle tornano a essere una stima nostra, in silenzio — e senza questo
+     * conteggio la differenza fra "il feed non segue questa corsa" e "il feed
+     * la segue ma non siamo riusciti ad agganciarla" non si vede da nessuna
+     * parte.
+     */
+    val agganciate: Int = byTrip.count { it.value.offset != null }
+
     override fun at(tripIndex: Int, position: Int, stopCount: Int, nowEpoch: Long): LiveTimes.At? {
         val r = byTrip[tripIndex] ?: return fallback.at(tripIndex, position, stopCount, nowEpoch)
         // Una previsione vecchia non e' la previsione di adesso. Stessa

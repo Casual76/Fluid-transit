@@ -21,7 +21,9 @@ import dev.antigravity.fluidtransit.routing.DepartureText
 import dev.antigravity.fluidtransit.routing.NextDeparture
 import dev.antigravity.fluidtransit.ui.map.LiveDot
 import dev.antigravity.fluidtransit.ui.map.RoutePill
+import dev.antigravity.fluidtransit.ui.map.lateAmber
 import dev.antigravity.fluidtransit.ui.map.liveGreen
+import dev.antigravity.fluidtransit.ui.map.veryLateRed
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -164,14 +166,17 @@ fun DepartureRowUi(
 /**
  * Il tono in colore. E' l'unico posto in Compose dove si fa questa scelta.
  *
- * `ESTIMATED` non e' verde: il verde vuol dire "lo dice il mezzo", e una
- * stima nostra non lo dice. Prima erano dello stesso colore e la differenza
- * stava solo nel pallino, che meta' delle schermate non disegnavano.
+ * Il colore dice la PUNTUALITA': verde entro i cinque minuti, ambra fino a
+ * un quarto d'ora, rosso oltre. Prima diceva la provenienza — verde uguale
+ * "lo dice il mezzo" — e su un bus con mezz'ora di ritardo usciva "+33 min
+ * di ritardo" scritto in verde. La provenienza continua a dirsi nei due modi
+ * che non si fraintendono: il pallino che pulsa, e le parole sotto.
  */
 @Composable
 fun toneColor(tone: DepartureText.Tone): Color = when (tone) {
-    DepartureText.Tone.LIVE -> liveGreen()
-    DepartureText.Tone.ESTIMATED -> MaterialTheme.colorScheme.onSurfaceVariant
+    DepartureText.Tone.ON_TIME -> liveGreen()
+    DepartureText.Tone.LATE -> lateAmber()
+    DepartureText.Tone.VERY_LATE -> veryLateRed()
     DepartureText.Tone.SCHEDULED -> MaterialTheme.colorScheme.onSurface
     DepartureText.Tone.CANCELED -> MaterialTheme.colorScheme.error
 }

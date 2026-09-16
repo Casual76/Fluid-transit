@@ -33,18 +33,48 @@ package dev.antigravity.fluidtransit.routing
  */
 object DepartureText {
 
+    /**
+     * Il colore di un orario dice se il bus e' in orario, non da dove viene
+     * il numero.
+     *
+     * Fino al 16/09 diceva la PROVENIENZA: verde voleva dire "lo dice il
+     * mezzo". Era coerente con il resto dell'app e sbagliato per chi guarda:
+     * sulla scheda di un bus si leggeva "+33 min di ritardo" in verde, e il
+     * verde, per chiunque, vuol dire che va tutto bene. La provenienza ha
+     * gia' due modi di dirsi — il pallino che pulsa e le parole sotto — e
+     * sono i due che non si possono fraintendere.
+     *
+     * Deciso con Alessio il 16/09.
+     */
     enum class Tone {
-        /** Il numero viene dal mezzo: e' la cosa migliore che abbiamo. */
-        LIVE,
+        /** Entro i cinque minuti di ritardo: il bus e' quello che dice. */
+        ON_TIME,
 
-        /** Il numero e' una nostra stima a partire da un dato piu' a monte. */
-        ESTIMATED,
+        /** Qualche minuto di ritardo: si vede, ma il piano regge. */
+        LATE,
 
-        /** Nessun dato dal vivo: vale l'orario pubblicato. */
+        /** Tanto ritardo: cambia quello che decidi di fare. */
+        VERY_LATE,
+
+        /** Nessun dato dal vivo: vale l'orario pubblicato, e il colore tace. */
         SCHEDULED,
 
         /** La corsa non ci sara'. */
         CANCELED,
+    }
+
+    /** Da qui in su il ritardo si vede: il colore passa all'ambra. */
+    const val LATE_SECONDS = 5 * 60
+
+    /** Da qui in su il ritardo cambia i piani: il colore passa al rosso. */
+    const val VERY_LATE_SECONDS = 15 * 60
+
+    /** Il tono di un ritardo, quando un ritardo c'e'. */
+    fun toneOf(delaySeconds: Int?): Tone = when {
+        delaySeconds == null -> Tone.SCHEDULED
+        delaySeconds >= VERY_LATE_SECONDS -> Tone.VERY_LATE
+        delaySeconds >= LATE_SECONDS -> Tone.LATE
+        else -> Tone.ON_TIME
     }
 
     class Phrase(
@@ -138,11 +168,7 @@ object DepartureText {
 
         val live = delaySeconds != null
         val fromFeed = certainty == Certainty.DECLARED || certainty == Certainty.PROPAGATED
-        val tone = when {
-            fromFeed -> Tone.LIVE
-            live -> Tone.ESTIMATED
-            else -> Tone.SCHEDULED
-        }
+        val tone = toneOf(delaySeconds)
         val source = if (fromFeed) "dal bus" else "stimato"
 
         val support = when {

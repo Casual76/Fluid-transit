@@ -71,7 +71,7 @@ class DepartureTextTest {
     @Test
     fun `una previsione del feed si dichiara come tale`() {
         val p = DepartureText.phrase(row(300, delay = 180, certainty = Certainty.DECLARED), now)
-        assertEquals(DepartureText.Tone.LIVE, p.tone)
+        assertEquals(DepartureText.Tone.ON_TIME, p.tone, "tre minuti non sono un ritardo")
         assertTrue(p.support.startsWith("dal bus"), p.support)
         assertTrue(p.pulse, "una previsione per QUESTA fermata fa pulsare il pallino")
     }
@@ -79,16 +79,36 @@ class DepartureTextTest {
     @Test
     fun `una previsione propagata viene comunque dal feed`() {
         val p = DepartureText.phrase(row(300, delay = 180, certainty = Certainty.PROPAGATED), now)
-        assertEquals(DepartureText.Tone.LIVE, p.tone)
+        assertEquals(DepartureText.Tone.ON_TIME, p.tone)
         assertTrue(p.support.startsWith("dal bus"), p.support)
         assertTrue(!p.pulse, "propagata non e' dichiarata qui: il pallino non pulsa")
     }
 
     @Test
     fun `una stima nostra si dichiara stima`() {
+        // Il tono dice la puntualita', non la provenienza: una stima di tre
+        // minuti e' verde come una previsione di tre minuti, e a dire che e'
+        // una stima ci pensano le parole sotto.
         val p = DepartureText.phrase(row(300, delay = 180, certainty = Certainty.ESTIMATED), now)
-        assertEquals(DepartureText.Tone.ESTIMATED, p.tone)
+        assertEquals(DepartureText.Tone.ON_TIME, p.tone)
         assertTrue(p.support.startsWith("stimato"), p.support)
+    }
+
+    @Test
+    fun `il colore dice il ritardo, non da dove viene il numero`() {
+        // Il difetto che ha fatto cambiare la regola: sulla scheda di un bus
+        // si leggeva "+33 min di ritardo" in VERDE, perche' il verde voleva
+        // dire "lo dice il mezzo". Per chiunque il verde vuol dire che va
+        // tutto bene.
+        fun tono(ritardo: Int) =
+            DepartureText.phrase(row(3600, delay = ritardo, certainty = Certainty.DECLARED), now).tone
+
+        assertEquals(DepartureText.Tone.ON_TIME, tono(0))
+        assertEquals(DepartureText.Tone.ON_TIME, tono(4 * 60 + 59))
+        assertEquals(DepartureText.Tone.LATE, tono(5 * 60))
+        assertEquals(DepartureText.Tone.LATE, tono(14 * 60))
+        assertEquals(DepartureText.Tone.VERY_LATE, tono(15 * 60))
+        assertEquals(DepartureText.Tone.VERY_LATE, tono(33 * 60))
     }
 
     @Test
@@ -107,7 +127,7 @@ class DepartureTextTest {
 
         assertTrue(puntuale.support.contains("in orario"), puntuale.support)
         assertTrue(!ignota.support.contains("in orario"), ignota.support)
-        assertEquals(DepartureText.Tone.LIVE, puntuale.tone)
+        assertEquals(DepartureText.Tone.ON_TIME, puntuale.tone)
         assertEquals(DepartureText.Tone.SCHEDULED, ignota.tone)
     }
 

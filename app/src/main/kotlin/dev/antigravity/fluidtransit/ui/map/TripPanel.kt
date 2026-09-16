@@ -201,6 +201,31 @@ fun liveGreen(): Color =
         Color(0xFF128A45)
     }
 
+/**
+ * L'ambra di un ritardo che si vede, e il rosso di uno che cambia i piani.
+ *
+ * Stanno accanto a [liveGreen] e non nella palette dell'engine per la stessa
+ * ragione: la palette nasce da un accento solo e ruota con esso, mentre
+ * questi tre sono semafori — devono restare verde, ambra e rosso anche se
+ * l'accento dell'app diventa arancione. Due valori ciascuno, uno per tema,
+ * scelti per avere lo stesso peso visivo del verde.
+ */
+@Composable
+fun lateAmber(): Color =
+    if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+        Color(0xFFE8B23A)
+    } else {
+        Color(0xFF9A6400)
+    }
+
+@Composable
+fun veryLateRed(): Color =
+    if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+        Color(0xFFF08A7A)
+    } else {
+        Color(0xFFB3261E)
+    }
+
 /** Il pallino pulsante accanto ai minuti veri: la convenzione decisa. */
 @Composable
 fun LiveDot(color: Color, modifier: Modifier = Modifier) {
@@ -267,9 +292,13 @@ fun TripMiniContent(info: TripInfo) {
                         }
                     },
                     style = MaterialTheme.typography.labelMedium,
+                    // Il numero prende il colore della puntualita'; il
+                    // pallino qui accanto resta verde, perche' quello dice
+                    // un'altra cosa — che il feed sta seguendo questo bus.
                     color = when {
                         info.canceled -> red
-                        info.delaySec != null -> liveGreen()
+                        info.delaySec != null -> dev.antigravity.fluidtransit.ui.common
+                            .toneColor(DepartureText.toneOf(info.delaySec))
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                     },
                     maxLines = 1,
@@ -382,9 +411,13 @@ fun TripFullContent(
             Text(
                 text = delayLabel(info.delaySec, info.canceled),
                 style = MaterialTheme.typography.bodyMedium,
+                // Era verde qualunque fosse il ritardo: "+33 min di ritardo"
+                // scritto in verde e' la riga che ha fatto cambiare la
+                // regola del colore.
                 color = when {
                     info.canceled -> MaterialTheme.colorScheme.error
-                    info.delaySec != null -> liveGreen()
+                    info.delaySec != null -> dev.antigravity.fluidtransit.ui.common
+                        .toneColor(DepartureText.toneOf(info.delaySec))
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                 },
             )

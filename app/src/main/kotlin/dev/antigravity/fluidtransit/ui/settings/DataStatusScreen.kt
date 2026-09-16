@@ -13,6 +13,8 @@ import dev.antigravity.fluidtransit.FluidTransitApp
 import dev.antigravity.fluidtransit.data.bundle.BundleManager.BundleState
 import dev.antigravity.fluidtransit.routing.Words
 import java.time.Instant
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.system.measureNanoTime
 
 /**
@@ -158,12 +160,47 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
                 val liveVersion by app.liveVersion.collectAsStateWithLifecycle()
                 val withVehicle by app.tripsWithVehicle.collectAsStateWithLifecycle()
                 val tracked = remember(liveVersion) { app.delayModel.size }
+                // Quanta della rete che sta viaggiando adesso e' seguita.
+                //
+                // "Corse seguite adesso: 1650" non vuol dire niente da solo:
+                // e' tutto se le corse in strada sono milleseicento ed e' un
+                // terzo se sono cinquemila. La scansione degli orari costa
+                // qualche decina di millisecondi, quindi sta fuori dal filo
+                // del disegno e si rifa' ogni pochi giri di tempo reale.
+                val copertura by produceState<
+                    dev.antigravity.fluidtransit.routing.Coverage.Stato?,
+                    >(null, ready, liveVersion / 4) {
+                    val r = ready?.reader
+                    value = if (r == null) {
+                        null
+                    } else {
+                        withContext(Dispatchers.Default) {
+                            runCatching {
+                                dev.antigravity.fluidtransit.routing.Coverage
+                                    .now(r, Instant.now(), app.departureBoards.live())
+                            }.getOrNull()
+                        }
+                    }
+                }
+                FluidListRow(
+                    title = "Copertura del tempo reale",
+                    subtitle = "Quante delle corse che gli ORARI dicono in strada in questo " +
+                        "momento hanno qualcosa dal vivo. E' la risposta alla domanda che " +
+                        "viene guardando un tabellone dove meta' delle righe dicono " +
+                        "\"orario da tabella\": non e' un aggancio fallito, sono corse di cui " +
+                        "il feed non parla",
+                    meta = copertura?.let { c ->
+                        c.percento?.let { "${c.seguite} di ${c.inViaggio} · $it%" }
+                            ?: "niente in strada"
+                    } ?: "—",
+                )
                 FluidListRow(
                     title = "Corse seguite adesso",
                     subtitle = "Quante corse hanno un ritardo in memoria, e quante hanno un " +
                         "mezzo vivo. E' da queste che escono i minuti veri nei tabelloni: se " +
                         "la prima e' zero mentre i ritardi scaricati sono tanti, il feed e gli " +
-                        "orari non si stanno agganciando",
+                        "orari non si stanno agganciando. Comprende le corse che devono ancora " +
+                        "partire, quindi puo' essere piu' grande del numero di corse in strada",
                     meta = "$tracked · ${withVehicle.size} coi mezzi",
                 )
                 val predictions by app.realtime.predictions.collectAsStateWithLifecycle()

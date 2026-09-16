@@ -30,6 +30,22 @@ svista e qualcuno ci ritorna sopra. — misurato e deciso il 16/09/2026
 
 ## Si vede
 
+**I colori delle linee cambiavano a ogni notte, e adesso no.** Il 16/09, con
+il primo bundle nuovo dopo giorni, alla stessa fermata quattro pastiglie su
+sette avevano cambiato tinta. Misurato fra due build a novanta minuti di
+distanza, con conteggi identici di fermate, linee, corse e pattern: **98 linee
+su 946** di un altro colore. Ora il costruttore parte dai colori dell'ultimo
+bundle pubblicato, che il job scarica dalla release. Rimisurato allo stesso
+modo dopo: **0 su 946**. — misurato e chiuso il 16/09/2026
+
+**Il velo sulla basemap non e' ancora stato visto su uno schermo tranquillo.**
+Sotto la nostra rete c'e' ora un velo (`MapCatalog.VELO_OPACITA`, 0,22) che
+abbassa la mappa stradale e lascia intatte le tratte e le etichette. Si e'
+visto funzionare, ma solo attraverso il velo grigio dei dialoghi di ANR che
+l'emulatore ha cominciato a produrre in continuazione: le linee dominano, le
+strade e il fiume restano leggibili. Va guardato una volta su uno schermo
+pulito, e se e' troppo si cambia un numero solo. — da verificare, 16/09/2026
+
 **Il gate degli orari bloccava le pubblicazioni da giorni, e aveva ragione.**
 La divergenza era sempre la stessa query: RISTORANTE LA BIANCA, alle 12:00,
 con la stessa corsa contata due volte e la quinta partenza vera spinta fuori
@@ -216,9 +232,10 @@ subito i due widget e programmava il loro rinfresco, cioe' ricostruiva due
 tabelloni e consegnava dei RemoteViews proprio mentre quel thread stava
 disegnando la prima schermata. Ora quel blocco aspetta quattro secondi.
 Misurato dopo: due avvii a freddo di fila senza ANR, dove prima capitava
-quasi sempre. Non e' sparito del tutto: al primo avvio dopo
-un'installazione, quando il sistema sta anche ricompilando il dex, e'
-ricomparso. L'avvio resta lento sull'emulatore — 9,5 e 12,2 secondi al primo
+quasi sempre. Non e' sparito del tutto, ma la colpa non e' piu' nostra: con
+la macchina ospite occupata da un build Gradle, lo stesso dialogo e'
+comparso per **System UI**, che non e' codice di quest'app. E' lo stato
+dell'emulatore, non dell'app. L'avvio resta lento sull'emulatore — 9,5 e 12,2 secondi al primo
 fotogramma, con GL software e build di debug non ottimizzata — e quel
 numero non dice niente su un telefono vero.
 — diagnosticato e corretto il 16/09/2026

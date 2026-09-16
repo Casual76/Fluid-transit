@@ -52,6 +52,7 @@ class TransitMapController(private val context: Context) {
     private var overlayUrl: String? = null
     private var filter = CategoryFilter.ALL
     private var darkTheme = false
+    private var currentMode = MapCatalog.MapMode.STREETS
     private var locationEnabled = false
     var onStopTap: ((StopTap) -> Unit)? = null
     var onBusTap: ((BusTap) -> Unit)? = null
@@ -207,6 +208,7 @@ class TransitMapController(private val context: Context) {
         this.overlayUrl = overlayUrl
         this.filter = filter
         this.darkTheme = dark
+        this.currentMode = mode
         this.locationEnabled = locationEnabled
         val key = "$mode|$dark"
         if (key != currentStyleKey) {
@@ -322,6 +324,35 @@ class TransitMapController(private val context: Context) {
                     ),
                 )
             }
+
+        // Un velo fra la basemap e la nostra rete.
+        //
+        // La basemap e' una mappa stradale completa: strade arancioni e
+        // gialle, aree verdi, tutto a piena saturazione. Sopra ci mettiamo
+        // dodici tinte sature per le linee, i pallini delle fermate e le
+        // frecce dei bus vivi: il risultato, a zoom di citta', e' un intrico
+        // in cui la nostra roba — che e' il motivo per cui questa mappa
+        // esiste — non si distingue da una strada qualsiasi.
+        //
+        // Il velo abbassa quello che sta sotto e lascia intatto quello che
+        // sta sopra: le etichette restano nitide (sono simboli, e noi ci
+        // infiliamo sotto di loro) e le nostre tratte guadagnano il contrasto
+        // che serve. Solo sulla stradale: sull'ortofoto sbiadire la foto
+        // vorrebbe dire buttare via la ragione per cui la si guarda.
+        if (currentMode == MapCatalog.MapMode.STREETS) {
+            val velo = org.maplibre.android.style.layers.BackgroundLayer(MapCatalog.LAYER_VELO)
+                .apply {
+                    setProperties(
+                        PropertyFactory.backgroundColor(if (darkTheme) "#0B0B10" else "#FFFFFF"),
+                        PropertyFactory.backgroundOpacity(MapCatalog.VELO_OPACITA),
+                    )
+                }
+            if (firstSymbol != null) {
+                style.addLayerBelow(velo, firstSymbol)
+            } else {
+                style.addLayer(velo)
+            }
+        }
 
         val lineeExtra = lineLayer(
             MapCatalog.LAYER_LINEE_EXTRA, "e",

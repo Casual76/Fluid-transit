@@ -158,6 +158,17 @@ object MapCatalog {
     // --- overlay della rete (il PMTiles nostro) ----------------------------
 
     const val OVERLAY_SOURCE = "ft-rete"
+
+    /** Il velo che abbassa la basemap sotto la nostra rete. */
+    const val LAYER_VELO = "ft-velo"
+
+    /**
+     * Quanto si abbassa. Misurato a occhio sull'emulatore su Firenze:
+     * sotto 0,15 non cambia niente, sopra 0,3 la mappa diventa lattiginosa e
+     * le strade non si riconoscono piu' — e le strade servono a capire dove
+     * si e'.
+     */
+    const val VELO_OPACITA = 0.22f
     const val LAYER_LINEE_EXTRA = "ft-linee-extra"
     const val LAYER_LINEE_URBANE = "ft-linee-urbane"
     const val LAYER_LINEA_SEL = "ft-linea-selezionata"

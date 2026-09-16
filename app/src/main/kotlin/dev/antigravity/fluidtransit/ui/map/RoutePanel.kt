@@ -95,6 +95,19 @@ class RouteInfo(
         val scheduledEpoch: Long = 0L,
         /** Da dove viene la correzione: null = nessun dato live. */
         val certainty: dev.antigravity.fluidtransit.routing.Certainty? = null,
+        /**
+         * Il mezzo di quella corsa e' gia' passato di qui.
+         *
+         * Serve a spiegare una sequenza che altrimenti sembra rotta. Sul
+         * telefono, linea 12: 15:13, 15:15, 15:16, 15:18, e poi 15:15. Non
+         * era un errore di calcolo — la corsa viaggiava tre minuti in
+         * anticipo, e le prime fermate mostrano l'orario di TABELLA perche'
+         * un ritardo riferito a dove si trova il mezzo adesso non dice
+         * niente su una fermata che ha alle spalle. Ma un elenco di orari
+         * che torna indietro, senza dire perche', e' esattamente il genere
+         * di cosa che fa pensare che l'app sbagli i conti.
+         */
+        val served: Boolean = false,
     )
 
     companion object {
@@ -155,12 +168,13 @@ class RouteInfo(
                     val s = reader.patternStop(best, i)
                     // Come sopra: il filtro delle fermate gia' servite
                     // mancava solo qui e in Preferiti.
-                    val at = if (offsets != null) {
-                        live?.at(nextTrip, i, n, now.epochSecond)?.takeIf {
-                            it.certainty != dev.antigravity.fluidtransit.routing.Certainty.SERVED
-                        }
+                    val grezzo = if (offsets != null) {
+                        live?.at(nextTrip, i, n, now.epochSecond)
                     } else {
                         null
+                    }
+                    val at = grezzo?.takeIf {
+                        it.certainty != dev.antigravity.fluidtransit.routing.Certainty.SERVED
                     }
                     StopRef(
                         scheduledEpoch = if (offsets != null) nextDep + offsets[i] else 0L,
@@ -175,6 +189,17 @@ class RouteInfo(
                         idHashHex = java.lang.Long.toHexString(reader.stopIdHash(s)),
                         lat = reader.stopLat(s),
                         lon = reader.stopLon(s),
+                        // La stessa domanda che si fa la scheda di una corsa,
+                        // con la stessa risposta: o il feed dice che la
+                        // fermata e' alle spalle, o l'orario e' passato da
+                        // piu' del minuto di cortesia.
+                        served = offsets != null &&
+                            dev.antigravity.fluidtransit.routing.TripProgress.served(
+                                at = grezzo,
+                                effectiveEpoch = nextDep + offsets[i] +
+                                    (at?.delaySeconds ?: 0),
+                                nowEpoch = now.epochSecond,
+                            ),
                     )
                 }
                 // La durata: il profilo di una corsa mediana del pattern.
@@ -493,7 +518,12 @@ fun RouteFullContent(
         ) {
             items(dir.stops.size) { i ->
                 val stop = dir.stops[i]
-                val tinta = Color(0xFF000000 or info.colorRgb.toLong())
+                val piena = Color(0xFF000000 or info.colorRgb.toLong())
+                // Il tratto gia' percorso si spegne: il filo, il pallino e
+                // le parole. Cosi' l'elenco si legge in due parti — dove il
+                // mezzo e' stato e dove deve ancora arrivare — e gli orari
+                // che "tornano indietro" stanno tutti nella prima.
+                val tinta = if (stop.served) piena.copy(alpha = 0.30f) else piena
                 val primo = i == 0
                 val ultimo = i == dir.stops.size - 1
                 Row(
@@ -545,7 +575,11 @@ fun RouteFullContent(
                     Text(
                         text = stop.name,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = if (stop.served) {
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f).padding(vertical = 10.dp),
@@ -565,7 +599,11 @@ fun RouteFullContent(
                         Text(
                             text = dev.antigravity.fluidtransit.routing.Times.hhmm(stop.timeEpoch),
                             style = MaterialTheme.typography.labelLarge,
-                            color = dev.antigravity.fluidtransit.ui.common.toneColor(tone),
+                            color = if (stop.served) {
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            } else {
+                                dev.antigravity.fluidtransit.ui.common.toneColor(tone)
+                            },
                         )
                     } else if (i == 0 || i == dir.stops.size - 1) {
                         Text(

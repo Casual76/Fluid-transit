@@ -1356,9 +1356,11 @@ fun MapScreen(
     // quando la capsula non c'e', il logo torna giu' da solo.
     val density = androidx.compose.ui.platform.LocalDensity.current
     var altezzaFondo by remember { mutableStateOf(0) }
-    LaunchedEffect(altezzaFondo) {
-        controller.chromeBottomPx = if (altezzaFondo > 0) {
-            altezzaFondo + with(density) { 6.dp.toPx() }.toInt()
+    var altezzaPannello by remember { mutableStateOf(0) }
+    val copertoSotto = maxOf(altezzaFondo, if (panel != null) altezzaPannello else 0)
+    LaunchedEffect(copertoSotto) {
+        controller.chromeBottomPx = if (copertoSotto > 0) {
+            copertoSotto + with(density) { 6.dp.toPx() }.toInt()
         } else {
             with(density) { (FluidTabBarDefaults.ContentInset + 6.dp).toPx() }.toInt()
         }
@@ -1881,6 +1883,12 @@ fun MapScreen(
                 androidx.compose.animation.fadeOut(),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
+                // Quanto alto arriva il vetro: serve al logo di MapLibre, che
+                // altrimenti resta sotto e si legge in trasparenza dentro il
+                // pannello. Nella scheda "Qui intorno" finiva esattamente
+                // sopra la riga della provenienza: due scritte sovrapposte,
+                // una dell'app e una della mappa.
+                .onSizeChanged { altezzaPannello = it.height }
                 .navigationBarsPadding(),
         ) {
             val p = panel

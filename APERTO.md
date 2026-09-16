@@ -30,6 +30,26 @@ svista e qualcuno ci ritorna sopra. — misurato e deciso il 16/09/2026
 
 ## Si vede
 
+**Un quarto dei bus in strada il feed non li nomina, e adesso si vede.** La
+domanda veniva da un tabellone delle 09:30 con sette righe su otto che
+dicevano "orario da tabella". Misurato con una sonda temporanea: quelle corse
+avevano `covers=false`, cioe' non erano nel feed ne' come previsione ne' come
+mezzo — non erano un aggancio fallito. Gli agganci, anzi, riescono quasi
+sempre: su 1641 gruppi di previsioni, 2 erano di una linea sconosciuta al
+bundle e 57 perdevano lo scarto delle sequenze perche' il feed di quella
+corsa elenca piu' fermate del pattern (per esempio una corsa della 8 con
+sequenze 1..23 su un pattern da 20 fermate: sono due generazioni di dati
+diverse, e ripiegare sulla stima e' giusto).
+
+Il numero che ne e' uscito sta adesso in Stato dei dati: **612 corse seguite
+su 809 in strada, il 76%**. Il 24% che manca non dipende da noi — e' la
+copertura AVL della fonte — ma finche' non si misurava sembrava un difetto
+dell'app. Resta aperto se e quando dirlo anche fuori da quella schermata:
+una riga "qui il tempo reale copre tre corse su quattro" sulla mappa
+spiegherebbe l'unica cosa che l'app non spiega, ma e' rumore per chi non ha
+il problema. — misurato il 16/09/2026
+
+
 **La camera della mappa NON riparte da capo cambiando scheda.** Era scritto
 qui come difetto; riprovato due volte, e' falso: si apre una fermata, si va su
 Oggi, si torna, e la mappa e' dov'era, allo stesso zoom, col pannello ancora

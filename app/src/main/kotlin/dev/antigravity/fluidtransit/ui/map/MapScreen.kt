@@ -1534,7 +1534,15 @@ fun MapScreen(
                 },
             )
 
-            if (plannerOpen && !searchOpen) {
+            // In navigazione la testata sparisce.
+            //
+            // Restavano la scheda del pianificatore — tre righe con partenza,
+            // arrivo e orario — e i tre chip delle categorie, sopra una
+            // schermata il cui unico scopo e' dire "scendi alla prossima".
+            // Sono i comandi con cui si e' arrivati fin li', non quelli che
+            // servono adesso: la stessa ragione per cui spariscono anche i
+            // due cerchi in fondo.
+            if (plannerOpen && !searchOpen && !navActive) {
                 PlannerGlass(
                     backdrop = backdrop,
                     from = originRef,
@@ -1580,7 +1588,7 @@ fun MapScreen(
                         controller.clearPlaceMarker()
                     },
                 )
-            } else {
+            } else if (!navActive) {
             SearchGlass(
                 backdrop = backdrop,
                 open = searchOpen,
@@ -1683,7 +1691,7 @@ fun MapScreen(
                 },
             )
             }
-            androidx.compose.animation.AnimatedVisibility(visible = !searchOpen) {
+            androidx.compose.animation.AnimatedVisibility(visible = !searchOpen && !navActive) {
                 Column {
                     Spacer(Modifier.height(10.dp))
                     CategoryChipsRow(
@@ -2456,9 +2464,21 @@ fun MapScreen(
                         .padding(horizontal = FluidTabBarDefaults.HorizontalMargin)
                         .padding(bottom = FluidTabBarDefaults.BottomMargin),
                 ) {
+                    val r = ready?.reader
                     NavMiniContent(
                         state = s,
                         onStop = { app.navigation.stop(context) },
+                        line = if (s.rideRoute >= 0 && r != null) {
+                            r.routeShortName(s.rideRoute)
+                                .ifEmpty { r.routeLongName(s.rideRoute) }
+                        } else {
+                            null
+                        },
+                        colorRgb = if (s.rideRoute >= 0 && r != null) {
+                            r.routeDisplayColor(s.rideRoute)
+                        } else {
+                            0
+                        },
                     )
                 }
             }

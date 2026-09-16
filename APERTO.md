@@ -215,8 +215,10 @@ sistema che non riusciva a partire era nostro: all'avvio l'app ridisegnava
 subito i due widget e programmava il loro rinfresco, cioe' ricostruiva due
 tabelloni e consegnava dei RemoteViews proprio mentre quel thread stava
 disegnando la prima schermata. Ora quel blocco aspetta quattro secondi.
-Misurato dopo: due avvii a freddo, zero ANR (prima capitava quasi sempre).
-L'avvio resta lento sull'emulatore — 9,5 e 12,2 secondi al primo
+Misurato dopo: due avvii a freddo di fila senza ANR, dove prima capitava
+quasi sempre. Non e' sparito del tutto: al primo avvio dopo
+un'installazione, quando il sistema sta anche ricompilando il dex, e'
+ricomparso. L'avvio resta lento sull'emulatore — 9,5 e 12,2 secondi al primo
 fotogramma, con GL software e build di debug non ottimizzata — e quel
 numero non dice niente su un telefono vero.
 — diagnosticato e corretto il 16/09/2026

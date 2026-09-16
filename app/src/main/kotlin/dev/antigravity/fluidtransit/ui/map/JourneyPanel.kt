@@ -905,6 +905,16 @@ fun buildNavPlan(
 fun NavMiniContent(
     state: dev.antigravity.fluidtransit.data.nav.NavState,
     onStop: () -> Unit,
+    /**
+     * La linea su cui sei, quando sei a bordo.
+     *
+     * Dappertutto nell'app un bus si presenta con la sua pastiglia colorata;
+     * qui c'era solo un pallino verde, e la riga diceva dove scendere senza
+     * dire da che cosa. Sul mezzo sbagliato e' l'informazione che fa
+     * accorgere dell'errore.
+     */
+    line: String? = null,
+    colorRgb: Int = 0,
 ) {
     Row(
         modifier = Modifier
@@ -914,7 +924,11 @@ fun NavMiniContent(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        if (state.phase == "ride") LiveDot(liveGreen())
+        if (line != null) {
+            RoutePill(text = line, colorRgb = colorRgb)
+        } else if (state.phase == "ride") {
+            LiveDot(liveGreen())
+        }
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = state.headline,

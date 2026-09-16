@@ -99,6 +99,25 @@ e portare la mappa dove serve. — visto il 15/09/2026
 
 ## Non si vede, ma conta
 
+**Il feed della Regione si ferma anche in piena mattina, e dopo dieci minuti
+l'app resta senza ritardi.** Misurato il 16/09 alle 10:35: `/rt/v1/health`
+dava `vehicles.feedAgeSeconds` 1108 e `updates.feedAgeSeconds` 1117 — cioe'
+l'origine non pubblicava da diciotto minuti — mentre il nostro snapshot aveva
+104 secondi. Non e' il proxy: e' la fonte. L'app se ne accorge e lo dice
+("Il feed della Regione e' fermo" sulla mappa), e questo e' giusto.
+
+Quello che resta aperto e' cosa fare dei ritardi gia' noti. Oggi, passati
+dieci minuti dall'ultimo aggiornamento, si buttano tutti e ogni riga torna a
+"orario da tabella": la regola e' scritta e voluta ("un'osservazione vecchia
+non e' il ritardo di adesso"), ma un bus che quindici minuti fa aveva mezz'ora
+di ritardo ce l'ha quasi certamente ancora, e in quella finestra l'app e' meno
+utile delle ufficiali. La terza strada — tenere il numero e DIRE quanto e'
+vecchio, "dal bus - visto 15 min fa" — l'app avrebbe gia' le parole per
+dirla. E' una decisione da prendere con Alessio, non da prendere da soli:
+cambia cosa si vede in tutte e quattro le superfici.
+— misurato il 16/09/2026
+
+
 **`/rt/v1/refresh` e' aperto.** Il codice che controlla il segreto c'è e si
 accende da solo, ma `REFRESH_SECRET` non è configurato. Si chiude con
 `wrangler secret put REFRESH_SECRET` e la corrispondente variabile nel

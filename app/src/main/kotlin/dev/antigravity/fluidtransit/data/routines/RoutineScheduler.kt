@@ -210,7 +210,11 @@ object RoutineScheduler {
             val line = reader.routeShortName(it.route).ifEmpty { reader.routeLongName(it.route) }
             "linea $line alle ${hm(it.departure)} da ${reader.stopName(it.boardStop)}"
         } ?: "a piedi"
-        val minutes = (leave.epochSecond - Instant.now().epochSecond) / 60
+        // Arrotondato come ovunque nell'app, non troncato: la stessa uscita
+        // diceva "tra 12 min" qui e "13 min" nella scheda del viaggio,
+        // perche' questa riga buttava via i secondi invece di arrotondarli.
+        val secondsToLeave = (leave.epochSecond - Instant.now().epochSecond).toInt()
+        val minutes = dev.antigravity.fluidtransit.routing.Times.toMinutes(secondsToLeave)
         val advice = "Esci alle ${hm(leave)} — $rideText"
 
         store.update(id) {
@@ -224,7 +228,12 @@ object RoutineScheduler {
 
         val title = when {
             minutes <= 1 -> "Esci ora — ${r.label.ifEmpty { r.toName }}"
-            else -> "Esci tra $minutes min — ${r.label.ifEmpty { r.toName }}"
+            // Con le parole delle durate del resto dell'app: il primo giro
+            // parte quarantacinque minuti prima, e piu' in la' di un'ora
+            // "Esci tra 72 min" e' un numero da dividere.
+            else -> "Esci tra " +
+                dev.antigravity.fluidtransit.routing.Times.durationLabel(secondsToLeave) +
+                " — ${r.label.ifEmpty { r.toName }}"
         }
         // Toccarla apre *quel* viaggio. Fino a ieri questa notifica non
         // aveva contentIntent: toccarla non faceva assolutamente niente, e
@@ -271,8 +280,9 @@ object RoutineScheduler {
     /** Quanto si aspetta il bundle dentro il giro di una sveglia. */
     private const val BUNDLE_WAIT_MS = 8_000L
 
-    private fun hm(i: Instant): String = ZonedDateTime.ofInstant(i, Ftb.ROME)
-        .let { "%02d:%02d".format(it.hour, it.minute) }
+    /** L'orologio e' quello di tutta l'app: qui era riscritto in casa. */
+    private fun hm(i: Instant): String =
+        dev.antigravity.fluidtransit.routing.Times.hhmm(i.epochSecond)
 }
 
 /** La sveglia di una routine: calcola e notifica, poi riarma. */

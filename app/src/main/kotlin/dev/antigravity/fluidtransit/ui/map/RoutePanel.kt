@@ -61,6 +61,14 @@ class RouteInfo(
         val durationMinutes: Int,
         /** La corsa a cui si riferiscono gli orari accanto alle fermate. */
         val nextTripLive: Boolean = false,
+        /**
+         * Quante fermate hanno l'orario ripartito da noi.
+         *
+         * Il feed pubblica al minuto tondo, quindi due fermate vicine escono
+         * con lo stesso minuto e il divario e' una nostra stima dalla
+         * distanza vera. Va detto dove compare, come nella scheda della corsa.
+         */
+        val spreadStops: Int = 0,
     )
 
     class StopRef(
@@ -167,6 +175,13 @@ class RouteInfo(
                 val duration = reader.profileOffset(reader.tripProfile(mid), n - 1) / 60
                 Direction(
                     headsign = reader.patternDestination(best),
+                    spreadStops = if (nextTrip >= 0) {
+                        dev.antigravity.fluidtransit.routing.StopTimes.twinCount(
+                            IntArray(n) { reader.profileOffset(reader.tripProfile(nextTrip), it) },
+                        )
+                    } else {
+                        0
+                    },
                     stops = stops,
                     durationMinutes = duration,
                     nextTripLive = tripLive,
@@ -388,6 +403,12 @@ fun RouteFullContent(
                     if (dir?.stops?.any { it.timeEpoch > 0 } == true) {
                         append("\nGli orari qui sotto sono della prossima corsa, ")
                         append(if (dir.nextTripLive) "dal bus." else "da tabella.")
+                        if (dir.spreadStops > 0) {
+                            append(
+                                " Fra fermate vicinissime il divario lo stimiamo " +
+                                    "noi: il feed pubblica lo stesso minuto per tutte.",
+                            )
+                        }
                     }
                 },
                 style = MaterialTheme.typography.bodySmall,

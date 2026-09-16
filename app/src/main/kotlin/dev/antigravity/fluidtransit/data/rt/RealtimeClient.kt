@@ -322,10 +322,24 @@ class RealtimeClient(
      * Gli avvisi di servizio, dal proxy, con 5 minuti di cache: la scheda
      * Oggi li chiede a ogni apertura e gli avvisi non cambiano al minuto.
      */
-    suspend fun fetchAlerts(): List<GtfsRtLite.RtAlert> =
+    suspend fun fetchAlerts(): List<GtfsRtLite.RtAlert> = fetchAlertsOrNull() ?: emptyList()
+
+    /**
+     * Gli avvisi, oppure null se non siamo riusciti a saperlo.
+     *
+     * La differenza non e' accademica: la schermata degli avvisi, quando la
+     * lista tornava vuota, scriveva "Nessun avviso in corso" — che e' una
+     * frase rassicurante. Con la rete giu' durante uno sciopero diceva
+     * esattamente il contrario del vero, e lo diceva con sicurezza. Qui il
+     * fallimento smette di somigliare a una buona notizia.
+     *
+     * La cache vale come risposta: sono gli avvisi di cinque minuti fa, non
+     * un'invenzione.
+     */
+    suspend fun fetchAlertsOrNull(): List<GtfsRtLite.RtAlert>? =
         alertsLock.withLock { fetchAlertsLocked() }
 
-    private suspend fun fetchAlertsLocked(): List<GtfsRtLite.RtAlert> = withContext(Dispatchers.IO) {
+    private suspend fun fetchAlertsLocked(): List<GtfsRtLite.RtAlert>? = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         alertsCache?.let { if (now - alertsCacheAt < 5 * 60_000) return@withContext it }
         runCatching {
@@ -345,7 +359,7 @@ class RealtimeClient(
                     alertsCacheAt = now
                 }
             }
-        }.getOrElse { alertsCache ?: emptyList() }
+        }.getOrElse { alertsCache }
     }
 
     /** true se e' ora di provare l'origine diretta, false se si riprova col proxy. */

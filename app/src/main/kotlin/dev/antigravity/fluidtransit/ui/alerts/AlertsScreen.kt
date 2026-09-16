@@ -56,9 +56,18 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
     }
 
     var round by remember { mutableStateOf(0) }
-    val alerts by produceState(initialValue = null as List<GtfsRtLite.RtAlert>?, round) {
-        value = runCatching { app.realtime.fetchAlerts() }.getOrDefault(emptyList())
+    // Tre stati e non due: sto leggendo, non ci sono riuscito, ecco la lista.
+    //
+    // Prima il fallimento diventava una lista vuota, e una lista vuota qui
+    // si legge "Nessun avviso in corso" — cioe' una frase rassicurante.
+    // Con la rete giu' durante uno sciopero l'app diceva esattamente il
+    // contrario del vero, e lo diceva con sicurezza.
+    val esito by produceState(initialValue = null as Result<List<GtfsRtLite.RtAlert>>?, round) {
+        value = app.realtime.fetchAlertsOrNull()
+            ?.let { Result.success(it) }
+            ?: Result.failure(java.io.IOException("avvisi non scaricati"))
     }
+    val alerts = esito?.getOrNull()
 
     val scope = rememberCoroutineScope()
     var refreshing by remember { mutableStateOf(false) }
@@ -107,8 +116,19 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
             }
         },
     ) {
-        if (alerts == null) {
+        if (esito == null) {
             item { dev.antigravity.fluidengine.ui.fluid.FluidLoadingBlock() }
+            return@FluidScreen
+        }
+        if (alerts == null) {
+            item {
+                FluidEmptyState(
+                    title = "Gli avvisi non sono arrivati",
+                    detail = "Non siamo riusciti a scaricarli, quindi non sappiamo se ce ne " +
+                        "sono. Non e' la stessa cosa che non ce ne siano: tira giu' per " +
+                        "riprovare.",
+                )
+            }
             return@FluidScreen
         }
         if (attivi.isEmpty() && futuri.isEmpty()) {

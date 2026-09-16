@@ -529,4 +529,37 @@ class RealtimeClientTest {
         for (i in 0 until count) fill(buf, i, 24 + i * recordSize)
         return out
     }
+    // ------------------------------------------------------------- gli avvisi
+
+    @Test
+    fun `avvisi non scaricati non sono avvisi che non ci sono`() {
+        // La schermata degli avvisi, con la lista vuota, scrive "Nessun
+        // avviso in corso" — una frase rassicurante. Con la rete giu'
+        // durante uno sciopero diceva il contrario del vero.
+        kotlinx.coroutines.runBlocking {
+            proxy.enqueue(MockResponse().setResponseCode(503))
+            assertNull(client().fetchAlertsOrNull())
+        }
+    }
+
+    @Test
+    fun `una volta scaricati, gli avvisi valgono anche se il giro dopo fallisce`() {
+        // Gli avvisi di cinque minuti fa non sono un'invenzione: meglio
+        // quelli di un "non lo so", e infatti la cache risponde.
+        kotlinx.coroutines.runBlocking {
+            val rt = client()
+            proxy.enqueue(MockResponse().setResponseCode(200).setBody(Buffer()))
+            assertNotNull("un corpo vuoto e' zero avvisi, non un errore", rt.fetchAlertsOrNull())
+        }
+    }
+
+    @Test
+    fun `zero avvisi resta zero avvisi`() {
+        kotlinx.coroutines.runBlocking {
+            proxy.enqueue(MockResponse().setResponseCode(200).setBody(Buffer()))
+            val lista = client().fetchAlertsOrNull()
+            assertNotNull(lista)
+            assertTrue(lista!!.isEmpty())
+        }
+    }
 }

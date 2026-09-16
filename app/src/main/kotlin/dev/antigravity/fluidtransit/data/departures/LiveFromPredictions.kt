@@ -40,6 +40,16 @@ class LiveFromPredictions(
     private val canceledTrips: Set<Int>,
     private val withVehicle: Set<Int>,
     private val feedTimestamp: Long,
+    /**
+     * Lo snapshot da cui e' stata ricavata.
+     *
+     * Serve a riconoscere, per identita', se una risoluzione gia' fatta vale
+     * ancora per i byte che il proxy sta servendo adesso: e' quello che
+     * permette di risolvere al volo quando nessuno l'ha ancora fatto, invece
+     * di mostrare una stima perche' il collettore non ha ancora avuto il suo
+     * turno.
+     */
+    val set: RtPredictionSet,
 ) : LiveTimes {
 
     /** Una corsa, con lo scarto gia' verificato una volta sola. */
@@ -189,6 +199,7 @@ class LiveFromPredictions(
                 canceledTrips = canceledTrips,
                 withVehicle = withVehicle,
                 feedTimestamp = set.feedTimestamp,
+                set = set,
             )
         }
     }

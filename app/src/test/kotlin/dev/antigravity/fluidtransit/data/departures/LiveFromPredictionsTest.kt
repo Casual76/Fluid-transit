@@ -1,6 +1,7 @@
 package dev.antigravity.fluidtransit.data.departures
 
 import dev.antigravity.fluidtransit.data.rt.RtPrediction
+import dev.antigravity.fluidtransit.data.rt.RtPredictionSet
 import dev.antigravity.fluidtransit.data.rt.RtTripPrediction
 import dev.antigravity.fluidtransit.routing.Certainty
 import dev.antigravity.fluidtransit.routing.LiveTimes
@@ -72,6 +73,14 @@ class LiveFromPredictionsTest {
         canceledTrips = emptySet(),
         withVehicle = emptySet(),
         feedTimestamp = feedTs,
+        // Lo snapshot di provenienza serve solo a riconoscere, per identita',
+        // se una risoluzione vale ancora: qui non si risolve niente.
+        set = RtPredictionSet(
+            generatedAt = feedTs,
+            feedTimestamp = feedTs,
+            truncated = false,
+            byTripHash = emptyMap(),
+        ),
     )
 
     // ---------------------------------------------------- la regola in se'

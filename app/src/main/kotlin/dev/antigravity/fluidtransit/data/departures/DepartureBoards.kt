@@ -2,6 +2,7 @@ package dev.antigravity.fluidtransit.data.departures
 
 import dev.antigravity.fluidtransit.FluidTransitApp
 import dev.antigravity.fluidtransit.data.bundle.BundleManager.BundleState
+import dev.antigravity.fluidtransit.data.rt.RtPredictionSet
 import dev.antigravity.fluidtransit.data.time.UiClock
 import dev.antigravity.fluidtransit.routing.BundleReader
 import dev.antigravity.fluidtransit.routing.DepartureBoard
@@ -208,7 +209,45 @@ class DepartureBoards(private val app: FluidTransitApp) {
             canceled = app.canceledTrips.value,
             withVehicle = app.tripsWithVehicle.value,
         )
-        return app.livePredictions.value ?: base
+        val grezzo = app.realtime.predictions.value ?: return base
+        val gia = app.livePredictions.value
+        if (gia != null && gia.set === grezzo) return gia
+        return risolvi(grezzo, base)
+    }
+
+    /**
+     * Le previsioni risolte adesso, se nessuno le ha ancora risolte.
+     *
+     * Chi le risolve di solito e' un collettore dell'Application, che gira
+     * per conto suo appena il proxy consegna uno snapshot nuovo. Ma il widget
+     * Glance vive dentro una ricevente: sveglia il processo, chiede il
+     * refresh, e disegna. Nel processo appena nato il collettore non ha
+     * ancora avuto il suo turno, quindi il widget leggeva "nessuna previsione
+     * risolta" e ripiegava sulla stima — con il risultato, visto sulla home,
+     * di un "stimato" accanto a un passaggio che nell'app diceva "dal bus".
+     * Lo stesso bus, la stessa fermata, due parole diverse a due centimetri
+     * di distanza.
+     *
+     * Risolvere qui costa una scansione delle corse del feed, qualche
+     * millisecondo, e succede una volta per snapshot: il risultato si
+     * pubblica dove tutti lo leggono.
+     */
+    @Synchronized
+    private fun risolvi(grezzo: RtPredictionSet, base: LiveTimes): LiveTimes {
+        val gia = app.livePredictions.value
+        if (gia != null && gia.set === grezzo) return gia
+        val reader = readerOrNull() ?: return base
+        val risolte = runCatching {
+            LiveFromPredictions.resolve(
+                reader = reader,
+                set = grezzo,
+                fallback = base,
+                canceledTrips = app.canceledTrips.value,
+                withVehicle = app.tripsWithVehicle.value,
+            )
+        }.getOrNull() ?: return base
+        app.livePredictions.value = risolte
+        return risolte
     }
 
     private fun empty(key: Key, now: Instant = Instant.now()): DepartureBoard {

@@ -52,25 +52,29 @@ fun main(args: Array<String>) {
         val rnd = Random(20260916)
         val now = Instant.now()
 
-        // Una corsa su cento con previsioni, e ostili.
-        val coperte = HashSet<Int>()
-        repeat(reader.tripCount / 100) { coperte.add(rnd.nextInt(reader.tripCount)) }
+        // Le previsioni, e ostili.
+        //
+        // Coprono TUTTE le corse, non una su cento come prima: con una su
+        // cento un viaggio a caso non ne incontrava quasi mai una, e gli
+        // invarianti che riguardano i ritardi — la monotonia lungo la corsa,
+        // l'assenza di buchi fra una tratta e la camminata che segue — si
+        // controllavano quasi solo sugli orari di tabella, cioe' proprio nel
+        // caso in cui non possono rompersi.
         val live = object : LiveTimes {
             override fun at(
                 tripIndex: Int,
                 position: Int,
                 stopCount: Int,
                 nowEpoch: Long,
-            ): LiveTimes.At? {
-                if (tripIndex !in coperte) return null
+            ): LiveTimes.At {
                 val d = ((tripIndex * 31L + position * 137L) % 1200 - 300).toInt()
                 return LiveTimes.At(d, Certainty.DECLARED)
             }
 
-            override fun covers(tripIndex: Int) = tripIndex in coperte
+            override fun covers(tripIndex: Int) = true
         }
         val rt = Raptor.Realtime(
-            delayByTrip = coperte.associateWith { 120 },
+            delayByTrip = emptyMap(),
             observedAtEpoch = now.epochSecond,
             live = live,
         )
@@ -97,6 +101,21 @@ fun main(args: Array<String>) {
                     if (l.arrival < l.departure) problemi.add("giro $giro: tappa $k al contrario")
                     if (k > 0 && l.departure < j.legs[k - 1].arrival) {
                         problemi.add("giro $giro: tappe $k e ${k - 1} sovrapposte")
+                    }
+                    // Dopo una tratta si cammina SUBITO.
+                    //
+                    // Aspettare ha senso prima di salire su un bus, non dopo
+                    // essere scesi: un buco fra l'arrivo e la camminata che
+                    // segue e' tempo che il viaggio si prende senza dire
+                    // perche'. Sul telefono si vedeva cosi': "10:36
+                    // PANCIATICHI TRE PIETRE" e sotto "Cammina 2 min fino a
+                    // destinazione — 10:40", con quattro minuti in mezzo che
+                    // nessuna riga spiegava.
+                    if (k > 0 && l is Raptor.Leg.Walk && j.legs[k - 1] is Raptor.Leg.Ride) {
+                        val buco = l.departure.epochSecond - j.legs[k - 1].arrival.epochSecond
+                        if (buco != 0L) {
+                            problemi.add("giro $giro: ${buco}s fermi fra la discesa e la camminata")
+                        }
                     }
                 }
                 val firma = j.legs.joinToString("|") {

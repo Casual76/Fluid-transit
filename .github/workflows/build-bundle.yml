@@ -34,14 +34,13 @@ jobs:
     runs-on: ubuntu-latest
     # Novanta minuti, non sessanta.
     #
-    # Il lavoro vero misurato dura circa mezz'ora e lo scarico del feed
-    # poco piu' di cinque minuti, quindi sessanta sembravano larghi. Ma i
-    # tentativi di curl, sommati, potevano da soli sfiorare l'ora: il 16/09
-    # la sorgente e' andata lenta e il job e' rimasto nello scarico per
-    # piu' di cinquanta minuti, per poi essere ucciso dal timeout senza
-    # aver costruito niente. Adesso il tetto dello scarico e' molto piu'
-    # stretto (sotto) e quello del job piu' largo: se la sorgente e' lenta
-    # si fallisce presto e con un motivo, invece di morire a meta' strada.
+    # Il lavoro vero misurato dura circa mezz'ora, e lo scarico del feed va
+    # da cinque minuti a venti a seconda di quanto e' veloce il collegamento
+    # con la Regione quel giorno (lo zip pesa 204 MB: vedi sotto). Sessanta
+    # minuti sembravano larghi, ma il 16/09 il solo scarico se li e' mangiati
+    # tutti e il job e' stato ucciso senza aver costruito niente. Con novanta
+    # ci sta il caso lento — quaranta minuti di scarico nel peggiore dei casi
+    # piu' i trenta del lavoro — e resta un margine.
     timeout-minutes: 90
     steps:
       # Senza submodule: al bundler servono solo :core-routing e :bundler,
@@ -90,16 +89,27 @@ jobs:
           # Il server non supporta Range (verificato in Fase 1): un download
           # interrotto riparte da zero, quindi --retry sull'intero file.
           #
-          # I numeri vengono da una misura: in un giro sano questo passo dura
-          # cinque minuti e ventitre' secondi. Dieci minuti per tentativo sono
-          # il doppio abbondante, e tre tentativi in tutto fanno al massimo
-          # una mezz'ora: sta nel budget del job insieme al resto. Con
-          # --retry 4 e --max-time 900, com'era prima, il solo scarico poteva
-          # arrivare a sessantuno minuti — piu' del tetto dell'intero job,
-          # cioe' non poteva fallire in tempo per lasciar lavorare il resto.
+          # I numeri vengono da due misure, e la seconda ha corretto la prima.
+          # Lo zip degli orari pesa **204 MB** (misurato il 16/09:
+          # 204.115.368 byte), e la velocita' fra i runner di GitHub e la
+          # Regione non e' affatto costante: il 15/09 questo passo e' durato
+          # cinque minuti e ventitre' (630 kB/s), il 16/09 ne servivano
+          # diciassette perche' il collegamento dava 200 kB/s — mentre dalla
+          # rete di casa, nello stesso momento, ne dava 3,5 MB/s.
+          #
+          # Quindi un tetto a tempo fisso e' lo strumento sbagliato: con 900
+          # secondi il job del 16/09 ha consumato l'intera ora senza
+          # costruire niente, e con 600 e' fallito tre volte a 114, 125 e 114
+          # MB ricevuti. Qui il tetto vero e' sulla FERMATA del trasferimento
+          # (--speed-limit/--speed-time: sotto i 50 kB/s per due minuti si
+          # lascia perdere), e il tempo massimo per tentativo e' largo quanto
+          # serve a una giornata lenta. Due tentativi, quaranta minuti nel
+          # caso peggiore: ci sta dentro il resto del lavoro, che ne dura
+          # una trentina.
           curl --fail --silent --show-error \
-               --retry 2 --retry-delay 20 --retry-all-errors \
-               --max-time 600 \
+               --retry 1 --retry-delay 20 --retry-all-errors \
+               --speed-limit 50000 --speed-time 120 \
+               --max-time 1200 \
                -A "FluidTransit-Bundler/0.1 (+https://github.com/Casual76/Fluid-transit)" \
                -o gtfs.zip \
                "https://regionetoscana.smartregion.toscana.it/mobility/artifacts/gtfs"

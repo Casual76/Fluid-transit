@@ -286,7 +286,16 @@ class WhenToLeaveTool : AiTool {
       line("per arrivare entro", Times.hhmm(arriveBy, ctx.zone))
       line("parti alle", "${Times.hhmm(best.departure.epochSecond, ctx.zone)} (${Times.minutesLabel(ctx.nowEpoch, best.departure.epochSecond)})")
       line("arrivo previsto", Times.hhmm(best.arrival.epochSecond, ctx.zone))
-      line("durata", "${best.durationSeconds / 60} minuti" + (if (best.transfers > 0) " · ${best.transfers} cambi" else " · nessun cambio"))
+      // Le stesse parole delle schermate: la durata dalla funzione condivisa,
+      // che sopra l'ora dice le ore — un viaggio notturno da quattro ore si
+      // presentava come "250 minuti" — e il cambio al singolare quando e' uno
+      // solo, che qui diceva "1 cambi".
+      val cambi = when (best.transfers) {
+        0 -> "nessun cambio"
+        1 -> "1 cambio"
+        else -> "${best.transfers} cambi"
+      }
+      line("durata", "${Times.durationLabel(best.durationSeconds.toInt())} · $cambi")
       if (journeys.size > 1) line("alternative", journeys.sortedByDescending { it.departure }.drop(1).take(2).joinToString("; ") { "parti alle ${Times.hhmm(it.departure.epochSecond, ctx.zone)}" })
     }
   }

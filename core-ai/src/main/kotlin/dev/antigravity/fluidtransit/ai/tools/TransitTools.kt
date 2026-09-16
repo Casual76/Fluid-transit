@@ -387,7 +387,7 @@ class JourneyTool : AiTool {
                 }
                 line(
                     "${Times.hhmm(j.departure.epochSecond)} → ${Times.hhmm(j.arrival.epochSecond)} " +
-                        "(${j.durationSeconds / 60} min, $cambi" +
+                        "(${Times.durationLabel(j.durationSeconds.toInt())}, $cambi" +
                         (if (lines.isNotEmpty()) ", $lines" else ", a piedi") + ")",
                 )
             }

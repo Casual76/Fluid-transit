@@ -123,15 +123,19 @@ fun TodayTab(
     // esattamente questo: un'affermazione sul mondo mentre il guasto era
     // nostro. La schermata degli avvisi l'aveva gia' imparato; questa, che e'
     // la piu' letta, no.
-    val esitoAvvisi by produceState<
-        Result<List<dev.antigravity.fluidtransit.data.rt.GtfsRtLite.RtAlert>>?,
-        >(null, favVersion, stopIndexes, ready?.buildId) {
-        val mine = dev.antigravity.fluidtransit.data.favorites.MyRoutes.hashes(
+    // "Le tue linee" serve due volte: a filtrare gli avvisi e a metterle
+    // davanti nella riga di ognuno. Si calcola una volta sola.
+    val mine = remember(favVersion, stopIndexes, ready?.buildId) {
+        dev.antigravity.fluidtransit.data.favorites.MyRoutes.hashes(
             reader = ready?.reader,
             starredRoutes = favRoutes.mapNotNull { it.idHashHex.toULongOrNull(16)?.toLong() }
                 .toSet(),
             starredStops = stopIndexes,
         )
+    }
+    val esitoAvvisi by produceState<
+        Result<List<dev.antigravity.fluidtransit.data.rt.GtfsRtLite.RtAlert>>?,
+        >(null, favVersion, stopIndexes, ready?.buildId) {
         val all = app.realtime.fetchAlertsOrNull()
         if (all == null) {
             value = Result.failure(java.io.IOException("avvisi non scaricati"))
@@ -499,7 +503,31 @@ fun TodayTab(
             item {
                 FluidListGroup {
                     for (a in alerts.take(3)) {
+                        // Quali linee tocca, sopra il titolo.
+                        //
+                        // Un avviso senza le linee e' una notizia su qualcun
+                        // altro: la scheda della fermata lo dice da settimane
+                        // ("12 - Deviazione..."), qui no. Sono le TUE linee a
+                        // venire per prime, per la stessa ragione per cui lo
+                        // fanno nella schermata degli avvisi.
+                        val linee = remember(a, reader, mine) {
+                            val r = reader ?: return@remember ""
+                            a.routeHashes
+                                .sortedByDescending { it in mine }
+                                .mapNotNull { h ->
+                                    val idx = r.findRouteByIdHash(h)
+                                    if (idx < 0) {
+                                        null
+                                    } else {
+                                        r.routeShortName(idx).ifEmpty { r.routeLongName(idx) }
+                                    }
+                                }
+                                .distinct()
+                                .take(6)
+                                .joinToString(" · ")
+                        }
                         FluidListRow(
+                            eyebrow = linee.ifEmpty { null },
                             title = a.header.ifEmpty { "Avviso di servizio" },
                             // Il periodo se c'e'; altrimenti l'inizio del
                             // testo, ripulito dalla riga di hashtag con cui

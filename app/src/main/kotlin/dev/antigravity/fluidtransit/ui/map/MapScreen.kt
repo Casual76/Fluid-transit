@@ -104,7 +104,14 @@ fun MapScreen(
     val ready = bundleState as? BundleState.Ready
 
     var mode by rememberSaveable { mutableStateOf(MapCatalog.MapMode.STREETS) }
-    var filter by rememberSaveable { mutableStateOf(CategoryFilter.ALL) }
+    // Il filtro e' una scelta, e le scelte si ritrovano.
+    //
+    // Stava solo nello stato salvabile: sopravviveva a una rotazione e non
+    // alla chiusura dell'app, quindi chi lo metteva su "Urbani" lo ritrovava
+    // su "Tutti" il giorno dopo. I chip in cima dicono sempre qual e' attivo,
+    // quindi ricordarlo non nasconde niente.
+    val mapPrefs = remember(context) { MapPrefs(context) }
+    var filter by rememberSaveable { mutableStateOf(mapPrefs.filter) }
     var follow by rememberSaveable { mutableStateOf(FollowMode.FREE) }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -1401,7 +1408,10 @@ fun MapScreen(
                     CategoryChipsRow(
                         backdrop = backdrop,
                         selected = filter,
-                        onSelect = { filter = it },
+                        onSelect = {
+                            filter = it
+                            mapPrefs.filter = it
+                        },
                     )
                 }
             }

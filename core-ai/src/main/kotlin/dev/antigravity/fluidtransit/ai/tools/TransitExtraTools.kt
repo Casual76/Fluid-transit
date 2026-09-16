@@ -295,7 +295,10 @@ class WhenToLeaveTool : AiTool {
         1 -> "1 cambio"
         else -> "${best.transfers} cambi"
       }
-      line("durata", "${Times.durationLabel(best.durationSeconds.toInt())} · $cambi")
+      line(
+        "durata",
+        "${Times.durationBetween(best.departure.epochSecond, best.arrival.epochSecond)} · $cambi",
+      )
       if (journeys.size > 1) line("alternative", journeys.sortedByDescending { it.departure }.drop(1).take(2).joinToString("; ") { "parti alle ${Times.hhmm(it.departure.epochSecond, ctx.zone)}" })
     }
   }

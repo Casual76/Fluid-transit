@@ -81,6 +81,23 @@ object Times {
         return if (m == 0) "$h h" else "$h h $m min"
     }
 
+    /**
+     * La durata fra due istanti, contata come la conta chi legge l'orologio.
+     *
+     * Un viaggio scritto "10:26 -> 10:51" con accanto "24 min" e' una
+     * sottrazione che non torna, e chi la fa a mente conclude che l'app e'
+     * approssimativa — anche quando i secondi le danno ragione. Succede
+     * perche' le due cose si ricavano in due modi diversi: l'orologio
+     * TRONCA i secondi (le 10:26:50 sono "le 10:26") e la durata li
+     * ARROTONDA (ventiquattro minuti e dieci secondi sono "24 min").
+     *
+     * Qui si contano i minuti come li conterebbe chi guarda le due ore
+     * scritte: si tronca prima, si sottrae dopo. Il numero che ne esce e'
+     * quello che torna a mente.
+     */
+    fun durationBetween(fromEpoch: Long, toEpoch: Long): String =
+        durationLabel((((toEpoch / 60) - (fromEpoch / 60)) * 60).toInt())
+
     /** L'orologio, sempre a due cifre: `07:05`, non `7:05`. */
     fun hhmm(epochSecond: Long, zone: ZoneId = Ftb.ROME): String {
         val t = ZonedDateTime.ofInstant(Instant.ofEpochSecond(epochSecond), zone)

@@ -370,7 +370,7 @@ fun TodayTab(
                 FluidListGroup {
                     FluidListRow(
                         title = "Nessuna routine, per ora",
-                        subtitle = "Nel dettaglio di un viaggio trovi \"Rendine una routine\": " +
+                        subtitle = "Nel dettaglio di un viaggio trovi \"Fanne una routine\": " +
                             "l'app calcolera' da sola quando devi uscire",
                     )
                 }

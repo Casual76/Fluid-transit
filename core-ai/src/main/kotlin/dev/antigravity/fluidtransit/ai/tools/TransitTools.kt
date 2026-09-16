@@ -393,7 +393,12 @@ class JourneyTool : AiTool {
                 }
                 line(
                     "${Times.hhmm(j.departure.epochSecond)} → ${Times.hhmm(j.arrival.epochSecond)} " +
-                        "(${Times.durationLabel(j.durationSeconds.toInt())}, $cambi" +
+                        // Contata fra i due orari appena scritti: "10:26 →
+                        // 10:51 (24 min)" e' una sottrazione che non torna,
+                        // e letta ad alta voce e' peggio che scritta.
+                        "(${Times.durationBetween(
+                            j.departure.epochSecond, j.arrival.epochSecond,
+                        )}, $cambi" +
                         (if (lines.isNotEmpty()) ", $lines" else ", a piedi") + ")",
                 )
             }

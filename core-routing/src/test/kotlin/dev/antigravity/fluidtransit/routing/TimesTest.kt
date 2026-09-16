@@ -85,6 +85,35 @@ class TimesTest {
     }
 
     @Test
+    fun `la durata di un viaggio torna con i due orari scritti`() {
+        // Visto sul telefono: "10:26 -> 10:51" con accanto "24 min", che e'
+        // una sottrazione sbagliata per chiunque la faccia a mente. I secondi
+        // davano ragione all'app — ventiquattro minuti e dieci — ma
+        // l'orologio li tronca e la durata li arrotondava, e le due cose non
+        // possono che litigare.
+        val dieci26e50 =
+            java.time.ZonedDateTime.of(2026, 9, 16, 10, 26, 50, 0, Ftb.ROME).toEpochSecond()
+        val dieci51e00 =
+            java.time.ZonedDateTime.of(2026, 9, 16, 10, 51, 0, 0, Ftb.ROME).toEpochSecond()
+        assertEquals("25 min", Times.durationBetween(dieci26e50, dieci51e00))
+
+        // E il conto torna proprio con quello che c'e' scritto: l'orologio
+        // continua a troncare, che e' giusto — un bus delle 10:26:50 non
+        // parte alle 10:27 — ed e' la durata ad allinearsi a lui.
+        fun minuti(hhmm: String) = hhmm.take(2).toInt() * 60 + hhmm.drop(3).toInt()
+        val scritti = minuti(Times.hhmm(dieci51e00)) - minuti(Times.hhmm(dieci26e50))
+        assertEquals("$scritti min", Times.durationBetween(dieci26e50, dieci51e00))
+    }
+
+    @Test
+    fun `i secondi non fanno comparire un minuto in piu'`() {
+        val base = java.time.ZonedDateTime.of(2026, 9, 16, 9, 0, 0, 0, Ftb.ROME).toEpochSecond()
+        assertEquals("10 min", Times.durationBetween(base, base + 10 * 60))
+        assertEquals("10 min", Times.durationBetween(base + 59, base + 10 * 60 + 59))
+        assertEquals("0 min", Times.durationBetween(base, base + 59))
+    }
+
+    @Test
     fun `sopra l'ora le ore vanno davanti`() {
         // "240 min" e' un numero da convertire in testa prima di capirlo, e un
         // viaggio notturno con tre ore di attesa in mezzo ci arriva senza

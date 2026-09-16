@@ -104,7 +104,11 @@ class UiJourney(
             return UiJourney(
                 depTime = hm(j.departure),
                 arrTime = hm(j.arrival),
-                durationLabel = Times.durationLabel(j.durationSeconds.toInt()),
+                // Contata fra i due orari scritti, non fra i due istanti:
+                // altrimenti "10:26 -> 10:51" si porta accanto "24 min".
+                durationLabel = Times.durationBetween(
+                    j.departure.epochSecond, j.arrival.epochSecond,
+                ),
                 transfers = j.transfers,
                 walkMin = (j.walkSeconds + 30) / 60,
                 walkOnly = j.isWalkOnly,
@@ -602,7 +606,7 @@ fun JourneyDetailContent(
         }
     }
 
-    // --- "Rendine una routine": il percorso naturale deciso ---------------
+    // --- "Fanne una routine": il percorso naturale deciso -----------------
     if (backdrop != null && onCreateRoutine != null && !j.walkOnly) {
         RoutineForm(j = j, backdrop = backdrop, onCreateRoutine = onCreateRoutine)
     }
@@ -636,7 +640,7 @@ private fun RoutineForm(
     if (!open) {
         Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)) {
             GlassActionButton(
-                text = "Rendine una routine",
+                text = "Fanne una routine",
                 icon = Icons.Rounded.Schedule,
                 backdrop = backdrop,
                 onClick = { open = true },

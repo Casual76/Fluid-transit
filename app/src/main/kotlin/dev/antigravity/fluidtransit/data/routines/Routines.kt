@@ -9,7 +9,7 @@ import org.json.JSONObject
 
 /**
  * Le routine ricorrenti, decise cosi': nascono dal dettaglio di un viaggio
- * ("Rendine una routine"), hanno i giorni della settimana, e ognuna sceglie
+ * ("Fanne una routine"), hanno i giorni della settimana, e ognuna sceglie
  * il suo ancoraggio — "arriva entro" o "parti alle". Nei giorni giusti
  * l'app ricalcola il viaggio coi ritardi live e manda "esci tra X minuti".
  *

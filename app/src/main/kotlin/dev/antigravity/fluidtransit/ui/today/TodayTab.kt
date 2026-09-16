@@ -10,6 +10,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -255,42 +258,48 @@ fun TodayTab(
                         )
                         FluidListRow(title = parole.title, subtitle = parole.detail)
                     } else {
-                        for (d in departures) {
-                            val phrase = DepartureText.phrase(d, board.computedAtEpoch)
-                            FluidListRow(
-                                eyebrow = if (unicaFermata == null) d.stopName else null,
-                                title = "${d.line} → ${d.destination}",
-                                subtitle = phrase.support,
-                                meta = phrase.headline,
-                                leading = {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(14.dp)
-                                            .background(
-                                                color = Color(0xFF000000 or d.colorRgb.toLong()),
-                                                shape = CircleShape,
-                                            ),
-                                    )
+                        // La riga delle partenze e' quella di tutta l'app.
+                        //
+                        // Qui erano righe di lista generiche: la linea era un
+                        // pallino colorato senza numero, il numero finiva
+                        // dentro il titolo insieme alla destinazione, e i
+                        // minuti — la sola cosa che si cerca — stavano in
+                        // fondo, piccoli e grigi come il resto. La stessa
+                        // partenza, nel pannello di una fermata, ha la
+                        // pastiglia della linea a sinistra e i minuti grandi
+                        // a destra. Due grammatiche visive per lo stesso
+                        // dato, e questa era quella della schermata che si
+                        // apre per prima.
+                        for ((i, d) in departures.withIndex()) {
+                            if (i > 0) {
+                                dev.antigravity.fluidengine.ui.theme.FluidListDivider()
+                            }
+                            dev.antigravity.fluidtransit.ui.common.DepartureRowUi(
+                                row = d,
+                                nowEpoch = board.computedAtEpoch,
+                                stopLabel = if (unicaFermata == null) d.stopName else null,
+                                onSupportTap = {
+                                    whyAt = board.computedAtEpoch
+                                    whyRow = d
                                 },
-                                onClick = {
-                                    onOpenOnMap(
-                                        MapIntent.Stop(
-                                            java.lang.Long.toHexString(reader?.stopIdHash(d.stopIndex) ?: 0L),
-                                            d.stopName,
-                                        ),
+                                modifier = Modifier
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                        role = androidx.compose.ui.semantics.Role.Button,
+                                        onClickLabel = "Apri la fermata ${d.stopName}",
+                                        onClick = {
+                                            onOpenOnMap(
+                                                MapIntent.Stop(
+                                                    java.lang.Long.toHexString(
+                                                        reader?.stopIdHash(d.stopIndex) ?: 0L,
+                                                    ),
+                                                    d.stopName,
+                                                ),
+                                            )
+                                        },
                                     )
-                                },
-                                contextActions = {
-                                    listOf(
-                                        FluidContextAction(
-                                            label = "Perche' questo numero",
-                                            onClick = {
-                                                whyAt = board.computedAtEpoch
-                                                whyRow = d
-                                            },
-                                        ),
-                                    )
-                                },
+                                    .padding(horizontal = 16.dp),
                             )
                         }
                     }

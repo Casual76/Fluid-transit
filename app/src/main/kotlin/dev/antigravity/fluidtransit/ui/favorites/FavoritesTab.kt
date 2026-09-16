@@ -11,6 +11,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -74,7 +77,7 @@ fun FavoritesTab(
         }.toMap()
     }
     val boards = indexByHash.values.map { idx ->
-        idx to app.departureBoards.board(idx, limit = 2).collectAsStateWithLifecycle()
+        idx to app.departureBoards.board(idx, limit = 3).collectAsStateWithLifecycle()
     }
     val byStop = boards.associate { (idx, state) -> idx to state.value }
 
@@ -189,14 +192,12 @@ fun FavoritesTab(
                                 board.rows.isEmpty() ->
                                     DepartureText.empty(DepartureText.trouble(board))
                                         .let { "${it.title} · ${it.short}" }
-                                // I passaggi su una riga, la provenienza
-                                // sull'altra. Erano tutt'e tre unite dallo
-                                // stesso puntino — "C4 8 min - 37 9 min - in
-                                // parte dal bus" — e l'ultimo pezzo si
-                                // leggeva come un terzo passaggio.
-                                else -> board.rows.joinToString("  ·  ") {
-                                    DepartureText.compact(it, board.computedAtEpoch)
-                                } + "\n" + DepartureText.boardSource(board)
+                                // I passaggi veri stanno nelle righe qui
+                                // sotto, con la pastiglia della linea, i
+                                // minuti grandi e la loro provenienza: qui
+                                // sopra non serve ripeterla una seconda
+                                // volta per tutta la fermata.
+                                else -> ""
                             },
                             leading = {
                                 Icon(
@@ -216,6 +217,37 @@ fun FavoritesTab(
                                 )
                             },
                         )
+                        // I passaggi, con la stessa riga di tutta l'app.
+                        //
+                        // Erano una stringa sola dentro il sottotitolo — "6
+                        // fra 1 min  ·  C4 fra 2 min" — su una scheda che per
+                        // il resto restava vuota: la linea non aveva la sua
+                        // pastiglia, i minuti non avevano il loro posto, e la
+                        // differenza fra un numero che viene dal bus e uno di
+                        // tabella si leggeva una volta sola per tutta la
+                        // fermata invece che riga per riga.
+                        if (board != null && board.rows.isNotEmpty()) {
+                            for (d in board.rows) {
+                                dev.antigravity.fluidengine.ui.theme.FluidListDivider()
+                                dev.antigravity.fluidtransit.ui.common.DepartureRowUi(
+                                    row = d,
+                                    nowEpoch = board.computedAtEpoch,
+                                    modifier = Modifier
+                                        .clickable(
+                                            interactionSource = remember {
+                                                MutableInteractionSource()
+                                            },
+                                            indication = null,
+                                            role = androidx.compose.ui.semantics.Role.Button,
+                                            onClickLabel = "Apri la fermata ${s.name}",
+                                            onClick = {
+                                                onOpenOnMap(MapIntent.Stop(s.idHashHex, s.name))
+                                            },
+                                        )
+                                        .padding(horizontal = 16.dp),
+                                )
+                            }
+                        }
                     }
                 }
             }

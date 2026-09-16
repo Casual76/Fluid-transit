@@ -30,6 +30,20 @@ svista e qualcuno ci ritorna sopra. — misurato e deciso il 16/09/2026
 
 ## Si vede
 
+**Il gate degli orari bloccava le pubblicazioni da giorni, e aveva ragione.**
+La divergenza era sempre la stessa query: RISTORANTE LA BIANCA, alle 12:00,
+con la stessa corsa contata due volte e la quinta partenza vera spinta fuori
+dalla lista. Dopo che il gate ha imparato a stampare da quale corsa viene
+ogni riga, si e' letta in un colpo: due righe identiche, stesso indice di
+corsa, stessa posizione, stesso pattern. L'indice fermata -> pattern porta
+una voce per PASSAGGIO, e una linea ad anello che tocca la stessa fermata
+all'andata e al ritorno ce la scriveva due volte; chi legge scandisce da se'
+tutte le posizioni, quindi contava tutto doppio. Corretto in lettura (vale
+sui bundle gia' pubblicati) e in scrittura (vale per le versioni gia'
+installate). Il job del 16/09 alle 12:55 e' passato con **0 divergenze** e ha
+pubblicato buildId 79aadfc3c4bebf5b, il primo bundle nuovo dopo giorni.
+— trovato e chiuso il 16/09/2026
+
 **Un quarto dei bus in strada il feed non li nomina, e adesso si vede.** La
 domanda veniva da un tabellone delle 09:30 con sette righe su otto che
 dicevano "orario da tabella". Misurato con una sonda temporanea: quelle corse
@@ -189,6 +203,17 @@ in verde, perche' il verde diceva la provenienza. Deciso con Alessio il
 ambra fino a un quarto d'ora, rosso oltre — e la provenienza resta al pallino
 che pulsa e alle parole. Fatto, e verificato su tre bus veri.
 — deciso e fatto il 16/09/2026
+
+
+**L'ANR sull'emulatore non e' dell'app.** Provando i widget e' comparso
+"Fluid Transit isn't responding", motivo `No response to onStartJob`. La
+traccia dice dove: il thread principale era fermo dentro
+`HardwareRenderer.setStopped`, in attesa del RenderThread, che a sua volta
+stava compilando programmi GL (`GrGLProgramBuilder::CreateProgram`) attraverso
+la pipe dell'emulatore. E' la lentezza della GL emulata al primo disegno, non
+un blocco nostro: sul telefono vero le stesse schermate si disegnano senza
+questa attesa. Scritto qui perche' la prossima volta che compare non venga
+inseguito nel codice dell'app. — diagnosticato il 16/09/2026
 
 ## Deciso di non fare
 

@@ -55,6 +55,14 @@ raw.githubusercontent: da li' si cambiano i feature flag, la versione minima,
 gli avvisi e il kill switch **senza una release**. Il codice no: quello non si
 aggiorna da remoto.
 
+**I colori delle linee vengono da ieri.** Il job notturno scarica il bundle
+gia' pubblicato e lo passa ai DUE comandi che colorano — `:bundler:run` e
+`:bundler:overlay` — con la variabile `FT_BUNDLE_PRECEDENTE`. Senza, ognuno
+ricolora da zero e le stesse linee cambiano tinta da una notte all'altra (98
+su 946, misurate); e se la variabile arrivasse a uno solo dei due, le
+pastiglie nell'app e le tratte sulla mappa direbbero due colori diversi per
+la stessa linea.
+
 **Firma e Crashlytics sono condizionali.** `keystore.properties` e
 `app/google-services.json` non sono versionati; senza, il build riesce
 identico, solo non firmato e senza Crashlytics. Serve a far compilare un clone

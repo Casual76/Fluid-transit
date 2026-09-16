@@ -29,6 +29,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
@@ -435,7 +438,47 @@ fun JourneyDetailContent(
             .padding(horizontal = 20.dp),
     ) {
         items(j.legs.size) { i ->
-            if (i > 0) FluidHairline(modifier = Modifier.padding(start = 32.dp))
+            val leg0 = j.legs[i]
+            // La spina del viaggio.
+            //
+            // Le tappe erano righe separate da una riga grigia: si leggevano
+            // come voci di un elenco invece che come i pezzi di un percorso
+            // che continua. Adesso a sinistra corre una barra che cambia
+            // colore con la tappa — grigia dove si cammina, del colore della
+            // linea dove si e' a bordo — e i separatori se ne vanno, perche'
+            // erano proprio loro a spezzare quello che qui deve sembrare
+            // continuo.
+            val tintaTappa = when (leg0) {
+                is UiLeg.Ride -> Color(0xFF000000 or leg0.colorRgb.toLong())
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
+            val primaTappa = i == 0
+            val ultimaTappa = i == j.legs.size - 1
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(androidx.compose.foundation.layout.IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(10.dp)
+                        .fillMaxHeight()
+                        .drawBehind {
+                            val x = size.width / 2f
+                            val spessore = 6.dp.toPx()
+                            drawLine(
+                                color = tintaTappa.copy(alpha = 0.45f),
+                                start = Offset(x, if (primaTappa) spessore / 2f else 0f),
+                                end = Offset(
+                                    x,
+                                    if (ultimaTappa) size.height - spessore / 2f else size.height,
+                                ),
+                                strokeWidth = spessore,
+                                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                            )
+                        },
+                )
             when (val leg = j.legs[i]) {
                 is UiLeg.Walk -> Row(
                     modifier = Modifier.padding(vertical = 10.dp),
@@ -566,6 +609,7 @@ fun JourneyDetailContent(
                     }
                     }
                 }
+            }
             }
         }
     }

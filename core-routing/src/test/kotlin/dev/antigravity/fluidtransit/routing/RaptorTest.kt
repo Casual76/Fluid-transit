@@ -367,6 +367,30 @@ class RaptorTest {
     }
 
     @Test
+    fun `una fermata in mezzo piu' in ritardo sposta anche l'arrivo`() {
+        // Il caso che guardare solo la fermata di discesa non vede: il mezzo
+        // prende dieci minuti a meta' strada e li recupera solo in parte.
+        // Mostrare l'arrivo della sola discesa vorrebbe dire un arrivo piu'
+        // presto del vero — e una coincidenza stretta presentata come comoda.
+        BundleReader(writeBundle()).use { r ->
+            val trip = r.findTripByTripId("R1-0800")
+            val rt = Raptor.Realtime(
+                live = PerFermata(
+                    mapOf((trip to 0) to 0, (trip to 1) to 600, (trip to 2) to 0),
+                ),
+                observedAtEpoch = epochAt(feedStart, 7, 58).epochSecond,
+            )
+            val j = Raptor(r).plan(nearA, nearC, epochAt(feedStart, 7, 58), rt)
+                .first { !it.isWalkOnly }
+            val ride = j.legs.filterIsInstance<Raptor.Leg.Ride>().first()
+            val day = Ftb.serviceDayStart(feedStart).epochSecond
+            // B (120 s di offset) con 600 di ritardo arriva a 08:12; C, che
+            // di tabella e' 120 s dopo B, non puo' arrivare prima.
+            assertEquals(day + 8 * 3600 + 120 + 600, ride.arrival.epochSecond)
+        }
+    }
+
+    @Test
     fun `senza previsioni vale ancora il numero unico per corsa`() {
         // Le corse che il feed copre a fermate sono una parte: per le altre
         // il ripiego deve restare quello di prima, identico.

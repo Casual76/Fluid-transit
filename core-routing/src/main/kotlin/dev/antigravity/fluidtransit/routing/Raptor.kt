@@ -647,17 +647,29 @@ class Raptor(private val reader: BundleReader) {
                     // stato costruito.
                     val stopCount = reader.patternStopCount(pattern)
                     val schedBoard = dayStart + dep0 + reader.profileOffset(profile, boardPos)
-                    val schedAlight = dayStart + dep0 + reader.profileOffset(profile, alightPos)
                     val delay = liveDelay(rt, trip, boardPos, stopCount, schedBoard)
                     // Alla discesa il ritardo puo' essere un altro: le
                     // previsioni sono fermata per fermata, e su un terzo
                     // delle corse cambiano di piu' di un minuto lungo il
-                    // percorso. Non puo' pero' far arrivare prima di
-                    // partire: la monotonia e' un vincolo, non un'opinione.
-                    val delayAlight = maxOf(
-                        liveDelay(rt, trip, alightPos, stopCount, schedAlight),
-                        (schedBoard + delay - schedAlight).toInt().coerceAtLeast(0),
-                    )
+                    // percorso.
+                    //
+                    // Si ripercorre la tratta fermata per fermata invece di
+                    // guardare solo quella di discesa, per due ragioni che
+                    // sono la stessa: la monotonia lungo la corsa e' un
+                    // vincolo — non si puo' arrivare prima di partire — e il
+                    // numero mostrato deve essere lo STESSO con cui
+                    // l'itinerario e' stato costruito, che nel giro di
+                    // ricerca si porta avanti di fermata in fermata. Con una
+                    // fermata intermedia piu' in ritardo delle due estreme,
+                    // guardare solo la discesa avrebbe mostrato un arrivo
+                    // piu' presto del vero, e una coincidenza stretta come
+                    // comoda.
+                    var eff = schedBoard + delay
+                    for (p in (boardPos + 1)..alightPos) {
+                        val sched = dayStart + dep0 + reader.profileOffset(profile, p)
+                        eff = maxOf(sched + liveDelay(rt, trip, p, stopCount, sched), eff)
+                    }
+                    val arrivoEff = eff
                     val boardStop = reader.patternStop(pattern, boardPos)
                     legs.add(
                         Leg.Ride(
@@ -671,7 +683,7 @@ class Raptor(private val reader: BundleReader) {
                             departure = Instant.ofEpochSecond(
                                 dayStart + dep0 + reader.profileOffset(profile, boardPos) + delay,
                             ),
-                            arrival = Instant.ofEpochSecond(schedAlight + delayAlight),
+                            arrival = Instant.ofEpochSecond(arrivoEff),
                             delaySeconds = delay,
                         ),
                     )

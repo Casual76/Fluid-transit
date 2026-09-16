@@ -212,11 +212,23 @@ riscritta in casa da qualcuno, la copia e' divergita:
 | `Words.count` | il singolare: "1 fermata" e non "1 fermate" |
 | `Words.distance` | "350 m", "2,4 km" |
 | `Words.age` | l'eta' di un dato: "18s", "6 min" |
+| `Times.dateLabel` | un giorno: "oggi", "domani", "5 ottobre" — mai `2026-10-05` |
+| `DepartureText.empty` | un tabellone senza righe: le cinque ragioni, distinte |
 | `FidelityText` | il confronto con la fonte |
+| `BundleFailure` (in `:app`) | perche' gli orari non sono arrivati, senza inglese |
 
 Se serve una frase che una di queste quasi dice, si cambia quella: una seconda
 copia scritta in casa e' come nascono i difetti che si vedono solo in una
 schermata su quattro.
+
+**Una lista vuota non e' mai una sola cosa.** E' la trappola che si e' ripetuta
+in ogni superficie: il tabellone senza righe, gli avvisi che non si scaricano,
+il confronto con la fonte che non risponde, la fermata che negli orari di oggi
+non esiste piu'. Ogni volta il fallimento era diventato una lista vuota, e ogni
+volta la lista vuota si leggeva come una buona notizia — "Nessun passaggio a
+breve", "Nessun avviso in corso" — cioe' un'affermazione sul mondo mentre il
+guasto era nostro. Quando una funzione puo' non riuscire, il suo tipo di
+ritorno deve poterlo dire: `null` o un `Result`, non una lista vuota.
 
 **E l'orologio e' uno solo.** `UiClock.ticks()` batte ogni dieci secondi
 allineato al muro, non all'istante in cui una schermata si e' aperta: due

@@ -55,6 +55,13 @@ vivo: alle 00:50 nel raggio della mappa non ce n'era nessuno da toccare, e
 con duecentoquattordici mezzi in tutta la Toscana la strada e' aspettare le
 ore di servizio. — aggiornato il 16/09/2026
 
+**Il messaggio d'errore degli aggiornamenti viene dall'engine e non e' stato
+guardato.** La riga "L'ultimo controllo non e' riuscito: ..." in Impostazioni
+riporta `EngineAppUpdater.lastError` cosi' com'e'. Gli errori del bundle e
+degli avvisi sono stati tradotti in italiano stanotte; questo no, perche' il
+testo lo produce l'engine e il codice dentro `engine/` non e' codice di
+quest'app. Va guardato nel repo dell'engine. — visto il 16/09/2026
+
 **Le posizioni finte dell'emulatore non arrivano all'app.** `adb emu geo fix`
 risponde `OK` ma la posizione resta quella predefinita di Mountain View: per
 provare qualcosa che dipende da dove sei, la strada che funziona e' togliere

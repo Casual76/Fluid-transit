@@ -25,11 +25,12 @@ object AlertText {
      */
     fun period(startEpoch: Long, endEpoch: Long, nowEpoch: Long): String? {
         val futuro = startEpoch > nowEpoch
+        val da = momento(startEpoch, nowEpoch)
+        val a = momento(endEpoch, nowEpoch)
         return when {
-            futuro && endEpoch > 0 ->
-                "Dal ${moment(startEpoch, nowEpoch)} al ${moment(endEpoch, nowEpoch)}"
-            futuro -> "Dal ${moment(startEpoch, nowEpoch)}"
-            endEpoch > nowEpoch -> "Fino a ${moment(endEpoch, nowEpoch)}"
+            futuro && endEpoch > 0 -> "${da.dal()} ${da.testo} ${a.al()} ${a.testo}"
+            futuro -> "${da.dal()} ${da.testo}"
+            endEpoch > nowEpoch -> "Fino ${a.al()} ${a.testo}"
             // Gia' finito: puo' capitare fra un giro di feed e l'altro.
             endEpoch > 0 -> "Terminato"
             else -> null
@@ -52,16 +53,34 @@ object AlertText {
      * "quando" dovrebbe dirlo con le stesse parole, e due formati diversi per
      * la stessa idea sono due cose da imparare invece di una.
      */
-    fun moment(epoch: Long, nowEpoch: Long): String {
+    fun moment(epoch: Long, nowEpoch: Long): String = momento(epoch, nowEpoch).testo
+
+    /**
+     * Un istante e la preposizione che vuole davanti.
+     *
+     * In italiano l'articolo dipende da come si nomina il giorno: si dice
+     * "fino a domani" ma "fino AL 31 dicembre", "da oggi alle 14" ma "DAL 5
+     * ottobre". Senza questa distinzione uscivano due righe sbagliate sulla
+     * stessa schermata: "Fino a 31 dicembre", che si legge sul telefono in
+     * questo momento, e "Dal oggi alle 14:00" per un avviso che comincia
+     * piu' tardi oggi. E "Dal lunedi'" non e' nemmeno un refuso: vuol dire
+     * tutti i lunedi'.
+     */
+    private class Momento(val testo: String, val data: Boolean) {
+        fun dal() = if (data) "Dal" else "Da"
+        fun al() = if (data) "al" else "a"
+    }
+
+    private fun momento(epoch: Long, nowEpoch: Long): Momento {
         val zone = Ftb.ROME
         val t = ZonedDateTime.ofInstant(Instant.ofEpochSecond(epoch), zone)
         val now = ZonedDateTime.ofInstant(Instant.ofEpochSecond(nowEpoch), zone)
         val giorni = ChronoUnit.DAYS.between(now.toLocalDate(), t.toLocalDate())
         val ora = "%02d:%02d".format(t.hour, t.minute)
         return when {
-            giorni == 0L -> "oggi alle $ora"
-            giorni == 1L -> "domani alle $ora"
-            giorni in 2..6 -> "${nomeGiorno(t)} alle $ora"
+            giorni == 0L -> Momento("oggi alle $ora", data = false)
+            giorni == 1L -> Momento("domani alle $ora", data = false)
+            giorni in 2..6 -> Momento("${nomeGiorno(t)} alle $ora", data = false)
             // L'anno solo quando non e' questo.
             //
             // "Fino a 28 febbraio" letto a settembre puo' voler dire il
@@ -69,8 +88,10 @@ object AlertText {
             // opposti: uno vuol dire "e' finita", l'altro "dura ancora cinque
             // mesi". Gli avvisi di deviazione per lavori scavalcano l'anno
             // regolarmente.
-            t.year != now.year -> "${t.dayOfMonth} ${nomeMese(t)} ${t.year}"
-            else -> "${t.dayOfMonth} ${nomeMese(t)}"
+            t.year != now.year ->
+                Momento("${t.dayOfMonth} ${nomeMese(t)} ${t.year}", data = true)
+
+            else -> Momento("${t.dayOfMonth} ${nomeMese(t)}", data = true)
         }
     }
 

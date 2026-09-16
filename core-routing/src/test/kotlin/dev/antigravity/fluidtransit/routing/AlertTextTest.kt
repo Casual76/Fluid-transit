@@ -66,10 +66,36 @@ class AlertTextTest {
 
     @Test
     fun `un avviso che deve ancora cominciare lo dice`() {
-        val p = AlertText.period(giorni(2), giorni(3), now)
-        assertTrue(p != null && p.startsWith("Dal "), "trovato: $p")
-        assertTrue(p != null && p.contains(" al "), "manca la fine: $p")
+        // Venerdi' e sabato: dentro la settimana si dicono per nome, e un
+        // giorno per nome non vuole l'articolo.
+        assertEquals(
+            "Da venerdi' alle 10:00 a sabato alle 10:00",
+            AlertText.period(giorni(2), giorni(3), now).accenti(),
+        )
+        // Oltre la settimana sono date, e le date l'articolo lo vogliono.
+        assertEquals(
+            "Dal 26 settembre al 6 ottobre",
+            AlertText.period(giorni(10), giorni(20), now),
+        )
     }
+
+    @Test
+    fun `l'articolo segue il modo in cui si nomina il giorno`() {
+        // Si legge "fino a domani" ma "fino AL 31 dicembre": la preposizione
+        // cambia con la forma del giorno, e senza questa distinzione sulla
+        // scheda Oggi si leggeva "Fino a 31 dicembre". Il caso opposto e'
+        // peggio: un avviso che comincia piu' tardi oggi dava "Dal oggi alle
+        // 14:00".
+        val piuTardiOggi = ore(4)
+        assertEquals("Da oggi alle 14:00", AlertText.period(piuTardiOggi, 0, now))
+        val dicembre = ZonedDateTime.of(2026, 12, 31, 23, 59, 0, 0, Ftb.ROME).toEpochSecond()
+        assertEquals("Fino al 31 dicembre", AlertText.period(0, dicembre, now))
+    }
+
+    /** Il nome dei giorni arriva da `Locale.ITALIAN`, con gli accenti veri. */
+    private fun String?.accenti(): String? = this
+        ?.replace("ì", "i'")
+        ?.replace("à", "a'")
 
     @Test
     fun `un avviso gia' finito non si spaccia per in corso`() {
@@ -100,7 +126,7 @@ class AlertTextTest {
         val febbraioProssimo =
             ZonedDateTime.of(2027, 2, 28, 23, 59, 0, 0, Ftb.ROME).toEpochSecond()
         assertEquals(
-            "Fino a 28 febbraio 2027",
+            "Fino al 28 febbraio 2027",
             AlertText.period(0, febbraioProssimo, now),
         )
     }
@@ -108,7 +134,7 @@ class AlertTextTest {
     @Test
     fun `una data di quest'anno resta senza anno`() {
         val dicembre = ZonedDateTime.of(2026, 12, 24, 12, 0, 0, 0, Ftb.ROME).toEpochSecond()
-        assertEquals("Fino a 24 dicembre", AlertText.period(0, dicembre, now))
+        assertEquals("Fino al 24 dicembre", AlertText.period(0, dicembre, now))
     }
 
     @Test

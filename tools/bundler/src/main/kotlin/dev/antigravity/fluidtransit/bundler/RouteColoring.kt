@@ -44,15 +44,15 @@ object RouteColoring {
      *
      * @param routeIds gli id GTFS, nell'ordine degli indici usati in [routesAtStop]
      * @param routesAtStop per ogni fermata, gli indici delle linee che la servono
-     * @param preferred per hash del `route_id`, il colore che quella linea
-     *   aveva ieri: si prova per primo. Vedi [readPrevious].
+     * @param ieri i colori dell'ultimo bundle pubblicato. Vedi [Ieri].
      * @return per ogni linea, l'indice nella [PALETTE]
      */
     fun assign(
         routeIds: List<String>,
         routesAtStop: Iterable<Collection<Int>>,
-        preferred: Map<Long, Int> = emptyMap(),
+        ieri: Ieri = Ieri.NESSUNO,
     ): IntArray {
+        val preferred = ieri.colori
         // Il grafo di sovrapposizione, pesato: quante fermate condividono.
         val adjacency = HashMap<Long, Int>()
         for (s in routesAtStop) {
@@ -94,7 +94,27 @@ object RouteColoring {
             for (r in order) {
                 val want = preferred[Ftb.hash64(routeIds[r])] ?: continue
                 if (want !in PALETTE.indices) continue
-                if (neighbors[r].keys.any { colors[it] == want }) continue
+                // Si cede il colore solo davanti a un incrocio NUOVO.
+                //
+                // Dodici tinte non bastano per una regione intera: sul feed
+                // vero restano 560 coppie che si incrociano e condividono la
+                // tinta, su 12.703. Quelle erano gia' cosi' ieri, e
+                // spostarle non ne toglie nemmeno una — misurato: 560
+                // conflitti prima, 559 dopo, e 98 linee di un altro colore
+                // senza che nella rete fosse cambiato niente. Quindi una
+                // coppia che ieri si incrociava gia' con la stessa tinta non
+                // e' un motivo per cambiarla; una che si incrocia per la
+                // prima volta si'.
+                //
+                // La differenza si legge dal bundle di ieri, non si indovina
+                // dai colori: due linee lontane possono avere la stessa
+                // tinta senza essersi mai incrociate, e trattare quel caso
+                // come "gia' cosi'" vorrebbe dire creare conflitti nuovi.
+                val mio = Ftb.hash64(routeIds[r])
+                val scontro = neighbors[r].keys.any { n ->
+                    colors[n] == want && !ieri.tollerata(mio, Ftb.hash64(routeIds[n]))
+                }
+                if (scontro) continue
                 colors[r] = want
             }
         }
@@ -139,7 +159,39 @@ object RouteColoring {
     }
 
     /**
-     * I colori del bundle di ieri, per hash di `route_id`.
+     * Com'era colorata la rete l'ultima volta che si e' pubblicato.
+     *
+     * Due cose, non una: il colore di ogni linea, e le coppie che gia'
+     * ieri si incrociavano condividendo la tinta. La seconda serve a non
+     * confondere "questo conflitto c'era gia'" con "questo lo sto creando
+     * adesso": due linee lontane possono avere la stessa tinta senza
+     * essersi mai incrociate.
+     */
+    class Ieri(
+        /** Per hash del `route_id`, l'indice nella [PALETTE]. */
+        val colori: Map<Long, Int> = emptyMap(),
+        /** Coppie di hash che ieri si incrociavano con la stessa tinta. */
+        private val insieme: Set<Long> = emptySet(),
+    ) {
+        fun tollerata(a: Long, b: Long): Boolean = chiave(a, b) in insieme
+
+        companion object {
+            val NESSUNO = Ieri()
+
+            /** La chiave simmetrica di una coppia, indipendente dall'ordine. */
+            fun chiave(a: Long, b: Long): Long {
+                val lo = if (a <= b) a else b
+                val hi = if (a <= b) b else a
+                // Mescolata, non sommata: due coppie diverse che finiscono
+                // sulla stessa chiave si tradurrebbero in un conflitto nuovo
+                // lasciato passare.
+                return (lo * -0x61c8864680b583ebL) xor (hi + 0x9e3779b97f4a7c15uL.toLong())
+            }
+        }
+    }
+
+    /**
+     * Legge com'era colorata la rete da un bundle gia' pubblicato.
      *
      * Il bundle porta il colore come 0xRRGGBB, non l'indice: si torna
      * all'indice cercandolo nella palette, e una tinta che non c'e' piu'
@@ -149,20 +201,41 @@ object RouteColoring {
      * sempre fatto. Il job notturno lo scarica se c'e', e se non c'e' — primo
      * build, release vuota, rete che non risponde — non succede niente.
      */
-    fun readPrevious(file: java.io.File?): Map<Long, Int> {
-        if (file == null || !file.isFile) return emptyMap()
+    fun readPrevious(file: java.io.File?): Ieri {
+        if (file == null || !file.isFile) return Ieri.NESSUNO
         val byColor = HashMap<Int, Int>(PALETTE.size * 2)
         for (i in PALETTE.indices) byColor[PALETTE[i]] = i
         return runCatching {
             dev.antigravity.fluidtransit.routing.BundleReader(file).use { r ->
-                val out = HashMap<Long, Int>(r.routeCount * 2)
+                val colori = HashMap<Long, Int>(r.routeCount * 2)
                 for (i in 0 until r.routeCount) {
                     val idx = byColor[r.routeDisplayColor(i)] ?: continue
-                    out[r.routeIdHash(i)] = idx
+                    colori[r.routeIdHash(i)] = idx
                 }
-                out
+                // Le coppie che si incrociavano con la stessa tinta: si
+                // ricavano dalle fermate del bundle, che sono li' accanto.
+                val insieme = HashSet<Long>(4096)
+                val viste = HashSet<Long>(16384)
+                for (s in 0 until r.stopCount) {
+                    val rotte = r.patternsAtStop(s)
+                        .map { r.patternRoute(it) }
+                        .filter { it >= 0 }
+                        .distinct()
+                    for (i in rotte.indices) {
+                        for (j in i + 1 until rotte.size) {
+                            val ha = r.routeIdHash(rotte[i])
+                            val hb = r.routeIdHash(rotte[j])
+                            val k = Ieri.chiave(ha, hb)
+                            if (!viste.add(k)) continue
+                            if (r.routeDisplayColor(rotte[i]) == r.routeDisplayColor(rotte[j])) {
+                                insieme.add(k)
+                            }
+                        }
+                    }
+                }
+                Ieri(colori, insieme)
             }
-        }.getOrElse { emptyMap() }
+        }.getOrElse { Ieri.NESSUNO }
     }
 
     /**
@@ -174,7 +247,7 @@ object RouteColoring {
      * tratte sulla mappa si contraddicono. Una variabile la leggono
      * entrambi senza cambiare la firma di nessuno dei due.
      */
-    fun previousFromEnv(): Map<Long, Int> =
+    fun previousFromEnv(): Ieri =
         readPrevious(System.getenv("FT_BUNDLE_PRECEDENTE")?.let { java.io.File(it) })
 
     /** Coppie adiacenti con lo stesso colore: la misura della promessa mantenuta. */

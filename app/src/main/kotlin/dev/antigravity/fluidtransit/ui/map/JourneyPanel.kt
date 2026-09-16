@@ -872,6 +872,10 @@ fun NavMiniContent(
                 style = MaterialTheme.typography.labelMedium,
                 color = if (state.phase == "ride") liveGreen() else MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
+                // Senza i puntini il nome si taglia e basta: "fino a PISANA"
+                // per PISANA MONTICELLI si legge come un'altra fermata, non
+                // come un nome accorciato.
+                overflow = TextOverflow.Ellipsis,
             )
         }
         androidx.compose.material3.Icon(

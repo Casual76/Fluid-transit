@@ -280,6 +280,31 @@ class RealtimeClientTest {
     }
 
     @Test
+    fun `se anche l'origine e' ferma, si resta dal proxy`() = runTest {
+        // Il caso vero, misurato il 16/09: la Regione pubblica lo stesso
+        // feed da un pezzo, quindi il proxy non riscrive niente e il suo
+        // snapshot invecchia insieme al dato. Andare diretti prende lo
+        // STESSO dato fermo e ci rinuncia i ritardi, che dall'origine non si
+        // scaricano: si perde tutto e non si guadagna niente.
+        repeat(3) {
+            proxy.enqueue(
+                snapshotResponse(vehicleCount = 1, feedAge = 400)
+                    .setHeader("X-Snapshot-Age", "400"),
+            )
+        }
+        origin.enqueue(feedResponse(vehicles = 1, feedAgeSeconds = 380))
+
+        val rt = client()
+        repeat(3) { rt.refreshVehicles() }
+
+        assertEquals(RealtimeClient.Source.PROXY, rt.status.value.source)
+        assertTrue(
+            "deve dire di chi e' la colpa: ${rt.status.value.lastError}",
+            rt.status.value.lastError?.contains("Regione") == true,
+        )
+    }
+
+    @Test
     fun `un feed fresco in mezzo azzera anche i giri stantii`() = runTest {
         proxy.enqueue(snapshotResponse(vehicleCount = 1, feedAge = 400))
         proxy.enqueue(snapshotResponse(vehicleCount = 1, feedAge = 400))
@@ -498,9 +523,9 @@ class RealtimeClientTest {
             buf.putLong(off, (i + 1).toLong())
         })
 
-    private fun feedResponse(vehicles: Int): MockResponse = binary(
+    private fun feedResponse(vehicles: Int, feedAgeSeconds: Long = 30): MockResponse = binary(
         vehiclePositionsFeed(
-            feedTimestamp = System.currentTimeMillis() / 1000 - 30,
+            feedTimestamp = System.currentTimeMillis() / 1000 - feedAgeSeconds,
             vehicles = List(vehicles) { VehicleFixture(tripId = "t$it", routeId = "r$it") },
         ),
     )

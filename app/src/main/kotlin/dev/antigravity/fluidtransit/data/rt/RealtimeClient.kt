@@ -173,6 +173,11 @@ class RealtimeClient(
     private suspend fun fetchVehicles() = withContext(Dispatchers.IO) {
         val proxyOk = runCatching { proxyAllowed() }.getOrDefault(true)
         val nowMs = System.currentTimeMillis()
+        // Come siamo arrivati all'origine, se ci arriviamo: per un proxy che
+        // NON RISPONDE, o per un proxy che risponde con roba vecchia. Sono
+        // due situazioni diverse e vogliono due decisioni diverse, e prima
+        // finivano nello stesso ramo.
+        var perStantio = false
 
         if (proxyOk && nowMs >= directHoldUntilMs) {
             try {
@@ -229,9 +234,14 @@ class RealtimeClient(
                 // buttarsi al primo colpo era il motivo del ritmo lento.
                 staleStrikes++
                 if (staleStrikes < 3) {
-                    publish(Source.PROXY, age, "feed vecchio di ${age}s, riprovo")
+                    publish(
+                        Source.PROXY, age,
+                        "feed vecchio di " +
+                            dev.antigravity.fluidtransit.routing.Words.age(age) + ", riprovo",
+                    )
                     return@withContext
                 }
+                perStantio = true
             } catch (e: Exception) {
                 // Si scende in DIRECT solo dopo tre errori DI FILA, che e' il
                 // contratto scritto in testa alla classe. Prima l'esecuzione
@@ -246,8 +256,41 @@ class RealtimeClient(
 
         // --- fallback: l'origine, senza intermediari ------------------------
         try {
+            val etaDelProxy = _status.value.feedAgeSeconds
             val bytes = fetchRaw(directVehiclesUrl)
             val parsed = GtfsRtLite.parseVehiclePositions(bytes, Instant.now().epochSecond)
+            val etaDellOrigine = feedAge(parsed.feedTimestamp)
+
+            // L'origine non e' piu' fresca del proxy: si torna indietro.
+            //
+            // Ci si arriva quando il proxy serve uno snapshot vecchio, e la
+            // ragione piu' comune non e' che il proxy sia rotto: e' che la
+            // Regione pubblica lo stesso feed da un pezzo, quindi il proxy
+            // non riscrive niente e il suo snapshot invecchia insieme al
+            // dato. In quel caso andare diretti prende lo STESSO dato fermo
+            // e ci rinuncia i ritardi, che dall'origine non si scaricano:
+            // si perde tutto e non si guadagna niente.
+            //
+            // Quindi si guarda quanto e' piu' fresca davvero. Un minuto e'
+            // la soglia perche' il prezzo del cambio e' alto — tutti i
+            // ritardi e tutte le previsioni — e sotto il minuto non lo
+            // ripaga.
+            //
+            // Vale SOLO per il proxy stantio. Se il proxy non risponde
+            // proprio, l'origine e' meglio anche vecchia: meglio bus fermi
+            // sulla mappa che nessun bus.
+            if (perStantio && etaDelProxy != null && etaDellOrigine != null &&
+                etaDellOrigine + DIRECT_MUST_BE_FRESHER_SECONDS > etaDelProxy
+            ) {
+                staleStrikes = 0
+                publish(
+                    Source.PROXY,
+                    etaDellOrigine,
+                    "il feed della Regione e' fermo da " +
+                        dev.antigravity.fluidtransit.routing.Words.age(etaDellOrigine),
+                )
+                return@withContext
+            }
             staleStrikes = 0
             _vehicles.value = parsed
             // In DIRECT i ritardi non si scaricano: quelli vecchi mentirebbero.
@@ -505,5 +548,15 @@ class RealtimeClient(
          */
         const val SNAPSHOT_FRESH_SECONDS = 180L
         private const val DIRECT_HOLD_MS = 5 * 60_000L
+
+        /**
+         * Quanto piu' fresca deve essere l'origine per valere il cambio.
+         *
+         * Andare diretti costa TUTTI i ritardi e TUTTE le previsioni, che
+         * dall'origine non si scaricano. Un minuto e' il minimo che ripaga
+         * quel prezzo: sotto, si resta dal proxy e si dice che a essere
+         * ferma e' la Regione.
+         */
+        private const val DIRECT_MUST_BE_FRESHER_SECONDS = 60L
     }
 }

@@ -36,6 +36,14 @@ fun AlertRows(
     alerts: List<String>,
     onOpenAlerts: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    /**
+     * Di cosa parlano gli avvisi che non ci stanno.
+     *
+     * Su una fermata sono di tutte le linee che ci passano; sulla scheda di
+     * una linea o di una corsa sono di quella sola, e "su queste linee"
+     * sarebbe una riga che promette piu' di quello che apre.
+     */
+    tail: String = "su queste linee",
 ) {
     if (alerts.isEmpty()) return
     for (a in alerts.take(MAX_ROWS)) {
@@ -44,7 +52,7 @@ fun AlertRows(
     val resto = alerts.size - MAX_ROWS
     if (resto > 0) {
         AlertRow(
-            "Altri " + Words.count(resto, "avviso", "avvisi") + " su queste linee",
+            "Altri " + Words.count(resto, "avviso", "avvisi") + " " + tail,
             onOpenAlerts,
             modifier,
         )

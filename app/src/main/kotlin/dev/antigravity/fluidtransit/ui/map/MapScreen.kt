@@ -552,6 +552,35 @@ fun MapScreen(
             }
     }
 
+    // Gli avvisi della corsa aperta: sono quelli della sua linea.
+    //
+    // Chi ha in mano la scheda di un bus vivo o ci e' sopra o lo aspetta, e
+    // in tutt'e due i casi una deviazione in corso e' la cosa che cambia i
+    // suoi piani. La scheda gliela nascondeva.
+    val currentTripRoute = (panel as? Panel.TripMini)?.ref?.routeHash
+        ?: (panel as? Panel.TripFull)?.ref?.routeHash
+    val avvisiDiCorsa by produceState(initialValue = emptyList<String>(), currentTripRoute) {
+        val hash = currentTripRoute
+        if (hash == null || hash == 0L) {
+            value = emptyList()
+            return@produceState
+        }
+        val tutti = runCatching { app.realtime.fetchAlerts() }.getOrDefault(emptyList())
+        val adesso = java.time.Instant.now().epochSecond
+        value = tutti
+            .filter { a ->
+                a.routeHashes.contains(hash) &&
+                    dev.antigravity.fluidtransit.routing.AlertText
+                        .active(a.startEpoch, a.endEpoch, adesso)
+            }
+            .sortedByDescending { it.startEpoch }
+            .map { a ->
+                a.header.ifEmpty {
+                    dev.antigravity.fluidtransit.routing.AlertText.body(a.description).take(90)
+                }
+            }
+    }
+
     // Gli avvisi di servizio della linea aperta.
     //
     // L'app li aveva e non li diceva dove servono: aprendo la 12 mentre e'
@@ -1986,6 +2015,8 @@ fun MapScreen(
                                             }
                                         },
                                         onDismiss = ::exitRouteMode,
+                                        alerts = avvisiDiCorsa,
+                                        onOpenAlerts = onOpenAlerts,
                                     )
                                 } else {
                                     PanelLoading("Leggo la corsa\u2026")

@@ -309,6 +309,9 @@ fun TripFullContent(
     boardGuard: String? = null,
     onBoardBus: (() -> Unit)? = null,
     onDismiss: (() -> Unit)? = null,
+    /** Gli avvisi in corso sulla linea di questa corsa, gia' filtrati. */
+    alerts: List<String> = emptyList(),
+    onOpenAlerts: (() -> Unit)? = null,
 ) {
     // Il battito dell'app, uno solo.
     //
@@ -374,6 +377,10 @@ fun TripFullContent(
                 )
             }
         }
+
+        // Una deviazione in corso cambia i piani di chi e' sul bus o lo
+        // aspetta piu' di qualunque numero che c'e' qui sotto.
+        dev.antigravity.fluidtransit.ui.common.AlertRows(alerts, onOpenAlerts, tail = "su questa linea")
 
         Row(
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),

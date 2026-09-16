@@ -407,7 +407,7 @@ fun RouteFullContent(
         // In cima, sotto la testata: se questa linea oggi e' deviata o
         // sostituita, tutto quello che c'e' sotto — orari, fermate, minuti —
         // puo' essere sbagliato, e saperlo dopo non serve a niente.
-        dev.antigravity.fluidtransit.ui.common.AlertRows(alerts, onOpenAlerts)
+        dev.antigravity.fluidtransit.ui.common.AlertRows(alerts, onOpenAlerts, tail = "su questa linea")
 
         // --- oggi: prima/ultima corsa e frequenza ------------------------
         if (info.firstDepToday != null && info.lastDepToday != null) {

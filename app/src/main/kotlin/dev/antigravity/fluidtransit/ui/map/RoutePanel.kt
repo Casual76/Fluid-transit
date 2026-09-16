@@ -23,6 +23,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -489,31 +493,62 @@ fun RouteFullContent(
         ) {
             items(dir.stops.size) { i ->
                 val stop = dir.stops[i]
-                if (i > 0) FluidHairline(modifier = Modifier.padding(start = 44.dp, end = 12.dp))
+                val tinta = Color(0xFF000000 or info.colorRgb.toLong())
+                val primo = i == 0
+                val ultimo = i == dir.stops.size - 1
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .height(androidx.compose.foundation.layout.IntrinsicSize.Min)
                         .clickable { onStopTap(stop) }
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                        .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    // Il pallino della fermata, sul filo della linea.
+                    // Il percorso come un filo, come nella scheda di una
+                    // corsa: capolinea in testa e in coda col pallino piu'
+                    // grande, le fermate in mezzo sul filo del colore della
+                    // linea.
                     androidx.compose.foundation.layout.Box(
                         modifier = Modifier
-                            .size(12.dp)
-                            .background(
-                                color = Color(0xFF000000 or info.colorRgb.toLong()),
-                                shape = CircleShape,
-                            ),
-                    )
+                            .width(14.dp)
+                            .fillMaxHeight()
+                            .drawBehind {
+                                val x = size.width / 2f
+                                val filo = tinta.copy(alpha = 0.35f)
+                                val spessore = 3.dp.toPx()
+                                if (!primo) {
+                                    drawLine(
+                                        color = filo,
+                                        start = Offset(x, 0f),
+                                        end = Offset(x, size.height / 2f),
+                                        strokeWidth = spessore,
+                                    )
+                                }
+                                if (!ultimo) {
+                                    drawLine(
+                                        color = filo,
+                                        start = Offset(x, size.height / 2f),
+                                        end = Offset(x, size.height),
+                                        strokeWidth = spessore,
+                                    )
+                                }
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        androidx.compose.foundation.layout.Box(
+                            modifier = Modifier
+                                .size(if (primo || ultimo) 14.dp else 10.dp)
+                                .background(color = tinta, shape = CircleShape),
+                        )
+                    }
                     Text(
                         text = stop.name,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).padding(vertical = 10.dp),
                     )
                     if (stop.timeEpoch > 0) {
                         // L'orario della prossima corsa, col tono che dice da

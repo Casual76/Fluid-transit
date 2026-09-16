@@ -105,11 +105,24 @@ fun TodayTab(
         val mine = favRoutes.mapNotNull { it.idHashHex.toULongOrNull(16)?.toLong() }.toSet()
         val all = app.realtime.fetchAlerts()
         val now = Instant.now().epochSecond
-        value = all.filter { a ->
-            val activeNow = (a.startEpoch == 0L || a.startEpoch <= now) &&
-                (a.endEpoch == 0L || a.endEpoch >= now)
-            activeNow && (a.routeHashes.isEmpty() || a.routeHashes.any { it in mine })
-        }
+        // Anche quelli di domani.
+        //
+        // Un avviso attivo lo scopri quando ti tocca; uno sciopero annunciato
+        // per domani serve oggi, ed e' questa la scheda che si guarda per
+        // sapere com'e' la giornata. Due giorni di orizzonte, non di piu':
+        // "Oggi" resta oggi. Il periodo lo dice gia' ogni riga, quindi non si
+        // confonde un avviso in corso con uno che comincia.
+        val orizzonte = now + 2 * 24 * 3600
+        value = all
+            .filter { a -> a.routeHashes.isEmpty() || a.routeHashes.any { it in mine } }
+            .filter { a ->
+                val giaFinito = a.endEpoch != 0L && a.endEpoch < now
+                val troppoInLa = a.startEpoch > orizzonte
+                !giaFinito && !troppoInLa
+            }
+            // Prima quelli in corso: chi apre la scheda vuole sapere cosa sta
+            // succedendo adesso, e poi cosa succedera'.
+            .sortedBy { a -> if (a.startEpoch == 0L || a.startEpoch <= now) 0 else 1 }
     }
 
     val today = LocalDate.now(Ftb.ROME).dayOfWeek.value

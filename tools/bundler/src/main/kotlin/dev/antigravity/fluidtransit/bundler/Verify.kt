@@ -220,12 +220,27 @@ fun main(args: Array<String>) {
                 )
                 comparisons++
                 val a = fromBundle.map { it.instant.epochSecond }
-                if (a != fromCsv) {
+                val b = fromCsv.map { it.first }
+                if (a != b) {
                     mismatches++
                     if (mismatches <= 3) {
+                        // Con i soli epoch una divergenza non si puo'
+                        // diagnosticare: due corse che partono allo stesso
+                        // secondo, una corsa contata due volte e un orario
+                        // sbagliato si somigliano tutti. Qui si stampa da
+                        // quale corsa viene ogni orario, dai due lati.
                         println("       divergenza a ${r.stopName(stopIdx)} alle $time:")
-                        println("         bundle: $a")
-                        println("         csv   : $fromCsv")
+                        println(
+                            "         bundle: " + fromBundle.joinToString(", ") {
+                                "${it.instant.epochSecond}(corsa ${it.tripIndex}" +
+                                    " pos ${it.positionInPattern} pat ${it.patternIndex})"
+                            },
+                        )
+                        println(
+                            "         csv   : " + fromCsv.joinToString(", ") {
+                                "${it.first}(${it.second})"
+                            },
+                        )
                     }
                 }
             }
@@ -303,7 +318,13 @@ fun main(args: Array<String>) {
     if (failures > 0) kotlin.system.exitProcess(1)
 }
 
-private class CsvDeparture(val serviceId: String, val seconds: Int, val isLast: Boolean)
+private class CsvDeparture(
+    val serviceId: String,
+    val seconds: Int,
+    val isLast: Boolean,
+    /** Serve solo a raccontare una divergenza: da quale corsa viene. */
+    val tripId: String,
+)
 
 /**
  * Rilegge `stop_times.txt` e raccoglie, per le sole fermate campionate, tutte
@@ -342,7 +363,7 @@ private fun departuresFromCsv(
             if (!keep) return
             for ((key, seq, secs) in hits) {
                 out.getOrPut(key) { ArrayList() }
-                    .add(CsvDeparture(tripService[trip] ?: "", secs, seq == maxSeq))
+                    .add(CsvDeparture(tripService[trip] ?: "", secs, seq == maxSeq, trip))
             }
         }
 
@@ -379,10 +400,10 @@ private fun expectedDepartures(
     now: java.time.Instant,
     limit: Int,
     horizonSeconds: Int,
-): List<Long> {
+): List<Pair<Long, String>> {
     val all = fromCsv[stopHash] ?: return emptyList()
     val today = now.atZone(Ftb.ROME).toLocalDate()
-    val result = ArrayList<Long>()
+    val result = ArrayList<Pair<Long, String>>()
     for (offsetDays in -1..1) {
         val date = today.plusDays(offsetDays.toLong())
         val dayIndex = ChronoUnit.DAYS.between(r.feedStart, date).toInt()
@@ -394,9 +415,9 @@ private fun expectedDepartures(
             if (d.seconds < target || d.seconds > target + horizonSeconds) continue
             val idx = serviceIdToIndex[d.serviceId] ?: continue
             if (!r.serviceActive(idx, dayIndex)) continue
-            result.add(dayStart.epochSecond + d.seconds)
+            result.add((dayStart.epochSecond + d.seconds) to d.tripId)
         }
     }
-    result.sort()
+    result.sortBy { it.first }
     return if (result.size > limit) result.subList(0, limit) else result
 }

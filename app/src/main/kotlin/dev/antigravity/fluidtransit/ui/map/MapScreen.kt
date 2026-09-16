@@ -2365,10 +2365,8 @@ private fun RecentSearches.Entry.toSuggestion(riferimento: Pair<Double, Double>?
 }
 
 private fun hhmm(epochSecond: Long): String {
+    // Lo zero non e' mezzanotte: e' "non lo so". Per il resto l'orologio e'
+    // quello del vocabolario, non una copia locale.
     if (epochSecond <= 0) return "—"
-    val z = java.time.ZonedDateTime.ofInstant(
-        Instant.ofEpochSecond(epochSecond),
-        dev.antigravity.fluidtransit.routing.Ftb.ROME,
-    )
-    return "%02d:%02d".format(z.hour, z.minute)
+    return dev.antigravity.fluidtransit.routing.Times.hhmm(epochSecond)
 }

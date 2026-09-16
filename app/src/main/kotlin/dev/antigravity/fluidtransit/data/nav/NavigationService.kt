@@ -15,7 +15,6 @@ import dev.antigravity.fluidtransit.MainActivity
 import dev.antigravity.fluidtransit.routing.Ftb
 import dev.antigravity.fluidtransit.routing.Times
 import java.time.Instant
-import java.time.ZonedDateTime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -574,9 +573,9 @@ class NavigationService : Service() {
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, n)
     }
 
-    private fun hm(epoch: Long): String = ZonedDateTime
-        .ofInstant(Instant.ofEpochSecond(epoch), Ftb.ROME)
-        .let { "%02d:%02d".format(it.hour, it.minute) }
+    /** L'orologio e' quello del vocabolario, non una copia locale. */
+    private fun hm(epoch: Long): String =
+        dev.antigravity.fluidtransit.routing.Times.hhmm(epoch)
 
     private fun ensureChannels() {
         val nm = getSystemService(NotificationManager::class.java)

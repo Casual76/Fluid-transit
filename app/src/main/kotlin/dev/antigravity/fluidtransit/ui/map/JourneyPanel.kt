@@ -45,7 +45,6 @@ import dev.antigravity.fluidtransit.routing.Raptor
 import dev.antigravity.fluidtransit.routing.Times
 import dev.antigravity.fluidtransit.routing.Words
 import java.time.Instant
-import java.time.ZonedDateTime
 
 /** Un viaggio gia' tradotto in stringhe: la UI non tocca il reader. */
 class UiJourney(
@@ -122,8 +121,8 @@ class UiJourney(
             )
         }
 
-        private fun hm(i: Instant): String = ZonedDateTime.ofInstant(i, Ftb.ROME)
-            .let { "%02d:%02d".format(it.hour, it.minute) }
+        /** L'orologio e' quello del vocabolario, non una copia locale. */
+        private fun hm(i: Instant): String = Times.hhmm(i.epochSecond)
     }
 }
 

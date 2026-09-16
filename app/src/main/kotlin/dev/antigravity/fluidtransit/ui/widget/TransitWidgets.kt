@@ -36,7 +36,6 @@ import dev.antigravity.fluidtransit.ui.nav.Deeplink
 import dev.antigravity.fluidtransit.ui.theme.TransitBrand
 import java.time.Instant
 import java.time.LocalDate
-import java.time.ZonedDateTime
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -350,9 +349,8 @@ class RoutineWidget : GlanceAppWidget() {
                             palette = palette,
                             layout = layout,
                             tone = palette.primaryTone,
-                            trailing = ZonedDateTime.ofInstant(
-                                Instant.ofEpochSecond(todayRoutine.lastAdviceEpoch), Ftb.ROME,
-                            ).let { "%02d:%02d".format(it.hour, it.minute) },
+                            trailing = dev.antigravity.fluidtransit.routing.Times
+                                .hhmm(todayRoutine.lastAdviceEpoch),
                         )
 
                         ancoraOggi -> EngineWidgetRow(

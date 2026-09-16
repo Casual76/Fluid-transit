@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -28,6 +30,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
@@ -282,7 +286,13 @@ fun TripMiniContent(info: TripInfo) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 val red = MaterialTheme.colorScheme.error
-                if (info.delaySec != null && !info.canceled) LiveDot(liveGreen())
+                val tonoRitardo = dev.antigravity.fluidtransit.ui.common
+                    .toneColor(DepartureText.toneOf(info.delaySec))
+                // Il pallino prende il colore del numero che accompagna: un
+                // pallino verde accanto a "+19 min" scritto in rosso da due
+                // segnali opposti nello stesso centimetro. A dire che il
+                // dato e' vivo basta che il pallino ci SIA, e che pulsi.
+                if (info.delaySec != null && !info.canceled) LiveDot(tonoRitardo)
                 Text(
                     text = buildString {
                         append(delayLabel(info.delaySec, info.canceled))
@@ -407,7 +417,12 @@ fun TripFullContent(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            if (info.delaySec != null && !info.canceled) LiveDot(liveGreen())
+            if (info.delaySec != null && !info.canceled) {
+                LiveDot(
+                    dev.antigravity.fluidtransit.ui.common
+                        .toneColor(DepartureText.toneOf(info.delaySec)),
+                )
+            }
             Text(
                 text = delayLabel(info.delaySec, info.canceled),
                 style = MaterialTheme.typography.bodyMedium,
@@ -467,23 +482,65 @@ fun TripFullContent(
             ) {
                 items(info.stops.size) { i ->
                     val stop = info.stops[i]
-                    if (i > 0) FluidHairline(modifier = Modifier.padding(start = 44.dp, end = 12.dp))
+                    val tinta = Color(0xFF000000 or info.colorRgb.toLong())
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .height(androidx.compose.foundation.layout.IntrinsicSize.Min)
                             .clickable { onStopTap(stop) }
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                            // Il respiro verticale sta nella colonna del
+                            // testo, non sulla riga: cosi' il filo del
+                            // percorso arriva fino ai bordi della riga e i
+                            // segmenti si toccano invece di lasciare un buco
+                            // fra una fermata e l'altra.
+                            .padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
+                        // Il percorso come una linea, non come un elenco.
+                        //
+                        // Ogni fermata aveva il suo pallino e in mezzo una
+                        // riga grigia di separazione: la stessa forma di una
+                        // lista di impostazioni. Un percorso pero' e' una
+                        // cosa che continua, e il modo in cui si disegna da
+                        // sempre e' un filo che unisce le fermate — con la
+                        // prossima in testa, piu' grande, perche' e' quella
+                        // verso cui il bus sta andando.
+                        val primo = i == 0
+                        val ultimo = i == info.stops.size - 1
                         Box(
                             modifier = Modifier
-                                .size(12.dp)
-                                .background(
-                                    color = Color(0xFF000000 or info.colorRgb.toLong()),
-                                    shape = CircleShape,
-                                ),
-                        )
+                                .width(14.dp)
+                                .fillMaxHeight()
+                                .drawBehind {
+                                    val x = size.width / 2f
+                                    val filo = tinta.copy(alpha = 0.35f)
+                                    val spessore = 3.dp.toPx()
+                                    if (!primo) {
+                                        drawLine(
+                                            color = filo,
+                                            start = Offset(x, 0f),
+                                            end = Offset(x, size.height / 2f),
+                                            strokeWidth = spessore,
+                                        )
+                                    }
+                                    if (!ultimo) {
+                                        drawLine(
+                                            color = filo,
+                                            start = Offset(x, size.height / 2f),
+                                            end = Offset(x, size.height),
+                                            strokeWidth = spessore,
+                                        )
+                                    }
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(if (primo) 14.dp else 10.dp)
+                                    .background(color = tinta, shape = CircleShape),
+                            )
+                        }
                         // Le stesse parole, gli stessi toni e la stessa
                         // regola del pallino del resto dell'app: qui c'erano
                         // un "previsto" che voleva dire un'altra cosa, il
@@ -504,7 +561,7 @@ fun TripFullContent(
                         // fermata, e "BESLAN T1 FORTE..." non e' un nome. Il
                         // tabellone della fermata era gia' stato sistemato
                         // cosi'; questa lista era rimasta indietro.
-                        Column(modifier = Modifier.weight(1f)) {
+                        Column(modifier = Modifier.weight(1f).padding(vertical = 10.dp)) {
                             if (stop.isLast) {
                                 Text(
                                     text = "Capolinea",

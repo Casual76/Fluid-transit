@@ -1651,7 +1651,17 @@ fun MapScreen(
             // i bus si muovono ma i ritardi non si scaricano, quindi OGNI
             // riga dell'app dice "orario da tabella". Sembrava che i mezzi
             // fossero tutti puntuali; invece non ne sapevamo niente.
-            val liveDegraded = vehiclesActive && !searchOpen && (
+            //
+            // E non si accusa nessuno prima di aver provato: appena nato, il
+            // tempo reale dichiara "solo orari" perche' non ha ancora
+            // chiesto niente, e quello stato, mostrato, diventa "non risponde
+            // ne' il nostro proxy ne' la Regione" — un'accusa a due servizi
+            // che stanno benissimo, scritta mentre la prima richiesta e'
+            // ancora in volo. Sull'emulatore non si vede, perche' il primo
+            // giro vince la corsa col disegno; basta una rete lenta perche'
+            // la vinca il disegno.
+            val maiProvato = rtStatus.lastSuccessAt == null && rtStatus.lastError == null
+            val liveDegraded = vehiclesActive && !searchOpen && !maiProvato && (
                 rtStatus.source != dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.PROXY ||
                     (rtStatus.feedAgeSeconds ?: 0) >
                     dev.antigravity.fluidtransit.data.rt.RealtimeClient.STALE_SECONDS

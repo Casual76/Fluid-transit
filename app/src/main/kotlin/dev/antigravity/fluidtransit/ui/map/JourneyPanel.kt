@@ -334,28 +334,7 @@ private fun JourneyRow(j: UiJourney, onClick: () -> Unit) {
                 if (j.hasLive) LiveDot(liveGreen())
             }
             Spacer(Modifier.height(6.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.DirectionsWalk,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(15.dp),
-                )
-                if (j.walkOnly) {
-                    Text(
-                        text = "solo a piedi",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    for ((line, color) in j.pills) {
-                        RoutePill(text = line, colorRgb = color)
-                    }
-                }
-            }
+            StrisciaTappe(j)
         }
         Column(horizontalAlignment = Alignment.End) {
             Text(
@@ -961,4 +940,74 @@ fun buildBusNavPlan(
             ),
         ),
     )
+}
+
+/**
+ * La forma del viaggio in una riga: si cammina, si sale, si cammina.
+ *
+ * La carta mostrava un'icona di pedone e poi tutte le pastiglie delle linee,
+ * sempre in quest'ordine: l'icona non stava dove sta la camminata, e un
+ * viaggio con due cambi si leggeva come "a piedi, e poi tre bus". Qui le
+ * tappe sono nell'ordine vero e separate da un segno di passaggio, quindi la
+ * striscia si legge come si legge il viaggio.
+ */
+@Composable
+private fun StrisciaTappe(j: UiJourney) {
+    // Con due cambi la striscia diventa lunga e i minuti delle camminate
+    // sono la prima cosa che si puo' togliere: l'icona dice gia' che li' si
+    // cammina, e quanto lo dice il dettaglio. Senza questa regola l'ultima
+    // tappa finiva sotto la colonna della durata.
+    val compatta = j.legs.count { it is UiLeg.Ride } >= 3
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        if (j.walkOnly) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.DirectionsWalk,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(15.dp),
+            )
+            Text(
+                text = "solo a piedi",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            return@Row
+        }
+        for ((i, leg) in j.legs.withIndex()) {
+            if (i > 0) {
+                Text(
+                    text = "›",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            when (leg) {
+                is UiLeg.Walk -> Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.DirectionsWalk,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(15.dp),
+                    )
+                    // Zero minuti non si scrivono: sarebbe un'icona con
+                    // accanto un numero che non vuol dire niente.
+                    if (leg.minutes > 0 && !compatta) {
+                        Text(
+                            text = "${leg.minutes}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                is UiLeg.Ride -> RoutePill(text = leg.line, colorRgb = leg.colorRgb)
+            }
+        }
+    }
 }

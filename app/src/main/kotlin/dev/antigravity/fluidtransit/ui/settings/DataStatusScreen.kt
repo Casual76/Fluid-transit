@@ -90,7 +90,12 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
 
                     is BundleState.Failed -> FluidListRow(
                         title = "Orari non scaricati",
-                        subtitle = s.message,
+                        // La stessa frase della schermata di benvenuto, e
+                        // col testo tecnico appresso: qui c'era il
+                        // messaggio dell'eccezione nudo.
+                        subtitle = dev.antigravity.fluidtransit.data.bundle.BundleFailure
+                            .words(s.message)
+                            .let { p -> p.title + (p.technical?.let { "\n$it" } ?: "") },
                         meta = "errore",
                     )
 

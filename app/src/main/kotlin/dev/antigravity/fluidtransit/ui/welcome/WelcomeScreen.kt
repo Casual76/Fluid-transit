@@ -123,12 +123,28 @@ fun WelcomeScreen(manager: BundleManager, state: BundleState) {
                 }
 
                 is BundleState.Failed -> {
+                    // Il messaggio dell'eccezione non e' una frase: qui c'era
+                    // "Unable to resolve host …", in inglese, sopra un tasto
+                    // Riprova che in quel caso non serve a niente. Sono le
+                    // prime dieci parole che l'app dice di se stessa.
+                    val parole = dev.antigravity.fluidtransit.data.bundle.BundleFailure
+                        .words(state.message)
                     Text(
-                        text = "Non sono riuscito a scaricare gli orari.\n${state.message}",
+                        text = parole.title,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error,
                         textAlign = TextAlign.Center,
                     )
+                    val tecnico = parole.technical
+                    if (tecnico != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = tecnico,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                     Spacer(Modifier.height(24.dp))
                     FluidButton(
                         text = "Riprova",

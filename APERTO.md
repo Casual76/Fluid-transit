@@ -46,21 +46,24 @@ quattordici secondi a otto, che era il sospetto piu' probabile. Resta da
 guardare la prossima volta che si aggiunge un widget da zero.
 — riprovato il 16/09/2026
 
-**Da verificare con un bus vivo: le parole del pannello corsa.** Le altre due
-verifiche in attesa sono state fatte all'una di notte, quando il feed si e'
-riempito abbastanza: un tabellone con righe "dal bus · da tabella alle 01:09"
-accanto a righe di tabella, e "Qui intorno" con cinque righe da quattro
-fermate e nessun doppione. Resta il pannello di una corsa aperto su un mezzo
-vivo: alle 00:50 nel raggio della mappa non ce n'era nessuno da toccare, e
-con duecentoquattordici mezzi in tutta la Toscana la strada e' aspettare le
-ore di servizio. — aggiornato il 16/09/2026
+**Le parole del pannello corsa, viste su un bus vivo.** Aspettate le ore di
+servizio e fatte alle 05:10 sulla linea 23 verso CROCE A VARLIANO: "Posizione
+live - aggiornata 2 min fa", "+2 min di ritardo" col pallino verde, e tutte
+le fermate della lista con "dal bus - da tabella alle 05:08". I nomi pero'
+erano tagliati a meta' — "BESLAN T1 FORTE..." — perche' la provenienza stava
+sotto il numero e allargava la colonna di destra: sistemato nello stesso
+giro, com'era gia' stato fatto per il tabellone di una fermata.
+— verificato il 16/09/2026
 
-**Il messaggio d'errore degli aggiornamenti viene dall'engine e non e' stato
-guardato.** La riga "L'ultimo controllo non e' riuscito: ..." in Impostazioni
-riporta `EngineAppUpdater.lastError` cosi' com'e'. Gli errori del bundle e
-degli avvisi sono stati tradotti in italiano stanotte; questo no, perche' il
-testo lo produce l'engine e il codice dentro `engine/` non e' codice di
-quest'app. Va guardato nel repo dell'engine. — visto il 16/09/2026
+**Un bus seguito per sei minuti e mezzo non e' mai tornato indietro.** Il
+sintomo da cui e' partito tutto, misurato su un mezzo vero: la linea 23
+dalle 05:12 alle 05:18, un campione ogni quarantacinque secondi. La prima
+fermata della lista e' avanzata sempre nello stesso verso — FRATELLI
+ROSSELLI, BESLAN T1 FORTEZZA, INDIPENDENZA XXVII APRILE, XXVII APRILE SANTA
+REPARATA, SAN MARCO PIAZZA, COLONNA LICEO MICHELANGIOLO — senza mai
+riguadagnare una fermata. E' la progressione del DATO; quella del marker
+sulla mappa e' tenuta dalle righe di BusPathTest.
+— misurato il 16/09/2026
 
 **Le posizioni finte dell'emulatore non arrivano all'app.** `adb emu geo fix`
 risponde `OK` ma la posizione resta quella predefinita di Mountain View: per

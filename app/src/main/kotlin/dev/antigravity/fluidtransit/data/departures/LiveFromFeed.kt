@@ -12,10 +12,12 @@ import dev.antigravity.fluidtransit.routing.LiveTimes
  * un'unica risposta alla domanda "cosa si sa di questa corsa, a questa
  * fermata". Il resto dell'app non deve piu' sapere che sono tre.
  *
- * E' anche il punto che cambiera' quando arriveranno le previsioni per
- * fermata: oggi produce `PROPAGATED` e `ESTIMATED` perche' il feed ci arriva
- * ridotto a un numero per corsa; domani produrra' anche `DECLARED`, e nessuna
- * schermata se ne accorgera'.
+ * **Oggi e' il ripiego, non la sorgente.** Quando il proxy serve le previsioni
+ * per fermata comanda [LiveFromPredictions], che dice `DECLARED` dove il feed
+ * parla di QUESTA fermata; questa classe copre le corse che quelle previsioni
+ * non toccano, e per quelle il feed arriva ancora ridotto a un numero per
+ * corsa — quindi `PROPAGATED` quando il numero e' quello della fermata verso
+ * cui il mezzo sta andando, `ESTIMATED` quando lo si proietta piu' avanti.
  */
 class LiveFromFeed(
     private val delays: DelayModel,
@@ -31,9 +33,14 @@ class LiveFromFeed(
     override fun canceled(tripIndex: Int): Boolean = tripIndex in canceled
 
     /**
-     * Le fermate saltate oggi non arrivano fin qui: il feed le dichiara nel
-     * `schedule_relationship` di ogni StopTimeUpdate, e la catena realtime le
-     * porta fino al proxy ma non ancora fino all'app.
+     * Le fermate saltate non arrivano fin QUI.
+     *
+     * Il feed le dichiara nel `schedule_relationship` di ogni StopTimeUpdate,
+     * e quella strada l'app la percorre: [LiveFromPredictions] le legge e le
+     * dichiara, e il formato le inchioda in `RtPredictionGoldenTest`. Ma la
+     * sezione compatta da cui pesca questa classe porta un numero per corsa e
+     * basta, e li' dentro l'informazione non c'e'. Per le corse che le
+     * previsioni non coprono, quindi, una fermata saltata resta invisibile.
      */
     override fun skipped(tripIndex: Int, position: Int): Boolean = false
 

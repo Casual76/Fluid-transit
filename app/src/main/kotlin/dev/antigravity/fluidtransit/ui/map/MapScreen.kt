@@ -1770,8 +1770,17 @@ fun MapScreen(
         // Cosa passa qui intorno, dove la tab bar lascia spazio: si legge
         // senza toccare niente, e toccandola si apre tutto.
         androidx.compose.animation.AnimatedVisibility(
+            // Da lontano "qui intorno" non vuol dire niente.
+            //
+            // Al primo avvio, senza permesso della posizione, la mappa si
+            // apre su tutta la Toscana: il centro cade in campagna fra
+            // Siena e Colle, e la capsula mostrava le partenze di un paese
+            // a caso come se fossero le tue. Sotto lo zoom in cui si
+            // distinguono le strade, l'unica risposta onesta e' non
+            // rispondere: c'e' il mirino, ed e' li' accanto.
             visible = panel == null && !searchOpen && !plannerOpen && !navActive &&
-                reader != null && nearbyBoard.computedAtEpoch != 0L,
+                reader != null && nearbyBoard.computedAtEpoch != 0L &&
+                cameraZoom >= MapCatalog.NEARBY_MIN_ZOOM,
             enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it / 3 }) +
                 androidx.compose.animation.fadeIn(),
             exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it / 3 }) +

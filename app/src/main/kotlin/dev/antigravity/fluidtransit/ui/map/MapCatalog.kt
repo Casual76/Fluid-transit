@@ -214,4 +214,16 @@ object MapCatalog {
     const val HOME_LAT = 43.35
     const val HOME_LON = 11.0
     const val HOME_ZOOM = 7.6
+
+    /**
+     * Sotto questo zoom "qui intorno" non vuol dire niente.
+     *
+     * Undici e' lo zoom in cui si cominciano a distinguere le strade di una
+     * citta': sopra, il centro della mappa e' un posto; sotto, e' una
+     * provincia. Al primo avvio, senza il permesso della posizione, la mappa
+     * si apre su tutta la Toscana e il centro cade in campagna fra Siena e
+     * Colle: la capsula mostrava le partenze di un paese a caso come se
+     * fossero le tue.
+     */
+    const val NEARBY_MIN_ZOOM = 11.0
 }

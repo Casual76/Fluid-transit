@@ -1866,6 +1866,28 @@ fun MapScreen(
                                             if (plan != null) {
                                                 app.navigation.start(context, plan)
                                                 panel = null
+                                            } else {
+                                                // Il piano non si costruisce quando la
+                                                // corsa e' all'ultima fermata: non c'e'
+                                                // un "dopo" dove scendere. Il tasto pero'
+                                                // c'era lo stesso, e il tocco non faceva
+                                                // niente — lo stesso difetto del mirino
+                                                // della posizione, sullo stesso schermo.
+                                                scope.launch {
+                                                    notifications?.show(
+                                                        dev.antigravity.fluidengine.ui.fluid
+                                                            .FluidNotification(
+                                                                id = "corsa-finita",
+                                                                title = "Questa corsa sta finendo",
+                                                                message = "E' all'ultima fermata: " +
+                                                                    "non c'e' piu' un pezzo di " +
+                                                                    "viaggio da seguire.",
+                                                                tone = dev.antigravity.fluidengine
+                                                                    .ui.fluid
+                                                                    .FluidNotificationTone.Info,
+                                                            ),
+                                                    )
+                                                }
                                             }
                                         },
                                         onDismiss = ::exitRouteMode,

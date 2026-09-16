@@ -19,6 +19,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,8 +39,8 @@ import dev.antigravity.fluidengine.ui.fluid.FluidTabBarDefaults
 import dev.antigravity.fluidtransit.routing.BundleReader
 import dev.antigravity.fluidtransit.routing.Certainty
 import dev.antigravity.fluidtransit.routing.DepartureText
-import dev.antigravity.fluidtransit.routing.LiveTimes
 import dev.antigravity.fluidtransit.routing.Ftb
+import dev.antigravity.fluidtransit.routing.LiveTimes
 import dev.antigravity.fluidtransit.routing.StopTimes
 import dev.antigravity.fluidtransit.routing.Times
 import dev.antigravity.fluidtransit.routing.Words
@@ -45,7 +48,6 @@ import dev.antigravity.fluidtransit.ui.common.toneColor
 import java.time.Instant
 import java.time.ZonedDateTime
 import java.time.temporal.ChronoUnit
-import androidx.compose.material.icons.rounded.Close
 
 /**
  * Le chiavi di un bus toccato, come bastano a risalire a corsa e linea.
@@ -345,6 +347,30 @@ fun TripFullContent(
                     },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            // La X, come in fermata, luogo, linea, viaggi e "qui intorno".
+            //
+            // Era l'ultima scheda senza: si chiudeva trascinando giu' o col
+            // tasto Indietro, cioe' con due gesti che le altre non chiedono.
+            // Il parametro per chiuderla arrivava fin qui da settimane e non
+            // lo usava nessuno, e la X era perfino gia' importata.
+            if (onDismiss != null) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = "Chiudi",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clickable(
+                            interactionSource = androidx.compose.runtime.remember {
+                                androidx.compose.foundation.interaction.MutableInteractionSource()
+                            },
+                            indication = null,
+                            role = androidx.compose.ui.semantics.Role.Button,
+                            onClick = onDismiss,
+                        )
+                        .padding(7.dp),
                 )
             }
         }

@@ -177,7 +177,12 @@ fun StopPanelContent(
     // "Parti da qui": la fermata aperta diventa l'origine del pianificatore.
     // E' una delle quattro strade decise per scegliere una partenza diversa
     // da dove sei.
-    if (onStartHere != null) {
+    //
+    // Non si mostra per una fermata che negli orari di oggi non c'e' piu':
+    // le coordinate della partenza si leggono dagli orari, quindi il tasto
+    // c'era e non faceva niente. Un tasto che non fa niente e' peggio di un
+    // tasto che manca, perche' insegna a non fidarsi anche degli altri.
+    if (onStartHere != null && stopIndex >= 0) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()

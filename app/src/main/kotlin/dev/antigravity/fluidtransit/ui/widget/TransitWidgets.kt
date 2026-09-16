@@ -13,16 +13,39 @@ import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.state.getAppWidgetState
 import androidx.glance.appwidget.action.actionStartActivity
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.sp
+import androidx.glance.action.Action
+import androidx.glance.action.clickable
+import androidx.glance.appwidget.cornerRadius
+import androidx.glance.background
+import androidx.glance.layout.Alignment
+import androidx.glance.layout.Box
+import androidx.glance.layout.Column
+import androidx.glance.layout.Row
+import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
+import androidx.glance.layout.padding
+import androidx.glance.layout.size
+import androidx.glance.layout.width
 import androidx.glance.layout.Spacer
+import androidx.glance.text.FontWeight
+import androidx.glance.text.Text
+import androidx.glance.unit.ColorProvider
 import androidx.glance.GlanceModifier
 import androidx.glance.state.PreferencesGlanceStateDefinition
 import dev.antigravity.fluidengine.widget.EngineWidgetGroup
 import dev.antigravity.fluidengine.widget.EngineWidgetHairline
 import dev.antigravity.fluidengine.widget.EngineWidgetHeader
+import dev.antigravity.fluidengine.widget.EngineWidgetLayout
+import dev.antigravity.fluidengine.widget.EngineWidgetPalette
 import dev.antigravity.fluidengine.widget.EngineWidgetRow
+import dev.antigravity.fluidengine.widget.EngineWidgetShape
 import dev.antigravity.fluidengine.widget.EngineWidgetSurface
 import dev.antigravity.fluidengine.widget.engineWidgetPalette
+import dev.antigravity.fluidengine.widget.engineWidgetTextStyle
 import dev.antigravity.fluidengine.widget.resolveEngineWidgetLayout
 import dev.antigravity.fluidtransit.FluidTransitApp
 import dev.antigravity.fluidtransit.MainActivity
@@ -31,6 +54,7 @@ import dev.antigravity.fluidtransit.routing.DelayModel
 import dev.antigravity.fluidtransit.routing.DepartureBoard
 import dev.antigravity.fluidtransit.routing.DepartureText
 import dev.antigravity.fluidtransit.routing.Ftb
+import dev.antigravity.fluidtransit.routing.NextDeparture
 import dev.antigravity.fluidtransit.routing.Times
 import dev.antigravity.fluidtransit.ui.nav.Deeplink
 import dev.antigravity.fluidtransit.ui.theme.TransitBrand
@@ -78,6 +102,165 @@ class RoutineWidgetReceiver : GlanceAppWidgetReceiver() {
 }
 
 /**
+ * La pastiglia della linea, sulla home.
+ *
+ * Il widget era l'ultima superficie che scriveva la linea come testo dentro
+ * il titolo — "12 → LE PIAGGE" — mentre in app la linea e' un rettangolo del
+ * suo colore ovunque la si nomini, e quel colore e' lo stesso della tratta
+ * sulla mappa. Stessa informazione, due grammatiche, e quella della home e'
+ * la piu' vista: e' la superficie che si guarda senza aprire l'app.
+ *
+ * Il bianco non e' una scommessa: i colori delle linee escono tutti dalle
+ * dodici tinte di `RouteColoring.PALETTE`, sature e scelte per leggersi su
+ * basemap chiara e scura, quindi non esiste il caso della pastiglia gialla
+ * con la scritta bianca. Glance sa arrotondare gli angoli solo da Android 12
+ * in su e non conosce le curve continue del design system: il colore e le
+ * proporzioni restano gli stessi, la forma e' quella che l'host sa disegnare.
+ */
+@Composable
+private fun PastigliaLinea(
+    line: String,
+    colorRgb: Int,
+    layout: EngineWidgetLayout,
+    onClick: Action?,
+) {
+    val larghezza = larghezzaPastiglia(line, layout.compact)
+    Box(
+        modifier = GlanceModifier
+            .background(ColorProvider(Color(0xFF000000 or colorRgb.toLong())))
+            .cornerRadius(EngineWidgetShape.Tile)
+            .let { if (larghezza != null) it.width(larghezza) else it }
+            // Un solo `padding`: i modificatori di Glance sono un insieme di
+            // proprieta', non una catena ordinata, e due chiamate si
+            // sovrascrivono invece di sommarsi.
+            .padding(
+                horizontal = if (larghezza != null) 0.dp else 7.dp,
+                vertical = if (layout.compact) 3.dp else 4.dp,
+            )
+            .let { if (onClick != null) it.clickable(onClick) else it },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = line,
+            style = engineWidgetTextStyle(
+                color = ColorProvider(Color.White),
+                size = if (layout.compact) 12.sp else 13.sp,
+                weight = FontWeight.Bold,
+            ),
+            maxLines = 1,
+        )
+    }
+}
+
+/**
+ * Quanto e' larga la pastiglia, e perche' a volte non lo e'.
+ *
+ * Larghezza fissa: e' cosi' che le destinazioni partono tutte dalla stessa
+ * colonna invece di ballare di qualche pixel a seconda che la linea si
+ * chiami "6" o "131" — in app lo fa `widthIn(min = 44.dp)`, che in Glance non
+ * esiste. Ma una larghezza fissa taglia i nomi lunghi, e una linea tagliata
+ * e' un'altra linea: sopra i tre caratteri la pastiglia torna a stringersi
+ * sul testo, perche' meglio una colonna storta di un "301A" scritto "301…".
+ */
+internal fun larghezzaPastiglia(line: String, compact: Boolean): Dp? =
+    if (line.length <= 3) (if (compact) 34.dp else 40.dp) else null
+
+/**
+ * Una partenza sulla home: pastiglia, destinazione, provenienza, numero.
+ *
+ * E' la riga dell'app tradotta nei mattoni di Glance — che non puo' usare un
+ * composable di Compose, ma usa lo stesso modello ([NextDeparture]), le
+ * stesse parole ([DepartureText]) e le stesse regole di colore. Finche' non
+ * c'e' stata, il widget diceva "12 → LE PIAGGE" in nero e "3 min" nel colore
+ * dell'accento, sempre lo stesso: un bus in orario e uno con mezz'ora di
+ * ritardo si scrivevano uguali.
+ */
+@Composable
+private fun RigaPartenza(
+    row: NextDeparture,
+    nowEpoch: Long,
+    palette: EngineWidgetPalette,
+    layout: EngineWidgetLayout,
+    onLineClick: Action?,
+) {
+    val phrase = DepartureText.phrase(row, nowEpoch)
+    Row(
+        modifier = GlanceModifier
+            .fillMaxWidth()
+            .padding(
+                horizontal = if (layout.compact) 10.dp else 12.dp,
+                vertical = if (layout.compact) 7.dp else 9.dp,
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        PastigliaLinea(row.line, row.colorRgb, layout, onLineClick)
+        Spacer(GlanceModifier.width(if (layout.compact) 8.dp else 10.dp))
+        Column(modifier = GlanceModifier.defaultWeight()) {
+            Text(
+                text = row.destination,
+                style = engineWidgetTextStyle(
+                    color = palette.onSurface,
+                    size = if (layout.compact) 13.sp else 15.sp,
+                    weight = FontWeight.Medium,
+                ),
+                maxLines = 1,
+            )
+            if (layout.showSubtitle) {
+                Text(
+                    text = phrase.support,
+                    style = engineWidgetTextStyle(color = palette.onSurfaceVariant, size = 12.sp),
+                    maxLines = 1,
+                )
+            }
+        }
+        Spacer(GlanceModifier.width(8.dp))
+        val colore = colorePartenza(phrase.tone, palette)
+        // Il pallino, l'unica provenienza che sopravvive al widget piccolo.
+        //
+        // Sotto una certa misura il kit nasconde i sottotitoli — quelli
+        // delle righe e quello della testata — e il widget tornava a
+        // mostrare minuti nudi, senza modo di sapere se il feed stesse
+        // guardando. Fermo invece che pulsante: un RemoteViews non anima, e
+        // un pallino che sta li' e' comunque la stessa convenzione che l'app
+        // usa a due dita di distanza.
+        if (phrase.pulse) {
+            Box(modifier = GlanceModifier.size(6.dp).background(colore).cornerRadius(3.dp)) {}
+            Spacer(GlanceModifier.width(5.dp))
+        }
+        Text(
+            text = phrase.headline,
+            style = engineWidgetTextStyle(
+                color = colore,
+                size = if (layout.compact) 12.sp else 13.sp,
+                weight = FontWeight.Bold,
+            ),
+            maxLines = 1,
+        )
+    }
+}
+
+/**
+ * Il tono della partenza, coi colori del widget.
+ *
+ * E' la stessa scelta che `toneColor` fa in app — verde entro i cinque
+ * minuti, ambra fino al quarto d'ora, rosso oltre — detta con la palette che
+ * il kit dei widget ricava dalle STESSE impostazioni del tema. I due verdi
+ * non sono lo stesso valore e non devono esserlo: quello del widget e'
+ * tarato per leggersi su una home screen qualsiasi, dove lo sfondo non
+ * e' quello dell'app.
+ */
+private fun colorePartenza(
+    tone: DepartureText.Tone,
+    palette: EngineWidgetPalette,
+): ColorProvider = when (tone) {
+    DepartureText.Tone.ON_TIME -> palette.successTone.content
+    DepartureText.Tone.LATE -> palette.warningTone.content
+    DepartureText.Tone.VERY_LATE -> palette.dangerTone.content
+    DepartureText.Tone.CANCELED -> palette.attention
+    DepartureText.Tone.SCHEDULED -> palette.onSurface
+}
+
+/**
  * Come e' andata la costruzione del tabellone di un widget.
  *
  * Un widget vive il tempo di disegnarsi e non puo' chiedere niente a
@@ -96,7 +279,12 @@ private sealed interface StopBoard {
     /** La fermata salvata non compare negli orari di oggi. */
     data object UnknownStop : StopBoard
 
-    class Ready(val board: DepartureBoard) : StopBoard
+    /**
+     * @param lineLinks l'indirizzo della linea di ogni riga, nello stesso
+     *   ordine: si calcola qui perche' serve il lettore del bundle, che fuori
+     *   di qui puo' gia' essere chiuso dallo scambio notturno.
+     */
+    class Ready(val board: DepartureBoard, val lineLinks: List<String>) : StopBoard
 }
 
 class StopWidget : GlanceAppWidget() {
@@ -163,15 +351,18 @@ class StopWidget : GlanceAppWidget() {
                     subtitle = when {
                         stopHash == null -> "Tocca per configurare"
                         board == null -> "Orari in arrivo…"
-                        // Un widget dice sempre di quando sono i suoi
-                        // numeri con le stesse parole del resto dell'app:
-                        // e' l'unico posto dove l'utente non puo' chiedere.
-                        // Sulle righe che si vedono, non su quelle
-                        // calcolate: il widget ne chiede cinque e ne disegna
-                        // due o tre, e il piede prometteva "in parte dal bus"
-                        // sopra due righe che dicevano "orario da tabella".
-                        else -> "Prossimi passaggi · " +
-                            DepartureText.boardSource(rows.orEmpty().take(layout.rowLimit))
+                        // Di quando sono questi numeri.
+                        //
+                        // Qui c'era la provenienza del tabellone — "Prossimi
+                        // passaggi · orari da tabella" — che da quando ogni
+                        // riga porta la sua diceva la stessa cosa due
+                        // centimetri piu' in alto, tre volte sulla stessa
+                        // scheda. L'ora del calcolo invece nessuna riga la
+                        // sa, ed e' la cosa che su una home screen manca di
+                        // piu': un widget disegnato alle sette resta li' a
+                        // mostrare le sette fino a quando il sistema decide
+                        // di ridisegnarlo, e niente lo dice.
+                        else -> "Aggiornato alle " + Times.hhmm(board.computedAtEpoch)
                     },
                 )
                 Spacer(GlanceModifier.height(if (layout.compact) 6.dp else 8.dp))
@@ -203,16 +394,21 @@ class StopWidget : GlanceAppWidget() {
                         }
 
                         else -> {
+                            val links = (esito as? StopBoard.Ready)?.lineLinks.orEmpty()
                             rows.take(layout.rowLimit).forEachIndexed { i, r ->
                                 if (i > 0) EngineWidgetHairline(palette, layout)
-                                val phrase = DepartureText.phrase(r, board.computedAtEpoch)
-                                EngineWidgetRow(
-                                    title = "${r.line} → ${r.destination}",
-                                    subtitle = phrase.support,
+                                RigaPartenza(
+                                    row = r,
+                                    nowEpoch = board.computedAtEpoch,
                                     palette = palette,
                                     layout = layout,
-                                    tone = palette.primaryTone,
-                                    trailing = phrase.headline,
+                                    // La pastiglia apre la linea, come in
+                                    // app: e' l'unica parte della riga che
+                                    // nomina qualcosa di diverso dalla
+                                    // fermata che il widget gia' apre.
+                                    onLineClick = links.getOrNull(i)?.let {
+                                        actionStartActivity(openLink(context, it))
+                                    },
                                 )
                             }
                         }
@@ -261,7 +457,13 @@ class StopWidget : GlanceAppWidget() {
                 }
             }
         }
-        return StopBoard.Ready(app.departureBoards.snapshot(listOf(stop), limit = 5))
+        val board = app.departureBoards.snapshot(listOf(stop), limit = 5)
+        return StopBoard.Ready(
+            board = board,
+            lineLinks = board.rows.map {
+                Deeplink.route(java.lang.Long.toHexString(ready.reader.routeIdHash(it.routeIndex)))
+            },
+        )
     }
 
     private companion object {

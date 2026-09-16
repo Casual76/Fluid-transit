@@ -185,10 +185,41 @@ class Raptor(private val reader: BundleReader) {
         realtime: Realtime = Realtime.NONE,
         windowSeconds: Int = 2 * 3600,
         maxJourneys: Int = 5,
+        /**
+         * Chiamata dopo ogni scansione con i viaggi trovati FINORA, gia'
+         * scremati e ordinati come il risultato finale.
+         *
+         * Un piano non e' un calcolo solo: sono fino a otto scansioni in
+         * fila, ognuna che riparte dopo la partenza trovata da quella
+         * prima. Misurato sull'emulatore, da SODERINI a Careggi: piu' di
+         * venti secondi di "Cerco i prossimi viaggi..." su una schermata
+         * ferma, quando il primo viaggio era pronto molto prima. Chi chiama
+         * puo' mostrare quello che c'e' mentre il resto arriva.
+         */
+        onPartial: ((List<Journey>) -> Unit)? = null,
     ): List<Journey> {
         val access = walkableStops(from)
         val egress = walkableStops(to)
         val out = ArrayList<Journey>()
+
+        // Il "solo a piedi", quando ha senso: sotto il chilometro e mezzo la
+        // risposta onesta puo' essere che il bus non serve. Si calcola prima
+        // del giro, perche' entri anche nei parziali, ma si aggiunge in
+        // fondo come sempre: l'ordine con cui `out` si riempie decide le
+        // parita' dentro `pareto`.
+        val direct = BundleReader.haversine(from.lat, from.lon, to.lat, to.lon)
+        val aPiedi = if (direct <= options.maxDirectWalkM) {
+            val sec = walkSeconds(direct)
+            Journey(
+                legs = listOf(
+                    Leg.Walk(-1, -1, from.lat, from.lon, to.lat, to.lon, sec, departAt),
+                ),
+                transfers = 0,
+                walkSeconds = sec,
+            )
+        } else {
+            null
+        }
 
         if (access.isNotEmpty() && egress.isNotEmpty()) {
             var t = departAt.epochSecond
@@ -207,26 +238,18 @@ class Raptor(private val reader: BundleReader) {
                     minDep = minOf(minDep, j.departure.epochSecond)
                 }
                 if (minDep == Long.MAX_VALUE) break
+                if (onPartial != null) {
+                    val finora = ArrayList<Journey>(out.size + 1)
+                    finora.addAll(out)
+                    if (aPiedi != null) finora.add(aPiedi)
+                    onPartial(pareto(finora).take(maxJourneys))
+                }
                 // La prossima scansione parte dopo la partenza appena usata.
                 t = minDep + 60
             }
         }
 
-        // Il "solo a piedi", quando ha senso: sotto il chilometro e mezzo
-        // la risposta onesta puo' essere che il bus non serve.
-        val direct = BundleReader.haversine(from.lat, from.lon, to.lat, to.lon)
-        if (direct <= options.maxDirectWalkM) {
-            val sec = walkSeconds(direct)
-            out.add(
-                Journey(
-                    legs = listOf(
-                        Leg.Walk(-1, -1, from.lat, from.lon, to.lat, to.lon, sec, departAt),
-                    ),
-                    transfers = 0,
-                    walkSeconds = sec,
-                ),
-            )
-        }
+        if (aPiedi != null) out.add(aPiedi)
 
         return pareto(out).take(maxJourneys)
     }

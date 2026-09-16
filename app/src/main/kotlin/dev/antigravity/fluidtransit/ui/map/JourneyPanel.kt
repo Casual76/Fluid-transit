@@ -180,6 +180,15 @@ fun JourneysContent(
     journeys: List<UiJourney>?,
     /** Il calcolo non e' riuscito: diverso da "non c'e' nessun viaggio". */
     failed: Boolean = false,
+    /**
+     * Il calcolo sta ancora andando e quello che si vede e' parziale.
+     *
+     * Un piano sono fino a otto scansioni in fila: la prima da' gia' un
+     * viaggio, l'ultima quello che parte fra un'ora. Mostrarli mentre
+     * arrivano vuol dire pero' dire anche che ne stanno arrivando altri,
+     * altrimenti una lista di due righe sembra la risposta finita.
+     */
+    searching: Boolean = false,
     /** Partenza e arrivo sono lo stesso posto: non c'e' niente da calcolare. */
     samePlace: Boolean = false,
     fromLabel: String,
@@ -303,6 +312,25 @@ fun JourneysContent(
                 items(journeys.size) { i ->
                     if (i > 0) FluidHairline()
                     JourneyRow(journeys[i]) { onPick(i) }
+                }
+                // Ne stanno ancora arrivando: senza questa riga una lista di
+                // due viaggi sembra la risposta finita, e chi la legge se ne
+                // va prima che arrivi quello che gli serviva.
+                if (searching) {
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            FluidSpinner()
+                            Text(
+                                text = "Cerco anche i prossimi…",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))

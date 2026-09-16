@@ -953,6 +953,8 @@ fun MapScreen(
     }
     // Il calcolo e' fallito, che e' diverso da "non c'e' niente".
     var journeysFailed by remember { mutableStateOf(false) }
+    /** Il calcolo sta ancora andando: la lista che si vede e' parziale. */
+    var journeysSearching by remember { mutableStateOf(false) }
     val journeys by produceState<List<UiJourney>?>(
         initialValue = null,
         // La PARTENZA fra le chiavi, che e' dove mancava.
@@ -994,21 +996,50 @@ fun MapScreen(
             dev.antigravity.fluidtransit.routing.Raptor.Realtime.NONE
         }
         journeysFailed = false
+        journeysSearching = true
+        // I viaggi si mostrano mentre arrivano.
+        //
+        // Un piano sono fino a otto scansioni in fila, e sull'emulatore da
+        // SODERINI a Careggi ci mettevano piu' di venti secondi: per tutto
+        // quel tempo il pannello diceva "Cerco i prossimi viaggi..." e
+        // basta, anche se il primo viaggio era pronto molto prima. Ogni
+        // scansione che finisce consegna quello che ha trovato, e la lista
+        // si riempie sotto gli occhi invece di comparire tutta insieme alla
+        // fine.
+        val parziali = kotlinx.coroutines.channels.Channel<
+            List<dev.antigravity.fluidtransit.routing.Raptor.Journey>,
+            >(kotlinx.coroutines.channels.Channel.CONFLATED)
+        val mostraParziali = launch {
+            for (p in parziali) {
+                val ui = withContext(Dispatchers.Default) {
+                    val liveTrips = rtNow?.delayByTrip?.keys.orEmpty()
+                    runCatching { p.map { UiJourney.of(reader, it, liveTrips) } }.getOrNull()
+                }
+                if (ui != null && ui.isNotEmpty()) value = ui
+            }
+        }
         val raw = withContext(app.routingDispatcher) {
             val raptor = app.raptorFor(reader)
             val fromPlace = dev.antigravity.fluidtransit.routing.Raptor.Place(from.first, from.second)
             val toPlace = dev.antigravity.fluidtransit.routing.Raptor.Place(to.lat, to.lon)
             runCatching {
             when (journeyTimeMode) {
+                // "Arriva entro" no: quello scandisce all'indietro e i
+                // parziali sarebbero i viaggi piu' lontani dall'ora chiesta,
+                // cioe' la lista si riempirebbe dalla parte sbagliata.
                 "arrive" -> raptor.planArriveBy(
                     fromPlace, toPlace, Instant.ofEpochSecond(journeyTimeEpoch), liveData,
                 )
 
                 "depart" -> raptor.plan(
                     fromPlace, toPlace, Instant.ofEpochSecond(journeyTimeEpoch), liveData,
+                    onPartial = { parziali.trySend(it) },
                 )
 
-                else -> raptor.plan(fromPlace, toPlace, Instant.now(), liveData)
+                else -> raptor.plan(
+                    fromPlace, toPlace, Instant.now(), liveData,
+                    onPartial = { parziali.trySend(it) },
+                )
             }
             }.getOrNull()
         }
@@ -1016,6 +1047,9 @@ fun MapScreen(
         // abbiamo saputo rispondere, il secondo che la risposta e' no. Erano
         // la stessa schermata — "Nessun viaggio trovato, prova a cambiare
         // orario" — e cambiare orario non serviva a niente.
+        parziali.close()
+        mostraParziali.join()
+        journeysSearching = false
         if (raw == null) {
             journeysFailed = true
             value = emptyList()
@@ -2315,6 +2349,7 @@ fun MapScreen(
                                     toName = state.to.name,
                                     journeys = journeys,
                                     failed = journeysFailed,
+                                    searching = journeysSearching,
                                     samePlace = journeyOrigin?.let { (lat, lon) ->
                                         dev.antigravity.fluidtransit.routing.BundleReader
                                             .haversine(lat, lon, state.to.lat, state.to.lon) <

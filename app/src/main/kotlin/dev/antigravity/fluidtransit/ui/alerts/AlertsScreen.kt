@@ -51,8 +51,21 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
     val bundleState by app.bundleManager.state.collectAsStateWithLifecycle()
     val reader = (bundleState as? BundleState.Ready)?.reader
     val favVersion by app.favorites.version.collectAsStateWithLifecycle()
-    val mine = remember(favVersion) {
-        app.favorites.routes().mapNotNull { it.idHashHex.toULongOrNull(16)?.toLong() }.toSet()
+    // "Le tue linee" comprende quelle che passano dalle tue fermate: la
+    // stella sulle linee quasi nessuno la mette, e senza questo la sezione
+    // in cima restava vuota proprio per chi ha stellato la fermata sotto
+    // casa — cioe' quasi tutti.
+    val mine = remember(favVersion, reader) {
+        dev.antigravity.fluidtransit.data.favorites.MyRoutes.hashes(
+            reader = reader,
+            starredRoutes = app.favorites.routes()
+                .mapNotNull { it.idHashHex.toULongOrNull(16)?.toLong() }.toSet(),
+            starredStops = app.favorites.stops().mapNotNull { s ->
+                s.idHashHex.toULongOrNull(16)?.toLong()
+                    ?.let { reader?.findStopByIdHash(it) }
+                    ?.takeIf { it >= 0 }
+            },
+        )
     }
 
     var round by remember { mutableStateOf(0) }
@@ -217,7 +230,8 @@ private fun AlertCard(
                 color = MaterialTheme.colorScheme.primary,
             )
         }
-        if (alert.description.isNotEmpty() && alert.description != alert.header) {
+        val corpo = AlertText.body(alert.description)
+        if (corpo.isNotEmpty() && corpo != alert.header) {
             // Ripiegata, con la porta per aprirla.
             //
             // Gli avvisi veri contengono l'elenco completo del percorso nuovo,
@@ -238,7 +252,7 @@ private fun AlertCard(
             var troncato by remember(alert) { mutableStateOf(false) }
             Spacer(Modifier.height(6.dp))
             Text(
-                text = alert.description,
+                text = corpo,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = if (aperto) Int.MAX_VALUE else 6,

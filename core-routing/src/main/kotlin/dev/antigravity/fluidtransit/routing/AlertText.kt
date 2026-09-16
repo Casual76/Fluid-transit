@@ -79,4 +79,40 @@ object AlertText {
 
     private fun nomeMese(t: ZonedDateTime): String =
         t.month.getDisplayName(java.time.format.TextStyle.FULL, Locale.ITALIAN)
+    /**
+     * Il testo di un avviso, senza le code del posto da cui viene.
+     *
+     * Gli avvisi di Autolinee Toscane nascono come messaggi social e ne
+     * portano i segni: cominciano con una riga di hashtag — "#at_Firenze" —
+     * e hanno righe vuote a raffica in mezzo. Messi in un sottotitolo
+     * tagliato a centoventi caratteri, il risultato era che le prime undici
+     * lettere che si leggevano di un avviso erano "#at_Firenze", e il
+     * contenuto cominciava dopo.
+     *
+     * Non si tocca altro: le emoji restano (il cantiere e il bus dicono
+     * qualcosa a colpo d'occhio) e le parole nemmeno si sfiorano.
+     */
+    fun body(raw: String): String {
+        var righe = raw.replace("\r", "").split("\n")
+        // Via le righe iniziali fatte solo di hashtag o vuote.
+        var da = 0
+        while (da < righe.size) {
+            val r = righe[da].trim()
+            if (r.isEmpty() || (r.startsWith("#") && !r.contains(" "))) da++ else break
+        }
+        righe = righe.drop(da)
+        // Due righe vuote di fila diventano una: il resto e' impaginazione.
+        val out = StringBuilder()
+        var vuote = 0
+        for (r in righe) {
+            if (r.isBlank()) {
+                vuote++
+                if (vuote > 1) continue
+            } else {
+                vuote = 0
+            }
+            out.append(r.trimEnd()).append('\n')
+        }
+        return out.toString().trim()
+    }
 }

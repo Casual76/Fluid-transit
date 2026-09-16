@@ -111,4 +111,38 @@ class AlertTextTest {
         assertEquals("Fino a 24 dicembre", AlertText.period(0, dicembre, now))
     }
 
+    @Test
+    fun `l'hashtag del gestore non e' la prima cosa che si legge`() {
+        // Gli avvisi di Autolinee Toscane nascono come messaggi social:
+        // cominciano con "#at_Firenze" e una riga vuota. In un sottotitolo
+        // tagliato a centoventi caratteri, le prime undici lettere di un
+        // avviso erano quelle.
+        val raw = "#at_Firenze\n\nDa martedi' la linea 17 cambia percorso."
+        assertEquals("Da martedi' la linea 17 cambia percorso.", AlertText.body(raw))
+    }
+
+    @Test
+    fun `un hashtag in mezzo al testo resta dov'e'`() {
+        val raw = "Sciopero venerdi'.\nInformazioni su #scioperi e altro."
+        assertTrue(AlertText.body(raw).contains("#scioperi"))
+    }
+
+    @Test
+    fun `le righe vuote a raffica diventano una`() {
+        val raw = "Prima.\n\n\n\nSeconda."
+        assertEquals("Prima.\n\nSeconda.", AlertText.body(raw))
+    }
+
+    @Test
+    fun `le emoji restano, perche' dicono qualcosa a colpo d'occhio`() {
+        val cantiere = "\uD83D\uDEA7"
+        val raw = "#at_Firenze\n\n$cantiere Lavori in via della Scala."
+        assertTrue(AlertText.body(raw).startsWith(cantiere), AlertText.body(raw))
+    }
+
+    @Test
+    fun `un avviso senza code torna identico`() {
+        val raw = "Deviazione in via Nazionale fino a stasera."
+        assertEquals(raw, AlertText.body(raw))
+    }
 }

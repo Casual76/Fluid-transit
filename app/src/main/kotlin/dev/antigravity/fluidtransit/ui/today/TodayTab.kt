@@ -98,11 +98,21 @@ fun TodayTab(
     val departures = board.rows
 
     // Gli avvisi delle TUE linee (piu' quelli di rete, che riguardano tutti).
+    //
+    // "Tue" comprende le linee che passano dalle tue fermate, non solo quelle
+    // con la stella: la stella sulle linee quasi nessuno la mette, e senza
+    // questo la scheda diceva "nessun avviso sulle tue linee" con un avviso
+    // in corso proprio sulla linea della fermata sotto casa.
     val alerts by produceState(
         initialValue = emptyList<dev.antigravity.fluidtransit.data.rt.GtfsRtLite.RtAlert>(),
-        favVersion,
+        favVersion, stopIndexes, ready?.buildId,
     ) {
-        val mine = favRoutes.mapNotNull { it.idHashHex.toULongOrNull(16)?.toLong() }.toSet()
+        val mine = dev.antigravity.fluidtransit.data.favorites.MyRoutes.hashes(
+            reader = ready?.reader,
+            starredRoutes = favRoutes.mapNotNull { it.idHashHex.toULongOrNull(16)?.toLong() }
+                .toSet(),
+            starredStops = stopIndexes,
+        )
         val all = app.realtime.fetchAlerts()
         val now = Instant.now().epochSecond
         // Anche quelli di domani.
@@ -343,16 +353,44 @@ fun TodayTab(
         // Qui ne stanno tre, con la porta per gli altri: sei avvisi tagliati a
         // 220 caratteri in fondo alla giornata erano tanto testo e poca
         // informazione, e non c'era modo di leggerne uno per intero.
+        // La porta per gli avvisi c'e' SEMPRE, anche quando non ce n'e'
+        // nessuno sulle tue linee.
+        //
+        // Prima la sezione compariva solo con almeno un avviso, e la
+        // schermata degli avvisi — l'unica che risponde a "c'e' uno
+        // sciopero?" — non si poteva raggiungere da nessuna parte: ne' da
+        // Impostazioni, ne' dalla mappa. Restava un indirizzo interno che
+        // sapeva solo chi aveva scritto l'app. E il filtro qui e' sulle TUE
+        // linee, mentre la schermata li mostra tutti: il caso "niente sulle
+        // tue, ma qualcosa in giro" e' esattamente quello in cui la porta
+        // serve di piu'.
+        item { FluidSectionTitle(eyebrow = "Avvisi", title = "Sulle tue linee") }
+        if (alerts.isEmpty()) {
+            item {
+                FluidListGroup {
+                    FluidListRow(
+                        title = "Nessun avviso sulle tue linee",
+                        subtitle = "Apri per vedere quelli di tutta la Toscana",
+                        onClick = onOpenAlerts,
+                    )
+                }
+            }
+        }
         if (alerts.isNotEmpty()) {
-            item { FluidSectionTitle(eyebrow = "Avvisi", title = "Sulle tue linee") }
             item {
                 FluidListGroup {
                     for (a in alerts.take(3)) {
                         FluidListRow(
                             title = a.header.ifEmpty { "Avviso di servizio" },
+                            // Il periodo se c'e'; altrimenti l'inizio del
+                            // testo, ripulito dalla riga di hashtag con cui
+                            // il gestore comincia i suoi messaggi: le prime
+                            // undici lettere che si leggevano erano
+                            // "#at_Firenze".
                             subtitle = dev.antigravity.fluidtransit.routing.AlertText
                                 .period(a.startEpoch, a.endEpoch, Instant.now().epochSecond)
-                                ?: a.description.take(120),
+                                ?: dev.antigravity.fluidtransit.routing.AlertText
+                                    .body(a.description).take(120),
                             onClick = onOpenAlerts,
                         )
                     }

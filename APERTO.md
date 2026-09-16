@@ -205,15 +205,21 @@ che pulsa e alle parole. Fatto, e verificato su tre bus veri.
 — deciso e fatto il 16/09/2026
 
 
-**L'ANR sull'emulatore non e' dell'app.** Provando i widget e' comparso
-"Fluid Transit isn't responding", motivo `No response to onStartJob`. La
-traccia dice dove: il thread principale era fermo dentro
-`HardwareRenderer.setStopped`, in attesa del RenderThread, che a sua volta
-stava compilando programmi GL (`GrGLProgramBuilder::CreateProgram`) attraverso
-la pipe dell'emulatore. E' la lentezza della GL emulata al primo disegno, non
-un blocco nostro: sul telefono vero le stesse schermate si disegnano senza
-questa attesa. Scritto qui perche' la prossima volta che compare non venga
-inseguito nel codice dell'app. — diagnosticato il 16/09/2026
+**L'ANR all'avvio: era il widget, e adesso non c'e' piu'.** Sull'emulatore
+comparivano "Fluid Transit isn't responding" a ogni avvio a freddo, motivo
+`No response to onStartJob`. Le tracce dicono che il thread principale non
+era bloccato da noi: una volta era dentro `HardwareRenderer.setStopped` in
+attesa del RenderThread che compilava shader GL attraverso la pipe
+dell'emulatore, un'altra era dentro la prima composizione. Ma il lavoro di
+sistema che non riusciva a partire era nostro: all'avvio l'app ridisegnava
+subito i due widget e programmava il loro rinfresco, cioe' ricostruiva due
+tabelloni e consegnava dei RemoteViews proprio mentre quel thread stava
+disegnando la prima schermata. Ora quel blocco aspetta quattro secondi.
+Misurato dopo: due avvii a freddo, zero ANR (prima capitava quasi sempre).
+L'avvio resta lento sull'emulatore — 9,5 e 12,2 secondi al primo
+fotogramma, con GL software e build di debug non ottimizzata — e quel
+numero non dice niente su un telefono vero.
+— diagnosticato e corretto il 16/09/2026
 
 ## Deciso di non fare
 

@@ -292,9 +292,14 @@ fun StopPanelContent(
         // ancora stato: e' diverso da "non passa niente", e dirlo sbagliato
         // e' il difetto che i Preferiti avevano da sempre.
         board.computedAtEpoch == 0L -> {
-            Spacer(Modifier.height(20.dp))
-            Row(modifier = Modifier.padding(horizontal = 20.dp)) { FluidSpinner() }
-            Spacer(Modifier.height(24.dp))
+            // Le sagome delle righe che stanno per arrivare, con le stesse
+            // misure: quando i numeri compaiono non salta niente, perche'
+            // occupavano gia' quello spazio.
+            dev.antigravity.fluidtransit.ui.common.DepartureSkeleton(
+                rows = 3,
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+            Spacer(Modifier.height(8.dp))
         }
 
         board.rows.isEmpty() -> {

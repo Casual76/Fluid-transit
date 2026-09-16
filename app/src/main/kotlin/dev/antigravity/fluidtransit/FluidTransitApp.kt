@@ -363,6 +363,18 @@ class FluidTransitApp : Application() {
         // esplicito, o cambiare accento non si vede sulla home. E un
         // updateAll all'avvio rinfresca gli orari mostrati.
         applicationScope.launch {
+            // Ma non SUBITO: l'avvio dell'app e' il momento peggiore.
+            //
+            // Ridisegnare un widget vuol dire ricostruirgli il tabellone —
+            // aspettare il bundle, chiedere i ritardi — e poi consegnare i
+            // RemoteViews, che arrivano a destinazione sul thread principale.
+            // All'avvio quel thread sta gia' componendo la prima schermata,
+            // e sull'emulatore si e' visto il conto: tre "Fluid Transit isn't
+            // responding" di fila, tutti con motivo "No response to
+            // onStartJob", cioe' un lavoro di sistema che non riusciva a
+            // partire. Il widget sta sulla home da cui si e' appena usciti:
+            // quattro secondi piu' tardi non se ne accorge nessuno.
+            kotlinx.coroutines.delay(AVVIO_WIDGET_MS)
             runCatching {
                 dev.antigravity.fluidtransit.ui.widget.StopWidget().updateAll(this@FluidTransitApp)
                 dev.antigravity.fluidtransit.ui.widget.RoutineWidget().updateAll(this@FluidTransitApp)
@@ -556,6 +568,9 @@ class FluidTransitApp : Application() {
     }
 
     companion object {
+        /** Quanto si aspetta, all'avvio, prima di toccare i widget. */
+        private const val AVVIO_WIDGET_MS = 4_000L
+
         const val MANIFEST_URL =
             "https://raw.githubusercontent.com/Casual76/Fluid-transit/main/manifest.json"
     }

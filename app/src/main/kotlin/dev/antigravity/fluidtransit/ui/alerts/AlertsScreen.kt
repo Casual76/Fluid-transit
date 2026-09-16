@@ -130,7 +130,15 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
         },
     ) {
         if (esito == null) {
-            item { dev.antigravity.fluidengine.ui.fluid.FluidLoadingBlock() }
+            // Le sagome di quello che sta arrivando, invece di una rotellina
+            // in mezzo a una pagina bianca: gli avvisi ci mettono qualche
+            // secondo a scaricarsi, e per tutto quel tempo la schermata non
+            // diceva nemmeno che forma avra'.
+            item {
+                dev.antigravity.fluidtransit.ui.common.CardSkeleton(lines = 3)
+                dev.antigravity.fluidtransit.ui.common.CardSkeleton(lines = 2)
+                dev.antigravity.fluidtransit.ui.common.CardSkeleton(lines = 4)
+            }
             return@FluidScreen
         }
         if (alerts == null) {

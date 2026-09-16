@@ -204,8 +204,8 @@ class LiveFromPredictionsTest {
     @Test
     fun `una corsa con previsioni e' per definizione seguita`() {
         val l = live(trip(point(1, 60)))
-        assertTrue(l.monitored(tripIndex = 7))
-        assertTrue(!l.monitored(tripIndex = 99))
+        assertTrue(l.monitored(tripIndex = 7, nowEpoch = now))
+        assertTrue(!l.monitored(tripIndex = 99, nowEpoch = now))
     }
 
     // ------------------------------------------------------- casi al limite
@@ -221,5 +221,19 @@ class LiveFromPredictionsTest {
         val l = live(trip(point(-1, 900), point(2, 60)))
         assertEquals(60, l.at(7, 1, 10, now)!!.delaySeconds)
         assertEquals(Certainty.DECLARED, l.at(7, 1, 10, now)!!.certainty)
+    }
+
+    @Test
+    fun `col feed fermo la corsa smette di risultare seguita`() {
+        // Misurato il 16/09: l'origine ferma da diciotto minuti. Il ritardo
+        // si buttava (giusto), ma "il mezzo e' in strada" restava scritto —
+        // e nello stesso istante la mappa aveva gia' tolto i bus, perche' li
+        // nasconde dopo tre minuti di feed fermo. Due superfici, due
+        // risposte, lo stesso dato vecchio.
+        val fresco = live(trip(point(1, 60)), feedTs = now - 60)
+        assertTrue(fresco.monitored(tripIndex = 7, nowEpoch = now))
+
+        val vecchio = live(trip(point(1, 60)), feedTs = now - 20 * 60)
+        assertTrue(!vecchio.monitored(tripIndex = 7, nowEpoch = now))
     }
 }

@@ -130,8 +130,22 @@ class LiveFromPredictions(
         return r.trip.points.any { it.stopSeq == targetSeq && it.skipped }
     }
 
-    override fun monitored(tripIndex: Int): Boolean =
-        tripIndex in withVehicle || byTrip.containsKey(tripIndex)
+    /**
+     * "Il mezzo e' in strada" scade come scade il ritardo.
+     *
+     * Quando l'origine si ferma — misurato il 16/09: diciotto minuti in
+     * piena mattina — il ritardo si butta dopo dieci minuti perche' non
+     * descrive piu' il presente. Ma la stessa lettura diceva anche che la
+     * corsa era seguita, e quella frase restava: la mappa aveva gia' tolto i
+     * bus (li nasconde dopo tre minuti di feed fermo) e il tabellone, nello
+     * stesso istante, scriveva ancora "il mezzo e' in strada".
+     */
+    override fun monitored(tripIndex: Int, nowEpoch: Long): Boolean {
+        if (feedTimestamp > 0 && nowEpoch - feedTimestamp > STALE_SECONDS) {
+            return fallback.monitored(tripIndex, nowEpoch)
+        }
+        return tripIndex in withVehicle || byTrip.containsKey(tripIndex)
+    }
 
     private fun lastAtOrBefore(points: List<RtPrediction>, seq: Int): RtPrediction? {
         // I punti arrivano in ordine di sequenza dal proxy: si scorre. Sono

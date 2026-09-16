@@ -52,7 +52,7 @@ class DeparturesTest {
 
         override fun canceled(tripIndex: Int) = tripIndex in canceled
         override fun skipped(tripIndex: Int, position: Int) = (tripIndex to position) in skippedAt
-        override fun monitored(tripIndex: Int) = tripIndex in monitored
+        override fun monitored(tripIndex: Int, nowEpoch: Long) = tripIndex in monitored
     }
 
     // --------------------------------------------------------- senza il vivo

@@ -208,6 +208,7 @@ class DepartureBoards(private val app: FluidTransitApp) {
             delays = app.delayModel,
             canceled = app.canceledTrips.value,
             withVehicle = app.tripsWithVehicle.value,
+            vehiclesFeedTimestamp = app.realtime.vehicles.value?.feedTimestamp ?: 0L,
         )
         val grezzo = app.realtime.predictions.value ?: return base
         val gia = app.livePredictions.value

@@ -143,7 +143,7 @@ class RouteInfo(
                 // ritardo": una corsa monitorata e puntuale ha ritardo zero.
                 val tripLive = nextTrip >= 0 &&
                     (
-                        live?.monitored(nextTrip) == true ||
+                        live?.monitored(nextTrip, now.epochSecond) == true ||
                             live?.at(nextTrip, 0, n, now.epochSecond) != null
                         )
 

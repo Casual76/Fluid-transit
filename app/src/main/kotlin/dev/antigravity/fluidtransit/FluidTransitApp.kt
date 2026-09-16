@@ -501,6 +501,7 @@ class FluidTransitApp : Application() {
                             delays = delayModel,
                             canceled = canceledTrips.value,
                             withVehicle = tripsWithVehicle.value,
+                            vehiclesFeedTimestamp = realtime.vehicles.value?.feedTimestamp ?: 0L,
                         ),
                         canceledTrips = canceledTrips.value,
                         withVehicle = tripsWithVehicle.value,

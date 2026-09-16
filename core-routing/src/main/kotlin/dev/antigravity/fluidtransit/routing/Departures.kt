@@ -82,8 +82,14 @@ interface LiveTimes {
      *
      * Diverso da "ha un ritardo": una corsa monitorata e puntuale ha ritardo
      * zero, ed e' un'informazione migliore di nessuna informazione.
+     *
+     * Vuole l'istante per la stessa ragione per cui lo vuole [at]: quando il
+     * feed si ferma, il ritardo si butta perche' e' vecchio — e allora anche
+     * "il mezzo e' in strada" e' vecchio. Senza questo, con l'origine ferma
+     * da un quarto d'ora, la mappa aveva gia' tolto i bus e il tabellone
+     * continuava a dire che il mezzo era in viaggio.
      */
-    fun monitored(tripIndex: Int): Boolean = false
+    fun monitored(tripIndex: Int, nowEpoch: Long): Boolean = false
 }
 
 /** Una partenza, con tutto quello che serve a mostrarla. */
@@ -207,7 +213,7 @@ object Departures {
                 certainty = usable?.certainty,
                 canceled = live?.canceled(d.tripIndex) ?: false,
                 skipped = false,
-                monitored = live?.monitored(d.tripIndex) ?: false,
+                monitored = live?.monitored(d.tripIndex, nowEpoch) ?: false,
                 line = reader.routeShortName(d.routeIndex)
                     .ifEmpty { reader.routeLongName(d.routeIndex) },
                 destination = reader.patternDestination(d.patternIndex),

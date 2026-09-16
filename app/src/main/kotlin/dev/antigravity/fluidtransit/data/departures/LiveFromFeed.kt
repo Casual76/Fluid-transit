@@ -23,6 +23,13 @@ class LiveFromFeed(
     private val delays: DelayModel,
     private val canceled: Set<Int>,
     private val withVehicle: Set<Int>,
+    /**
+     * Il timestamp del feed dei mezzi, per far scadere "e' in strada".
+     *
+     * Zero vuol dire "non lo so": in quel caso non si fa scadere niente, che
+     * e' come si comportava prima.
+     */
+    private val vehiclesFeedTimestamp: Long = 0L,
 ) : LiveTimes {
 
     override fun at(tripIndex: Int, position: Int, stopCount: Int, nowEpoch: Long): LiveTimes.At? {
@@ -47,7 +54,15 @@ class LiveFromFeed(
      */
     override fun skipped(tripIndex: Int, position: Int): Boolean = false
 
-    override fun monitored(tripIndex: Int): Boolean = tripIndex in withVehicle
+    /** Come il ritardo: una lettura vecchia non dice dov'e' il mezzo adesso. */
+    override fun monitored(tripIndex: Int, nowEpoch: Long): Boolean {
+        if (vehiclesFeedTimestamp > 0 &&
+            nowEpoch - vehiclesFeedTimestamp > LiveFromPredictions.STALE_SECONDS
+        ) {
+            return false
+        }
+        return tripIndex in withVehicle
+    }
 
     private fun DelayModel.Confidence.asCertainty(): Certainty = when (this) {
         DelayModel.Confidence.SERVED -> Certainty.SERVED

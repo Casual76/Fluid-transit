@@ -75,26 +75,6 @@ esattamente quello che ordina il nostro cron. Chi conoscesse l'URL non
 ottiene una leva su qualcun altro, solo su di noi, e nemmeno tanta.
 — aperto dal 15/09/2026, ridotto il 16/09/2026
 
-**La cache dei tabelloni non butta mai niente.** `DepartureBoards` tiene una
-`ConcurrentHashMap` da chiave (fermate, limite, orizzonte) a flusso, e non
-toglie mai una riga. "Qui intorno" fabbrica una chiave nuova ogni volta che ci
-si sposta di duecento metri, quindi girando per la regione le chiavi si
-accumulano per tutta la vita del processo. Non e' un difetto che si vede — un
-tabellone da dodici righe sono pochi kilobyte — ma e' senza tetto. Un tetto
-fatto male sarebbe peggio del difetto: togliere un flusso che qualcuno sta
-ancora guardando vuol dire che il prossimo che chiede la stessa fermata ne
-crea un secondo, e due flussi sulla stessa fermata sono esattamente la cosa
-che questa classe esiste per impedire.
-
-Provato a pensarlo con i riferimenti deboli, che sarebbe la soluzione
-elegante: **non funziona.** Il flusso lo tiene vivo la coroutine che
-`stateIn` lancia nello scope dell'Application, e quella coroutine non finisce
-mai — `WhileSubscribed` la lascia in attesa di iscritti per sempre. Quindi il
-riferimento debole non si svuota mai e il tetto non scatta. Per farlo davvero
-bisogna contare gli iscritti per chiave, come la classe fa gia' per il giro
-dei ritardi, e cancellare la coroutine quando restano a zero da un po'.
-— letto il 16/09/2026
-
 **Il Cron Trigger di Cloudflare non e' un metronomo.** `crons = ["* * * * *"]`
 è configurato, ma `/rt/v1/health` ha riportato battiti a 26 minuti e a 102
 minuti di distanza. Non fa danni — il refresh pigro e quello bloccante coprono

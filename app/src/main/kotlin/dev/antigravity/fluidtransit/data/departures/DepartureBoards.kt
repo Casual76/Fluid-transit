@@ -94,7 +94,43 @@ class DepartureBoards(private val app: FluidTransitApp) {
 
     // --------------------------------------------------------------- interni
 
-    private fun flowFor(key: Key): StateFlow<DepartureBoard> = cache.getOrPut(key) {
+    /**
+     * I tabelloni che nessuno guarda piu' si buttano.
+     *
+     * La cache non toglieva mai una riga, e "qui intorno" ne fabbrica una
+     * nuova ogni volta che ci si sposta di duecento metri: girando per la
+     * regione le chiavi si accumulavano per tutta la vita del processo. Non
+     * si vedeva — un tabellone da dodici righe sono pochi kilobyte — ma non
+     * aveva tetto.
+     *
+     * Chi guarda non si conta: lo dice gia' il tabellone. Un flusso vivo si
+     * ricalcola a ogni battito dell'orologio, cioe' ogni dieci secondi, e
+     * `computedAtEpoch` e' l'ora dell'ultimo ricalcolo; un flusso che nessuno
+     * collezona smette di ricalcolarsi — e' `WhileSubscribed` a fermarlo — e
+     * quel numero resta indietro. Cinque minuti di ritardo vogliono dire che
+     * nessuno guarda quel tabellone da cinque minuti.
+     *
+     * Il riferimento debole, che sarebbe la soluzione elegante, non
+     * funzionerebbe: il flusso lo tiene vivo la coroutine che `stateIn`
+     * lancia nello scope dell'Application, e quella non finisce mai.
+     */
+    private fun evictStale() {
+        val nowEpoch = System.currentTimeMillis() / 1000
+        val it = cache.entries.iterator()
+        while (it.hasNext()) {
+            val computedAt = it.next().value.value.computedAtEpoch
+            if (computedAt > 0 && nowEpoch - computedAt > IDLE_SECONDS) it.remove()
+        }
+    }
+
+    private fun flowFor(key: Key): StateFlow<DepartureBoard> {
+        // Solo quando si crea una chiave nuova: e' li' che la cache cresce, e
+        // una passata su qualche decina di voci non costa niente.
+        if (!cache.containsKey(key)) evictStale()
+        return cacheFlow(key)
+    }
+
+    private fun cacheFlow(key: Key): StateFlow<DepartureBoard> = cache.getOrPut(key) {
         combine(
             app.bundleManager.state,
             UiClock.ticks(),
@@ -220,5 +256,15 @@ class DepartureBoards(private val app: FluidTransitApp) {
          * chiederebbero byte che non sono cambiati.
          */
         const val POLL_MS = 30_000L
+
+        /**
+         * Da quanto un tabellone deve essere fermo per essere buttato.
+         *
+         * Cinque minuti: un flusso vivo si ricalcola ogni dieci secondi,
+         * quindi cinque minuti di fermo sono trenta battiti mancati. Largo
+         * abbastanza da non buttare mai niente che qualcuno stia guardando,
+         * stretto abbastanza da non tenere in giro una giornata di panoramiche.
+         */
+        const val IDLE_SECONDS = 300L
     }
 }

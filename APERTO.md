@@ -172,6 +172,19 @@ oppure dare a ogni app un nome di permesso suo. Va deciso li' e committato
 nel repo dell'engine: il codice dentro `engine/` non e' codice di quest'app.
 — diagnosticato il 16/09/2026
 
+**Da decidere con Alessio: il verde di un ritardo grosso.** Nella capsula di
+un bus vivo si legge "+33 min di ritardo" in VERDE, col pallino verde
+accanto. Il verde qui vuol dire "lo dice il mezzo" — e' la provenienza, non
+un giudizio — ed e' una scelta scritta e deliberata (`toneColor`: "ESTIMATED
+non e' verde: il verde vuol dire 'lo dice il mezzo'"). Ma chiunque legga un
+numero verde ci legge "tutto bene", e mezz'ora di ritardo non e' tutto bene.
+
+Le strade sono due e sono tutt'e due un cambio di linguaggio visivo, quindi
+non si prendono da soli: o il colore del testo passa a dire la puntualita'
+(e allora la provenienza resta solo al pallino), oppure il verde resta la
+provenienza e il ritardo grosso si segnala in un altro modo. Visto sul
+telefono il 16/09 sulla linea 23. — da decidere
+
 ## Deciso di non fare
 
 **ktlint o detekt.** Il piano li chiedeva, con "un commit di riformattazione

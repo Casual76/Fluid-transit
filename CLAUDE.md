@@ -314,4 +314,14 @@ quando una riga si chiude.
   conteggi delle previsioni per fermata.
 - **Impostazioni -> Stato dei dati** nell'app: validita' del bundle, sorgente
   realtime, percentuale di corse riconosciute, stato dei luoghi.
+
+La catena dal feed al telefono e' controllata in due punti, e servono
+tutt'e due: il **banco di fedelta'** (`worker/tools/fedelta.mjs`, notturno)
+confronta ritardo per ritardo l'origine della Regione con quello che il
+proxy serve, e la riga **"Previsioni agganciate"** dello stato dei dati dice
+quante di quelle previsioni l'app riesce davvero ad attaccare alla corsa e
+alla fermata giuste. Il primo copre il tratto fuori, la seconda il tratto
+dentro; la regola di propagazione in mezzo ha i suoi test in
+`LiveFromPredictionsTest`. Chi cerca "i nostri numeri sono quelli della
+fonte?" guarda questi tre, non l'app.
 - `index.json` della release `dati`: cosa sta servendo l'app in questo momento.

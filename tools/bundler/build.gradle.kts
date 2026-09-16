@@ -56,6 +56,19 @@ tasks.register<JavaExec>("matchshapes") {
     maxHeapSize = "2g"
 }
 
+// Gli invarianti del motore dei viaggi, sul bundle appena costruito.
+//
+// I test di :core-routing girano su una rete di prova con quattro fermate.
+// Un bundle sbagliato — un profilo con gli offset fuori ordine, un pattern
+// senza fermate — si vede solo su quello vero, e si vede qui.
+tasks.register<JavaExec>("raptorcheck") {
+    group = "verification"
+    description = "Pianifica viaggi a caso sul bundle e controlla gli invarianti."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "dev.antigravity.fluidtransit.bundler.RaptorCheckKt"
+    maxHeapSize = "2g"
+}
+
 tasks.test {
     useJUnitPlatform()
 }

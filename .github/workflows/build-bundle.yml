@@ -242,6 +242,18 @@ jobs:
       - name: Test di formato
         run: ./gradlew --no-daemon :core-routing:test --console=plain
 
+      # Gli invarianti del motore dei viaggi, sul bundle appena costruito.
+      #
+      # I test di :core-routing girano su una rete di prova con quattro
+      # fermate: dicono che il motore fa la cosa giusta quando la rete e'
+      # quella. Un bundle sbagliato — un profilo con gli offset fuori
+      # ordine, un pattern senza fermate — si vede solo su quello vero.
+      - name: Invarianti del motore, sul bundle vero
+        run: |
+          ./gradlew --no-daemon :bundler:raptorcheck --console=plain \
+            --args="$GITHUB_WORKSPACE/work/toscana.ftb 120" | tee work/raptor.log
+          grep -q "TUTTI GLI INVARIANTI PASSATI" work/raptor.log
+
       - name: Gate volumetrici contro il build precedente
         env:
           IGNORA_GATE: ${{ inputs.ignora_gate }}

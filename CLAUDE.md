@@ -223,6 +223,7 @@ riscritta in casa da qualcuno, la copia e' divergita:
 | `DepartureText.empty` | un tabellone senza righe: le cinque ragioni, distinte |
 | `FidelityText` | il confronto con la fonte |
 | `BundleFailure` (in `:app`) | perche' gli orari non sono arrivati, senza inglese |
+| `TripProgress` | dov'e' arrivato un mezzo: qual e' la sua prossima fermata |
 
 Se serve una frase che una di queste quasi dice, si cambia quella: una seconda
 copia scritta in casa e' come nascono i difetti che si vedono solo in una
@@ -247,6 +248,15 @@ lontana e' in media 78 s e supera il minuto su un terzo delle corse — cioe'
 la scheda e l'itinerario dicevano due orari diversi per lo stesso bus.
 Chiunque aggiunga una superficie che mostra orari chiede a `LiveTimes`: e' la
 stessa regola del vocabolario, applicata ai numeri invece che alle parole.
+
+**E anche "dov'e' arrivato" si chiede a uno solo.** `TripProgress` risponde a
+"qual e' la prossima fermata di questa corsa" per la scheda della corsa, per
+"sono su questo bus", per la navigazione a bordo e per l'assistente. La regola
+e' che il feed batte l'orologio quando parla — una corsa in anticipo ha le
+fermate servite mentre i loro orari di tabella sono ancora nel futuro — e che
+l'orologio decide quando il feed tace. Prima erano tre risposte diverse, e
+sullo stesso schermo la lista delle fermate e il tasto sotto ne indicavano due
+distinte.
 
 **E l'orologio e' uno solo.** `UiClock.ticks()` batte ogni dieci secondi
 allineato al muro, non all'istante in cui una schermata si e' aperta: due

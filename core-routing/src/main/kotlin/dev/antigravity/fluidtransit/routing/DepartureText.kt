@@ -321,11 +321,23 @@ object DepartureText {
      * "Prossimi passaggi · dal bus" ha senso solo se almeno una riga viene dal
      * feed; altrimenti promette una cosa che non c'e'.
      */
-    fun boardSource(board: DepartureBoard): String {
-        val dalBus = board.rows.count { it.fromFeed }
+    fun boardSource(board: DepartureBoard): String = boardSource(board.rows)
+
+    /**
+     * La stessa cosa, sulle righe che si vedono davvero.
+     *
+     * Il widget ne calcola cinque e ne disegna due o tre, a seconda di quanto
+     * e' grande: il piede riassumeva tutte e cinque. Sulla home, misurato:
+     * "Prossimi passaggi · in parte dal bus" sopra due righe che dicevano
+     * tutt'e due "orario da tabella". E' lo stesso difetto gia' corretto nel
+     * pannello di una fermata, ripetuto dove le righe nascoste non sono
+     * nemmeno scorrevoli.
+     */
+    fun boardSource(rows: List<NextDeparture>): String {
+        val dalBus = rows.count { it.fromFeed }
         return when {
-            board.rows.isEmpty() -> "orari da tabella"
-            dalBus == board.rows.size -> "dal bus"
+            rows.isEmpty() -> "orari da tabella"
+            dalBus == rows.size -> "dal bus"
             // Il caso di mezzo, che prima diceva "dal bus" e basta.
             //
             // Con dieci righe in memoria e sei a schermo, bastava che una
@@ -335,7 +347,7 @@ object DepartureText {
             // centimetri di distanza: e' esattamente il genere di cosa che fa
             // dire che l'app non si spiega.
             dalBus > 0 -> "in parte dal bus"
-            board.rows.any { it.live } -> "stimati"
+            rows.any { it.live } -> "stimati"
             else -> "orari da tabella"
         }
     }

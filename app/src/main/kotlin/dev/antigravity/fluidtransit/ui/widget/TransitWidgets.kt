@@ -167,7 +167,12 @@ class StopWidget : GlanceAppWidget() {
                         // Un widget dice sempre di quando sono i suoi
                         // numeri con le stesse parole del resto dell'app:
                         // e' l'unico posto dove l'utente non puo' chiedere.
-                        else -> "Prossimi passaggi · " + DepartureText.boardSource(board)
+                        // Sulle righe che si vedono, non su quelle
+                        // calcolate: il widget ne chiede cinque e ne disegna
+                        // due o tre, e il piede prometteva "in parte dal bus"
+                        // sopra due righe che dicevano "orario da tabella".
+                        else -> "Prossimi passaggi · " +
+                            DepartureText.boardSource(rows.orEmpty().take(layout.rowLimit))
                     },
                 )
                 Spacer(GlanceModifier.height(if (layout.compact) 6.dp else 8.dp))
@@ -283,12 +288,34 @@ class RoutineWidget : GlanceAppWidget() {
         val settings = app.settingsStore.current()
         val palette = engineWidgetPalette(context, settings, TransitBrand)
 
-        val today = LocalDate.now(Ftb.ROME).dayOfWeek.value
+        val oggi = LocalDate.now(Ftb.ROME)
+        val today = oggi.dayOfWeek.value
         val routines = dev.antigravity.fluidtransit.data.routines.Routines(context).list()
         val todayRoutine = routines.firstOrNull { it.enabled && today in it.days }
-        val adviceToday = todayRoutine != null && todayRoutine.lastAdviceEpoch > 0 &&
+        val adesso = Instant.now().epochSecond
+
+        // Un consiglio vale finche' non e' passata l'ora di uscire.
+        //
+        // `lastAdviceEpoch` e' l'ora in cui USCIRE, non l'ora in cui il
+        // consiglio e' stato calcolato: bastava che fosse di oggi perche' il
+        // widget lo tenesse in vetrina fino a mezzanotte. Visto sulla home
+        // alle 09:47: "Esci alle 07:25 — linea 23 alle 07:28", scritto come
+        // se fosse la cosa da fare adesso, sotto una riga che prometteva
+        // "coi ritardi live di adesso". Due ore e mezza prima era vero.
+        //
+        // Cinque minuti di grazia: chi guarda il telefono appena dopo essere
+        // uscito vuole ancora vedere qual era il piano.
+        val consiglioValido = todayRoutine != null && todayRoutine.lastAdviceEpoch > 0 &&
             Instant.ofEpochSecond(todayRoutine.lastAdviceEpoch).atZone(Ftb.ROME)
-                .toLocalDate() == LocalDate.now(Ftb.ROME)
+                .toLocalDate() == oggi &&
+            adesso <= todayRoutine.lastAdviceEpoch + GRAZIA_CONSIGLIO_S
+
+        // L'ora della routine di oggi: serve a distinguere "il consiglio deve
+        // ancora arrivare" da "per oggi e' andata", che prima erano la stessa
+        // frase.
+        val ancoraOggi = todayRoutine != null &&
+            adesso < oggi.atStartOfDay(Ftb.ROME)
+                .plusMinutes(todayRoutine.anchorMinutes.toLong()).toEpochSecond()
 
         provideContent {
             val layout = resolveEngineWidgetLayout(LocalSize.current, hasFooter = false)
@@ -315,9 +342,12 @@ class RoutineWidget : GlanceAppWidget() {
                             layout = layout,
                         )
 
-                        adviceToday -> EngineWidgetRow(
+                        consiglioValido -> EngineWidgetRow(
                             title = todayRoutine.lastAdviceText.ifEmpty { "Calcolo in corso" },
-                            subtitle = "coi ritardi live di adesso",
+                            // Non "di adesso": un consiglio si calcola tre
+                            // quarti d'ora prima, e quei ritardi erano di
+                            // allora.
+                            subtitle = "calcolato coi ritardi live",
                             palette = palette,
                             layout = layout,
                             tone = palette.primaryTone,
@@ -326,9 +356,16 @@ class RoutineWidget : GlanceAppWidget() {
                             ).let { "%02d:%02d".format(it.hour, it.minute) },
                         )
 
-                        else -> EngineWidgetRow(
+                        ancoraOggi -> EngineWidgetRow(
                             title = "Il consiglio arriva da solo",
                             subtitle = "circa 45 minuti prima dell'orario",
+                            palette = palette,
+                            layout = layout,
+                        )
+
+                        else -> EngineWidgetRow(
+                            title = "Per oggi e' andata",
+                            subtitle = "il prossimo consiglio al prossimo giorno della routine",
                             palette = palette,
                             layout = layout,
                         )
@@ -336,5 +373,10 @@ class RoutineWidget : GlanceAppWidget() {
                 }
             }
         }
+    }
+
+    private companion object {
+        /** Quanto un consiglio resta in vetrina dopo l'ora di uscire. */
+        const val GRAZIA_CONSIGLIO_S = 5 * 60L
     }
 }

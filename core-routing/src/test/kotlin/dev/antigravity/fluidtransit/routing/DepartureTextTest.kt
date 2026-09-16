@@ -222,6 +222,20 @@ class DepartureTextTest {
         assertEquals("orari da tabella", DepartureText.boardSource(board()))
     }
 
+    @Test
+    fun `il riassunto guarda le righe che si vedono, non quelle calcolate`() {
+        // Il widget ne calcola cinque e ne disegna due: il piede riassumeva
+        // tutte e cinque, e sulla home si leggeva "in parte dal bus" sopra
+        // due righe che dicevano tutt'e due "orario da tabella".
+        val righe = listOf(
+            row(300),
+            row(600),
+            row(900, delay = 60, certainty = Certainty.DECLARED),
+        )
+        assertEquals("in parte dal bus", DepartureText.boardSource(righe))
+        assertEquals("orari da tabella", DepartureText.boardSource(righe.take(2)))
+    }
+
     // --------------------------------------- la stessa fermata, dall'altro lato
 
     @Test

@@ -211,6 +211,13 @@ fun TodayTab(
                     detail = "Stella una fermata o crea una routine da un viaggio: " +
                         "questa scheda diventa la tua giornata coi bus.",
                 )
+                Spacer(Modifier.height(12.dp))
+                // E il gesto si puo' anche fare, non solo leggere.
+                dev.antigravity.fluidengine.ui.fluid.FluidButton(
+                    text = "Apri la mappa",
+                    onClick = { onOpenOnMap(MapIntent.Home) },
+                    style = dev.antigravity.fluidengine.ui.fluid.FluidButtonStyle.Filled,
+                )
             }
         }
 

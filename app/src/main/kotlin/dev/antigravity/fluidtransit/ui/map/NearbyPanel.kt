@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -56,25 +57,21 @@ import androidx.compose.runtime.setValue
  * aprono tutte.
  */
 /**
- * L'invito ad accendere la posizione, al primo avvio.
+ * Una riga di vetro in fondo alla mappa, quando c'e' da dire una cosa sola.
  *
- * La prima cosa che l'app mostrava a chi la installa era la Toscana intera a
- * zoom 7,6: nessuna fermata (sono sotto la soglia di zoom), nessun passaggio,
- * nessuna riga che dica cosa fare. Una mappa vuota con una barra di ricerca
- * sopra e' esattamente il momento in cui un'app sembra non finita — e il
- * permesso della posizione, che e' quello che trasforma quella mappa in
- * "cosa passa qui sotto casa", non veniva mai chiesto: bisognava trovare da
- * soli il tasto tondo in basso a destra.
- *
- * Sta nello stesso posto della capsula "qui intorno" e sparisce da se'
- * appena c'e' qualcosa di meglio da dire: o si accende la posizione, o si
- * arriva a uno zoom in cui "qui intorno" ha un senso.
+ * Sta esattamente dove sta la capsula dei prossimi passaggi e ne prende il
+ * posto: sono risposte alla stessa domanda muta — "cosa c'e' qui?" — e due
+ * capsule impilate che si contraddicono sono peggio di nessuna.
  */
 @Composable
-fun LocationInviteCapsule(
+fun MapNoticeCapsule(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    detail: String,
     backdrop: GlassBackdropState,
-    onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    iconTint: Color? = null,
 ) {
     Row(
         modifier = modifier
@@ -84,33 +81,39 @@ fun LocationInviteCapsule(
                 shape = ContinuousCornerShape(FluidRadius.Card),
                 edge = GlassEdge.None,
             )
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                role = Role.Button,
-                onClickLabel = "Attiva la posizione",
-                onClick = onClick,
-            )
+            .let { m ->
+                if (onClick == null) {
+                    m
+                } else {
+                    m.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        role = Role.Button,
+                        onClickLabel = title,
+                        onClick = onClick,
+                    )
+                }
+            }
             .padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            imageVector = Icons.Rounded.NearMe,
+            imageVector = icon,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
+            tint = iconTint ?: MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(16.dp),
         )
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "Vedi cosa passa qui intorno",
+                text = title,
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = "Tocca per attivare la posizione",
+                text = detail,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

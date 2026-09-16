@@ -22,9 +22,11 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material.icons.rounded.Explore
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.LocationSearching
 import androidx.compose.material.icons.rounded.MyLocation
+import androidx.compose.material.icons.rounded.NearMe
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -777,6 +779,9 @@ fun MapScreen(
         val i = intent
         if (i == null || reader == null) return@LaunchedEffect
         when (i) {
+            // Arrivare qui era tutto quello che chiedeva.
+            MapIntent.Home -> Unit
+
             is MapIntent.Stop -> {
                 controller.exitRouteMode()
                 controller.setSelectedBus(null)
@@ -1736,6 +1741,25 @@ fun MapScreen(
         // capsula di una linea, con la ricerca aperta e in navigazione — e
         // in nessuno di quei momenti si cambia vista satellite.
         val comandiVisibili = panel == null && !searchOpen && !plannerOpen && !navActive
+        // Dove si sta guardando, dentro o fuori dalla zona coperta.
+        //
+        // Cinque chilometri di perdono: il confine di una regione non e' un
+        // rettangolo, e chi sta appena oltre merita la risposta normale — che
+        // per una fermata a due passi dal confine e' anche quella giusta.
+        val fuoriArea by produceState(false, reader) {
+            val r = reader
+            if (r == null) {
+                value = false
+                return@produceState
+            }
+            while (true) {
+                val p = dev.antigravity.fluidtransit.routing.Reference.point(
+                    controller.lastLocation(), controller.cameraCenter(),
+                )
+                value = p != null && !r.bounds.contains(p.first, p.second, 5_000.0)
+                kotlinx.coroutines.delay(2_000)
+            }
+        }
         // In bussola l'icona del tasto GIRA col nord: e' l'unica bussola
         // dell'app (quella di MapLibre in alto e' spenta). La scrittura di
         // stato avviene SOLO in bussola: fuori, aggiornare a ogni frame di
@@ -1823,16 +1847,44 @@ fun MapScreen(
             // intorno" voglia dire qualcosa, l'unica cosa utile da dire e'
             // come farglielo sapere.
             androidx.compose.animation.AnimatedVisibility(
-                visible = comandiVisibili && !locationGranted &&
+                visible = comandiVisibili && !fuoriArea && !locationGranted &&
                     cameraZoom < MapCatalog.NEARBY_MIN_ZOOM,
                 enter = androidx.compose.animation.fadeIn(),
                 exit = androidx.compose.animation.fadeOut(),
             ) {
-                LocationInviteCapsule(
+                MapNoticeCapsule(
+                    icon = Icons.Rounded.NearMe,
+                    title = "Vedi cosa passa qui intorno",
+                    detail = "Tocca per attivare la posizione",
+                    iconTint = MaterialTheme.colorScheme.primary,
                     backdrop = backdrop,
                     onClick = {
                         permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                     },
+                    modifier = Modifier
+                        .padding(top = 10.dp)
+                        .padding(horizontal = FluidTabBarDefaults.HorizontalMargin),
+                )
+            }
+            // Fuori dalla Toscana non c'e' niente da dire sui bus.
+            //
+            // "Qui intorno non passa niente a breve" e' la frase di una notte
+            // tranquilla, e la si leggeva identica a mille chilometri dalla
+            // zona coperta: succede a chi installa l'app in vacanza, a chi
+            // scende dal treno fuori regione, e a chiunque apra l'emulatore,
+            // che nasce a Mountain View. Una mappa vuota che dice che non
+            // passa niente fa pensare che l'app sia rotta, invece di dire una
+            // cosa semplicissima.
+            androidx.compose.animation.AnimatedVisibility(
+                visible = comandiVisibili && fuoriArea,
+                enter = androidx.compose.animation.fadeIn(),
+                exit = androidx.compose.animation.fadeOut(),
+            ) {
+                MapNoticeCapsule(
+                    icon = Icons.Rounded.Info,
+                    title = "Qui non ci sono i nostri orari",
+                    detail = "Fluid Transit copre la Toscana",
+                    backdrop = backdrop,
                     modifier = Modifier
                         .padding(top = 10.dp)
                         .padding(horizontal = FluidTabBarDefaults.HorizontalMargin),
@@ -1849,7 +1901,7 @@ fun MapScreen(
                 // a caso come se fossero le tue. Sotto lo zoom in cui si
                 // distinguono le strade, l'unica risposta onesta e' non
                 // rispondere: c'e' il mirino, ed e' li' accanto.
-                visible = comandiVisibili && reader != null &&
+                visible = comandiVisibili && !fuoriArea && reader != null &&
                     nearbyBoard.computedAtEpoch != 0L &&
                     cameraZoom >= MapCatalog.NEARBY_MIN_ZOOM,
                 enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it / 3 }) +

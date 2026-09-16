@@ -249,6 +249,71 @@ class BundleReader(file: File, private val verifyCrcOnFirstUse: Boolean = true) 
      * cinque riordinavano per distanza subito dopo; il quinto se n'era
      * dimenticato, ed era "Qui intorno".
      */
+    /**
+     * Il rettangolo dove questo bundle ha delle fermate.
+     *
+     * Serve a distinguere due cose che l'app diceva con la stessa frase:
+     * "qui intorno non passa niente a breve" e "qui non arriviamo". La
+     * seconda si vede appena si apre l'app fuori dalla Toscana — e succede
+     * davvero, non solo sull'emulatore: chi la installa in vacanza, chi
+     * scende dal treno a Bologna. Una mappa vuota che dice che non passa
+     * niente fa pensare che l'app sia rotta, invece di dire la verita', che
+     * e' molto piu' semplice.
+     *
+     * Si ricava dalle chiavi della griglia, non dalle fermate: sono poche
+     * migliaia di interi letti una volta sola, e la griglia esiste gia' per
+     * la ricerca spaziale.
+     */
+    class Bounds(
+        val minLat: Double,
+        val minLon: Double,
+        val maxLat: Double,
+        val maxLon: Double,
+    ) {
+        /**
+         * @param marginMeters quanto si perdona stando appena fuori: la
+         *   griglia e' grossolana e il confine di una regione non e' un
+         *   rettangolo, quindi a ridosso del bordo vale la risposta normale.
+         */
+        fun contains(lat: Double, lon: Double, marginMeters: Double = 0.0): Boolean {
+            val dLat = marginMeters / 111_320.0
+            val dLon = marginMeters /
+                (111_320.0 * Math.cos(Math.toRadians(lat))).coerceAtLeast(1.0)
+            return lat >= minLat - dLat && lat <= maxLat + dLat &&
+                lon >= minLon - dLon && lon <= maxLon + dLon
+        }
+    }
+
+    val bounds: Bounds by lazy {
+        val g = sec(Ftb.S_STOP_GRID)
+        val cellCount = g.getInt(0)
+        var minLatCell = Int.MAX_VALUE
+        var maxLatCell = Int.MIN_VALUE
+        var minLonCell = Int.MAX_VALUE
+        var maxLonCell = Int.MIN_VALUE
+        for (i in 0 until cellCount) {
+            val key = g.getLong(8 + i * 8)
+            val latCell = (key shr 32).toInt()
+            val lonCell = key.toInt()
+            if (latCell < minLatCell) minLatCell = latCell
+            if (latCell > maxLatCell) maxLatCell = latCell
+            if (lonCell < minLonCell) minLonCell = lonCell
+            if (lonCell > maxLonCell) maxLonCell = lonCell
+        }
+        if (cellCount == 0) {
+            Bounds(0.0, 0.0, 0.0, 0.0)
+        } else {
+            // Una cella copre da `cella` a `cella + 1`: il bordo superiore
+            // e' l'inizio della cella successiva.
+            Bounds(
+                minLat = minLatCell * Ftb.GRID_DEGREES,
+                minLon = minLonCell * Ftb.GRID_DEGREES,
+                maxLat = (maxLatCell + 1) * Ftb.GRID_DEGREES,
+                maxLon = (maxLonCell + 1) * Ftb.GRID_DEGREES,
+            )
+        }
+    }
+
     fun stopsNear(lat: Double, lon: Double, radiusMeters: Double): List<Int> {
         val g = sec(Ftb.S_STOP_GRID)
         val cellCount = g.getInt(0)

@@ -13,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -116,6 +117,15 @@ fun FavoritesTab(
                     title = "Niente di salvato, per ora",
                     detail = "La stella nelle schede di fermate e linee, e il tasto " +
                         "Salva su un luogo, portano tutto qui.",
+                )
+                androidx.compose.foundation.layout.Spacer(
+                    androidx.compose.ui.Modifier
+                        .height(12.dp),
+                )
+                dev.antigravity.fluidengine.ui.fluid.FluidButton(
+                    text = "Apri la mappa",
+                    onClick = { onOpenOnMap(MapIntent.Home) },
+                    style = dev.antigravity.fluidengine.ui.fluid.FluidButtonStyle.Filled,
                 )
             }
         }

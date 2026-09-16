@@ -11,17 +11,21 @@ Una riga esce da qui solo quando è risolta, o quando si è deciso e scritto
 
 ## Si vede
 
-**In orizzontale, con la tastiera aperta, la ricerca ha spazio per una riga.**
-Era per meno di una riga: la tastiera veniva sottratta due volte, una
-dall'altezza massima dell'elenco e una come spaziatura interna alla stessa
-scatola (vedi il commit del 16/09). Tolto il doppione, in verticale l'elenco
-e' passato da due righe e mezzo a otto, e in orizzontale da niente a una.
-Resta poco: schermo 411 dp, tastiera 265, e la barra di ricerca con la barra
-di stato e i margini prende il resto. La strada vera e' sempre quella —
-lasciare che la tastiera vada a schermo intero in orizzontale, com'e' il
-comportamento normale di Android quando l'app non lo impedisce — oppure fare
-della ricerca un pannello intero invece di una tendina sotto la barra.
-— riprovato il 16/09/2026
+**In orizzontale la ricerca mostra una riga sola, e per meta'.** Rimisurato il
+16/09 con lo schermo girato: si scrive "san", esce "SAN FREDIANO CESTELLO" e
+la tastiera gli passa sopra a meta' altezza. Il resto dello schermo e'
+sprecato in un altro modo ancora: la tenda della ricerca sta in una colonna
+centrale larga poco piu' di meta' schermo, e le due fasce ai lati mostrano
+la mappa che in quel momento non serve a niente.
+
+Le due strade sono tutt'e due un cambio di aspetto, e vanno decise con
+Alessio: o la ricerca in orizzontale diventa un pannello laterale a tutta
+altezza (la mappa resta a destra, l'elenco a sinistra, e le righe visibili
+diventano cinque o sei), oppure si lascia che la tastiera vada a schermo
+intero come fa Android quando un'app non glielo impedisce. Allargare e
+basta la tenda non serve: le righe stanno una sotto l'altra, e il problema
+e' l'altezza.
+— rimisurato il 16/09/2026
 
 **La camera della mappa NON riparte da capo cambiando scheda.** Era scritto
 qui come difetto; riprovato due volte, e' falso: si apre una fermata, si va su

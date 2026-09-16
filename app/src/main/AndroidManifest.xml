@@ -20,8 +20,19 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
+    <!--
+        Il gesto Indietro "predittivo": mentre trascini, Android mostra dove
+        stai per finire invece di far sparire l'app di colpo.
+
+        Senza questa riga il sistema scriveva nei log "OnBackInvokedCallback
+        is not enabled for the application" a ogni avvio, e il gesto restava
+        quello vecchio. Si puo' accendere perche' qui Indietro lo gestisce un
+        solo BackHandler di Compose alla radice — nessuna Activity sovrascrive
+        onBackPressed, che e' la cosa che il gesto nuovo non supporta.
+    -->
     <application
         android:name=".FluidTransitApp"
+        android:enableOnBackInvokedCallback="true"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"

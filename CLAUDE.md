@@ -224,6 +224,8 @@ riscritta in casa da qualcuno, la copia e' divergita:
 | `FidelityText` | il confronto con la fonte |
 | `BundleFailure` (in `:app`) | perche' gli orari non sono arrivati, senza inglese |
 | `TripProgress` | dov'e' arrivato un mezzo: qual e' la sua prossima fermata |
+| `Times.durationBetween` | la durata fra due orari scritti: torna con la sottrazione |
+| `Reference` | da dove si misura "vicino": dove sei, o la mappa se l'hai portata lontano |
 
 Se serve una frase che una di queste quasi dice, si cambia quella: una seconda
 copia scritta in casa e' come nascono i difetti che si vedono solo in una

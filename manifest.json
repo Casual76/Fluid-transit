@@ -11,12 +11,12 @@
       "ref": "main"
     },
     "beta": {
-      "version": "1.1.0",
-      "releaseDate": "2026-09-08",
-      "changelog": "Gli autobus parlano con Aria: quindici strumenti nuovi (le fermate vicine, le linee di una fermata, il percorso di una linea, gli orari del giorno, il prossimo bus per un posto, lo stato della rete, quando uscire, lo stato dei dati, i preferiti, le routine) e il ponte che li espone all'assistente PampAI anche senza aprire la mappa.",
-      "releaseTag": "stable-fluid-transit-v1.1.0",
-      "apkAsset": "fluid-transit-1.1.0.apk",
-      "sizeBytes": 50457538
+      "version": "1.2.0",
+      "releaseDate": "2026-09-16",
+      "changelog": "I minuti adesso li dice il bus, fermata per fermata: l'app riceve tutte le previsioni del feed, e il ritardo che leggi su una fermata e' quello dichiarato per QUELLA fermata, non un numero solo applicato a tutta la corsa. Quando invece il tempo reale non segue una corsa, l'app lo dice invece di far finta.\n\nLa stessa partenza si legge allo stesso modo dappertutto - mappa, Oggi, Preferiti, widget - con le stesse parole e lo stesso battito. Il colore del numero dice la puntualita': verde entro cinque minuti di ritardo, ambra fino a un quarto d'ora, rosso oltre. Il pallino che pulsa dice che quel passaggio lo sta guardando il feed. E toccando la riga sotto, l'app spiega da dove viene quel numero.\n\nCosa passa qui intorno, senza cercare niente: in fondo alla mappa c'e' sempre il prossimo passaggio dalle fermate a piedi da dove stai guardando, e si apre in un tocco.\n\nUn percorso costa due tocchi invece di sei, e i viaggi compaiono mentre l'app li trova, non tutti insieme alla fine.\n\nGli avvisi di servizio hanno la loro schermata, dicono quali linee toccano e fino a quando valgono, e compaiono dove servono: sulla fermata, sulla linea, sul viaggio che le usa.\n\nIndietro torna alla mappa, e tutto cio' che nomina una fermata o una linea la sa aprire: i widget, la notifica di una routine, la navigazione.\n\nI bus non tornano piu' indietro sulla mappa, e il moto sulla strada ha adesso chi lo controlla a ogni build.\n\nL'app dice quando non sa: il feed fermo, gli orari scaduti, la posizione spenta, o semplicemente che sei fuori dalla Toscana. In Impostazioni, Stato dei dati dice quante corse in strada il tempo reale sta davvero seguendo.\n\nE si vede meglio: ogni linea ha la sua pastiglia colorata ovunque la si nomini - anche sulla schermata home - i percorsi sono un filo con le fermate sopra, la mappa stacca la rete dalle strade, e il colore di una linea non cambia piu' da una notte all'altra.",
+      "releaseTag": "stable-fluid-transit-v1.2.0",
+      "apkAsset": "fluid-transit-1.2.0.apk",
+      "sizeBytes": 27392154
     },
     "description": "Muoversi con i mezzi in Toscana: i bus dove sono davvero, orari che dicono se sono veri o previsti, e percorsi da un punto qualsiasi a un altro.",
     "iconUrl": "",
@@ -24,6 +24,14 @@
     "developer": "Pampa",
     "screenshots": [],
     "history": [
+      {
+        "version": "1.1.0",
+        "releaseDate": "2026-09-08",
+        "changelog": "Gli autobus parlano con Aria: quindici strumenti nuovi (le fermate vicine, le linee di una fermata, il percorso di una linea, gli orari del giorno, il prossimo bus per un posto, lo stato della rete, quando uscire, lo stato dei dati, i preferiti, le routine) e il ponte che li espone all'assistente PampAI anche senza aprire la mappa.",
+        "releaseTag": "stable-fluid-transit-v1.1.0",
+        "apkAsset": "fluid-transit-1.1.0.apk",
+        "sizeBytes": 50457538
+      },
       {
         "version": "1.0.1",
         "releaseDate": "2026-09-03",
@@ -42,12 +50,12 @@
       }
     ],
     "stable": {
-      "version": "1.1.0",
-      "releaseDate": "2026-09-08",
-      "changelog": "Gli autobus parlano con Aria: quindici strumenti nuovi (le fermate vicine, le linee di una fermata, il percorso di una linea, gli orari del giorno, il prossimo bus per un posto, lo stato della rete, quando uscire, lo stato dei dati, i preferiti, le routine) e il ponte che li espone all'assistente PampAI anche senza aprire la mappa.",
-      "releaseTag": "stable-fluid-transit-v1.1.0",
-      "apkAsset": "fluid-transit-1.1.0.apk",
-      "sizeBytes": 50457538
+      "version": "1.2.0",
+      "releaseDate": "2026-09-16",
+      "changelog": "I minuti adesso li dice il bus, fermata per fermata: l'app riceve tutte le previsioni del feed, e il ritardo che leggi su una fermata e' quello dichiarato per QUELLA fermata, non un numero solo applicato a tutta la corsa. Quando invece il tempo reale non segue una corsa, l'app lo dice invece di far finta.\n\nLa stessa partenza si legge allo stesso modo dappertutto - mappa, Oggi, Preferiti, widget - con le stesse parole e lo stesso battito. Il colore del numero dice la puntualita': verde entro cinque minuti di ritardo, ambra fino a un quarto d'ora, rosso oltre. Il pallino che pulsa dice che quel passaggio lo sta guardando il feed. E toccando la riga sotto, l'app spiega da dove viene quel numero.\n\nCosa passa qui intorno, senza cercare niente: in fondo alla mappa c'e' sempre il prossimo passaggio dalle fermate a piedi da dove stai guardando, e si apre in un tocco.\n\nUn percorso costa due tocchi invece di sei, e i viaggi compaiono mentre l'app li trova, non tutti insieme alla fine.\n\nGli avvisi di servizio hanno la loro schermata, dicono quali linee toccano e fino a quando valgono, e compaiono dove servono: sulla fermata, sulla linea, sul viaggio che le usa.\n\nIndietro torna alla mappa, e tutto cio' che nomina una fermata o una linea la sa aprire: i widget, la notifica di una routine, la navigazione.\n\nI bus non tornano piu' indietro sulla mappa, e il moto sulla strada ha adesso chi lo controlla a ogni build.\n\nL'app dice quando non sa: il feed fermo, gli orari scaduti, la posizione spenta, o semplicemente che sei fuori dalla Toscana. In Impostazioni, Stato dei dati dice quante corse in strada il tempo reale sta davvero seguendo.\n\nE si vede meglio: ogni linea ha la sua pastiglia colorata ovunque la si nomini - anche sulla schermata home - i percorsi sono un filo con le fermate sopra, la mappa stacca la rete dalle strade, e il colore di una linea non cambia piu' da una notte all'altra.",
+      "releaseTag": "stable-fluid-transit-v1.2.0",
+      "apkAsset": "fluid-transit-1.2.0.apk",
+      "sizeBytes": 27392154
     }
   },
   "engine": {

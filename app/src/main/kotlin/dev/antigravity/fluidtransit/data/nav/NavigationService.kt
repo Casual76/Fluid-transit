@@ -40,8 +40,20 @@ import kotlinx.coroutines.launch
 class NavigationService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    // Questi quattro li scrive il thread principale — `onStartCommand`, il
+    // listener della posizione — e li legge il giro di calcolo, che gira sul
+    // pool di sfondo. Senza `@Volatile` non c'e' barriera fra le due parti:
+    // il giro puo' vedere un piano ancora a meta', o una posizione con le
+    // coordinate di prima. Una posizione sbagliata qui non e' un dettaglio:
+    // e' il numero da cui esce "Scendi alla prossima".
+    @Volatile
     private var plan: NavPlan? = null
+
+    @Volatile
     private var alertedPenultimate = false
+
+    @Volatile
     private var alertedArrival = false
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -228,6 +240,7 @@ class NavigationService : Service() {
     }
 
     /** L'ultimo stato buono: si ripropone quando per un giro manca il bundle. */
+    @Volatile
     private var lastState: NavState? = null
 
     private fun computeState(app: FluidTransitApp, p: NavPlan): NavState {

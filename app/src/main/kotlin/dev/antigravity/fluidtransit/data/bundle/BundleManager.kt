@@ -116,6 +116,9 @@ class BundleManager(
         }
     }
 
+    // Lo scrive il giro in sottofondo, lo legge il ritorno in primo piano dal
+    // thread principale: due lati diversi, quindi una barriera.
+    @Volatile
     private var lastCheckAt = 0L
 
     /**

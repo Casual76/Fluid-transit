@@ -117,6 +117,7 @@ fun main(args: Array<String>) {
     val paletteIdx = RouteColoring.assign(
         routes.map { it.id },
         routesAtStop.map { it as Collection<Int> },
+        RouteColoring.previousFromEnv(),
     )
     for (r in routes.indices) routes[r].color = paletteIdx[r]
 

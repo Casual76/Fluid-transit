@@ -880,7 +880,11 @@ class BundleBuilder(
                 routesAtStopForColor[newIndexOf.getValue(s)].add(newRoute)
             }
         }
-        val paletteIdx = RouteColoring.assign(keptRouteIds, routesAtStopForColor.asIterable())
+        val paletteIdx = RouteColoring.assign(
+            keptRouteIds,
+            routesAtStopForColor.asIterable(),
+            RouteColoring.previousFromEnv(),
+        )
 
         val routesBuf = ByteBuf(keptRoutes.size * Ftb.ROUTE_RECORD + 8)
         routesBuf.i32(keptRoutes.size)

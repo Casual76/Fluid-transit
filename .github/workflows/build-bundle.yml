@@ -211,6 +211,36 @@ jobs:
       - name: Test del costruttore
         run: ./gradlew --no-daemon :bundler:test --console=plain
 
+      # Il bundle di ieri, per i colori delle linee.
+      #
+      # Il colore e' il modo in cui una linea si riconosce da lontano, ma
+      # l'assegnazione riparte da zero ogni notte e l'ordine dipende dal
+      # grado nel grafo delle sovrapposizioni: basta che una linea guadagni
+      # due fermate perche' scavalchi un'altra e le porti via la tinta.
+      # Visto sul telefono il 16/09, dopo il primo bundle nuovo in giorni:
+      # alla stessa fermata, quattro pastiglie su sette di un altro colore.
+      #
+      # Se il download non riesce — prima notte, release vuota, rete che non
+      # risponde — non succede niente: si colora come si e' sempre fatto.
+      - name: Scarica il bundle di ieri (per i colori)
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          if ! curl --fail --silent --location -o work/prev-index.json \
+               "https://github.com/${GITHUB_REPOSITORY}/releases/download/dati/index.json"; then
+            echo "nessun index.json: si colora da zero"
+            exit 0
+          fi
+          URL="$(jq -r '.url // empty' work/prev-index.json)"
+          if [ -z "$URL" ]; then echo "index.json senza url"; exit 0; fi
+          if ! curl --fail --silent --location --max-time 300 -o work/prev.ftb.gz "$URL"; then
+            echo "bundle di ieri non scaricato: si colora da zero"
+            exit 0
+          fi
+          gunzip -f work/prev.ftb.gz
+          ls -la work/prev.ftb
+          echo "FT_BUNDLE_PRECEDENTE=$GITHUB_WORKSPACE/work/prev.ftb" >> "$GITHUB_ENV"
+
       - name: Costruisci il bundle
         run: |
           ./gradlew --no-daemon :bundler:run --console=plain --args="$GITHUB_WORKSPACE/work/gtfs $GITHUB_WORKSPACE/work/toscana.ftb - $GITHUB_WORKSPACE/work/fragment.json"

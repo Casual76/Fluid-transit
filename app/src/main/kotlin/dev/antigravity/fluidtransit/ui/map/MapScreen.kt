@@ -1705,7 +1705,24 @@ fun MapScreen(
         }
 
         // --- angoli bassi: livelli a sinistra, posizione a destra --------
+        //
+        // Spariscono quando si apre un pannello grande. Restavano dov'erano,
+        // sotto il vetro, e si vedevano in trasparenza dentro l'elenco delle
+        // partenze: due cerchi fantasma in fondo alla scheda, che non si
+        // possono nemmeno toccare perche' il pannello prende il tocco. Il
+        // vetro deve lasciar vedere la MAPPA, non i comandi di un'altra
+        // superficie.
+        val pannelloGrande = panel is Panel.Stop || panel is Panel.RouteFull ||
+            panel is Panel.TripFull || panel is Panel.Journeys ||
+            panel is Panel.JourneyDetail || panel is Panel.Place ||
+            panel is Panel.Nearby
         val bottomInset = FluidTabBarDefaults.ContentInset + 14.dp
+        androidx.compose.animation.AnimatedVisibility(
+            visible = !pannelloGrande,
+            modifier = Modifier.align(Alignment.BottomStart),
+            enter = androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(),
+        ) {
         MapCornerButton(
             icon = Icons.Rounded.Layers,
             contentDescription = if (mode == MapCatalog.MapMode.STREETS) {
@@ -1722,10 +1739,9 @@ fun MapScreen(
                 }
                 mapPrefs.mode = mode
             },
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = 14.dp, bottom = bottomInset),
+            modifier = Modifier.padding(start = 14.dp, bottom = bottomInset),
         )
+        }
         // In bussola l'icona del tasto GIRA col nord: e' l'unica bussola
         // dell'app (quella di MapLibre in alto e' spenta). La scrittura di
         // stato avviene SOLO in bussola: fuori, aggiornare a ogni frame di
@@ -1736,6 +1752,12 @@ fun MapScreen(
         } else {
             null
         }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = !pannelloGrande,
+            modifier = Modifier.align(Alignment.BottomEnd),
+            enter = androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(),
+        ) {
         MapCornerButton(
             icon = when (follow) {
                 FollowMode.FREE -> Icons.Rounded.LocationSearching
@@ -1760,10 +1782,9 @@ fun MapScreen(
                     }
                 }
             },
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 14.dp, bottom = bottomInset),
+            modifier = Modifier.padding(end = 14.dp, bottom = bottomInset),
         )
+        }
 
         // --- l'unico pannello dal basso: fermata, linea, o linea ridotta ---
         // Il passaggio fra i tre e' un morphing della stessa superficie di

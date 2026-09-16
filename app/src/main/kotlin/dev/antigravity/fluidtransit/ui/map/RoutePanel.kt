@@ -342,7 +342,13 @@ fun RouteFullContent(
     // restava quello del momento in cui si era aperta finche' qualcos'altro
     // non la faceva ricomporre. La scheda della corsa sta sul battito
     // condiviso da settimane; questa era rimasta fuori.
-    val nowSec by dev.antigravity.fluidtransit.data.time.UiClock.ticks()
+    // Il flusso si ricorda: `ticks()` ne fabbrica uno nuovo a ogni chiamata,
+    // e un flusso nuovo e' una chiave nuova — cioe' il collettore si spegneva
+    // e si riaccendeva a ogni ricomposizione, che qui e' una al secondo.
+    val battito = androidx.compose.runtime.remember {
+        dev.antigravity.fluidtransit.data.time.UiClock.ticks()
+    }
+    val nowSec by battito
         .collectAsStateWithLifecycle(initialValue = System.currentTimeMillis() / 1000)
 
     Column(modifier = Modifier.fillMaxWidth()) {

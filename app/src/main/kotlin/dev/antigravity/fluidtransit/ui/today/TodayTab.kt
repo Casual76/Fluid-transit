@@ -154,8 +154,9 @@ fun TodayTab(
     // L'orologio comune: si muove col battito delle schede, cosi' il
     // consiglio di una routine smette di comparire quando e' ora, non alla
     // prossima ricomposizione che capita.
-    val adesso = dev.antigravity.fluidtransit.data.time.UiClock.ticks()
-        .collectAsStateWithLifecycle(initialValue = Instant.now().epochSecond).value
+    val battito = remember { dev.antigravity.fluidtransit.data.time.UiClock.ticks() }
+    val adesso by battito
+        .collectAsStateWithLifecycle(initialValue = Instant.now().epochSecond)
 
     // Tira giu' per aggiornare.
     //

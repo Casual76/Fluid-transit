@@ -307,7 +307,12 @@ fun TripFullContent(
     // minuto finche' qualcos'altro non faceva ricomporre. Il resto dell'app
     // sta sul battito condiviso dalla Fase 9; questa scheda era rimasta
     // fuori, ed e' proprio quella che si guarda mentre si aspetta.
-    val nowSec by dev.antigravity.fluidtransit.data.time.UiClock.ticks()
+    // Vedi RoutePanel: il flusso dell'orologio si ricorda, altrimenti il
+    // collettore riparte a ogni ricomposizione.
+    val battito = androidx.compose.runtime.remember {
+        dev.antigravity.fluidtransit.data.time.UiClock.ticks()
+    }
+    val nowSec by battito
         .collectAsStateWithLifecycle(initialValue = System.currentTimeMillis() / 1000)
 
     Column(modifier = Modifier.fillMaxWidth()) {

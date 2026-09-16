@@ -195,10 +195,26 @@ fun StopPanelContent(
     }
 
     when {
+        // Il lettore degli orari c'e' sempre, qui: se l'hash non trova una
+        // fermata vuol dire che quella fermata negli orari di oggi non
+        // esiste — succede a ogni cambio d'orario, e chi ci arriva ci arriva
+        // da una stella o da un widget salvati prima. Prima restava una
+        // rotella per sempre, che e' il modo peggiore di dire "non c'e'".
+        stopIndex < 0 -> {
+            val parole = dev.antigravity.fluidtransit.routing.DepartureText
+                .empty(dev.antigravity.fluidtransit.routing.DepartureText.Trouble.FERMATA_SCONOSCIUTA)
+            FluidEmptyState(
+                title = parole.title,
+                detail = parole.detail,
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+            Spacer(Modifier.height(16.dp))
+        }
+
         // computedAtEpoch a zero vuol dire che il primo calcolo non c'e'
         // ancora stato: e' diverso da "non passa niente", e dirlo sbagliato
         // e' il difetto che i Preferiti avevano da sempre.
-        board.computedAtEpoch == 0L || stopIndex < 0 -> {
+        board.computedAtEpoch == 0L -> {
             Spacer(Modifier.height(20.dp))
             Row(modifier = Modifier.padding(horizontal = 20.dp)) { FluidSpinner() }
             Spacer(Modifier.height(24.dp))

@@ -59,6 +59,16 @@ class BoardEmptyTextTest {
     }
 
     @Test
+    fun `anche la fermata sparita si dice al plurale`() {
+        // La scheda Oggi puo' avere piu' stelle, e se nessuna trova piu' una
+        // fermata "Questa fermata non c'e' piu'" e' la frase di un'altra
+        // situazione.
+        val tante = DepartureText.empty(DepartureText.Trouble.FERMATA_SCONOSCIUTA, oneStop = false)
+        assertTrue("tue fermate" in tante.title, tante.title)
+        assertFalse("Questa fermata" in tante.detail, tante.detail)
+    }
+
+    @Test
     fun `il soggetto cambia fra una fermata e le tue fermate`() {
         val una = DepartureText.empty(DepartureText.Trouble.NIENTE_A_BREVE, oneStop = true)
         val tante = DepartureText.empty(DepartureText.Trouble.NIENTE_A_BREVE, oneStop = false)

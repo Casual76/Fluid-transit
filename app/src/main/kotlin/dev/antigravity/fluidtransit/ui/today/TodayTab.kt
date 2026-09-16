@@ -196,7 +196,19 @@ fun TodayTab(
             }
             item {
                 FluidListGroup {
-                    if (board.computedAtEpoch == 0L) {
+                    if (reader != null && stopIndexes.isEmpty()) {
+                        // Le stelle ci sono ma nessuna trova una fermata
+                        // negli orari di oggi: capita dopo un cambio
+                        // d'orario che rinomina o toglie una fermata. Senza
+                        // questa riga la scheda diceva che dalle tue fermate
+                        // non parte niente, cioe' dava la colpa ai bus.
+                        val parole = dev.antigravity.fluidtransit.routing.DepartureText.empty(
+                            dev.antigravity.fluidtransit.routing.DepartureText
+                                .Trouble.FERMATA_SCONOSCIUTA,
+                            oneStop = favStops.size == 1,
+                        )
+                        FluidListRow(title = parole.title, subtitle = parole.detail)
+                    } else if (board.computedAtEpoch == 0L) {
                         // Zero vuol dire che il primo calcolo non c'e' ancora
                         // stato: e' diverso da "non passa niente", e dirlo
                         // sbagliato e' il difetto che i Preferiti avevano.

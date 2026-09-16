@@ -176,10 +176,19 @@ fun FavoritesTab(
                             // stava arrivando. Dire una cosa falsa mentre si
                             // carica e' peggio che non dire niente.
                             subtitle = when {
+                                // Una stella che punta a una fermata sparita
+                                // dagli orari di oggi restava a "Leggo gli
+                                // orari…" per sempre: il caso c'e' — succede
+                                // a ogni cambio d'orario — ma la riga non lo
+                                // sapeva distinguere dall'attesa vera.
+                                reader != null && idx == null ->
+                                    DepartureText.empty(
+                                        DepartureText.Trouble.FERMATA_SCONOSCIUTA,
+                                    ).short
                                 board == null || board.computedAtEpoch == 0L -> "Leggo gli orari…"
-                                board.outsideValidity ->
-                                    "Gli orari sono scaduti e non ne arrivano di nuovi"
-                                board.rows.isEmpty() -> "Nessun passaggio nelle prossime due ore"
+                                board.rows.isEmpty() ->
+                                    DepartureText.empty(DepartureText.trouble(board))
+                                        .let { "${it.title} · ${it.short}" }
                                 else -> board.rows.joinToString(" · ") {
                                     DepartureText.compact(it, board.computedAtEpoch)
                                 } + " · " + DepartureText.boardSource(board)

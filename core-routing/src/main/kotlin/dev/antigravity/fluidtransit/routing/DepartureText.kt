@@ -395,18 +395,27 @@ object DepartureText {
             "tocca per aprire l'app",
         )
 
-        Trouble.FERMATA_SCONOSCIUTA -> Empty(
-            "Questa fermata non c'e' piu'",
-            "Negli orari di oggi non compare: puo' essere stata rinominata o tolta " +
-                "dalla fonte. Sceglierne un'altra rimette a posto.",
-            "non compare negli orari di oggi",
-        )
+        Trouble.FERMATA_SCONOSCIUTA -> if (oneStop) {
+            Empty(
+                "Questa fermata non c'e' piu'",
+                "Negli orari di oggi non compare: puo' essere stata rinominata o tolta " +
+                    "dalla fonte. Sceglierne un'altra rimette a posto.",
+                "non compare negli orari di oggi",
+            )
+        } else {
+            Empty(
+                "Le tue fermate non ci sono piu'",
+                "Negli orari di oggi non ne compare nessuna: possono essere state " +
+                    "rinominate o tolte dalla fonte. Stellarne altre rimette a posto.",
+                "non compaiono negli orari di oggi",
+            )
+        }
 
         Trouble.ORARI_SCADUTI -> Empty(
             "Gli orari sono scaduti",
             "Quelli che abbiamo non coprono piu' oggi, e non ne arrivano di nuovi. " +
                 "Non vuol dire che i bus non passino: vuol dire che non sappiamo quando.",
-            "non coprono piu' oggi",
+            "non ne arrivano di nuovi",
         )
 
         Trouble.NIENTE_A_BREVE -> Empty(

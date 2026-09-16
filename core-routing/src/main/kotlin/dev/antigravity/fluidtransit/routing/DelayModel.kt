@@ -35,7 +35,12 @@ class DelayModel {
         PROJECTED,
     }
 
-    class Live(val delaySeconds: Int, val confidence: Confidence)
+    /**
+     * @param ageSeconds da quanti secondi e' stata fatta l'osservazione da cui
+     *   viene questo numero. Zero quando e' fresca; sopra [STALE_SECONDS] il
+     *   numero si mostra ancora, ma dicendo quanto e' vecchio.
+     */
+    class Live(val delaySeconds: Int, val confidence: Confidence, val ageSeconds: Int = 0)
 
     private class Sample(val delaySeconds: Int, val seq: Int, val at: Long)
 
@@ -144,7 +149,18 @@ class DelayModel {
         // sempre: mezz'ora dopo si leggeva ancora "+8 min" come se fosse
         // fresco. `forgetBefore` da solo non basta, perche' gira solo quando
         // arriva uno snapshot nuovo — cioe' mai, proprio nel caso che conta.
-        if (nowEpoch > 0 && last.at > 0 && nowEpoch - last.at > STALE_SECONDS) return null
+        // Un'osservazione vecchia non e' il ritardo di adesso, ma e' molto
+        // piu' di niente.
+        //
+        // Fino al 16/09 dopo dieci minuti si buttava: con l'origine ferma —
+        // misurato, diciotto minuti in piena mattina — ogni riga tornava
+        // all'orario di tabella, e in quella finestra l'app sapeva meno delle
+        // ufficiali, che quel numero continuano a mostrarlo. Deciso con
+        // Alessio: si tiene, e si DICE quanto e' vecchio. Oltre
+        // [FORGET_SECONDS] pero' si butta davvero: un ritardo di tre quarti
+        // d'ora fa non descrive piu' niente, nemmeno datato.
+        val age = if (nowEpoch > 0 && last.at > 0) (nowEpoch - last.at).toInt() else 0
+        if (age > FORGET_SECONDS) return null
 
         // Lo `stop_sequence` del feed NON e' la posizione nel pattern.
         //
@@ -164,11 +180,11 @@ class DelayModel {
         val servedBelow = if (seq > 0) seq - 1 else 0
 
         if (seq >= 0 && position < servedBelow) {
-            return Live(last.delaySeconds, Confidence.SERVED)
+            return Live(last.delaySeconds, Confidence.SERVED, age)
         }
         val from = max(servedBelow, 0)
         val ahead = position - from
-        if (ahead <= 0) return Live(last.delaySeconds, Confidence.OBSERVED)
+        if (ahead <= 0) return Live(last.delaySeconds, Confidence.OBSERVED, age)
 
         val total = (stopCount - 1) - from
         val fraction = if (total > 0) (ahead.toDouble() / total).coerceIn(0.0, 1.0) else 0.0
@@ -192,7 +208,7 @@ class DelayModel {
             base < 0 -> projected.coerceIn(base * MAX_GROWTH, 0.0)
             else -> projected.coerceIn(-MAX_FROM_ZERO, MAX_FROM_ZERO)
         }
-        return Live(Math.round(clamped).toInt(), Confidence.PROJECTED)
+        return Live(Math.round(clamped).toInt(), Confidence.PROJECTED, age)
     }
 
     /**
@@ -237,6 +253,15 @@ class DelayModel {
          * mancati sono gia' un silenzio che vuol dire qualcosa.
          */
         const val STALE_SECONDS = 600L
+
+        /**
+         * Oltre questa eta' un ritardo non si mostra piu' nemmeno datato.
+         *
+         * Quarantacinque minuti: un bus che tre quarti d'ora fa aveva dieci
+         * minuti di ritardo, adesso, non si sa dove sia — e "dal bus, visto
+         * 45 min fa" e' un'informazione che non aiuta a decidere niente.
+         */
+        const val FORGET_SECONDS = 45 * 60L
 
         /** Quanto del ritardo si assume recuperato al capolinea, senza altre prove. */
         const val DEFAULT_RECOVERY = 0.30

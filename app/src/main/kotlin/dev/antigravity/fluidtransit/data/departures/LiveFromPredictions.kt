@@ -77,11 +77,16 @@ class LiveFromPredictions(
 
     override fun at(tripIndex: Int, position: Int, stopCount: Int, nowEpoch: Long): LiveTimes.At? {
         val r = byTrip[tripIndex] ?: return fallback.at(tripIndex, position, stopCount, nowEpoch)
-        // Una previsione vecchia non e' la previsione di adesso. Stessa
-        // soglia del modello di ripiego, per la stessa ragione: il feed puo'
-        // smettere di parlare di una corsa, e l'ultimo numero visto non deve
-        // restare a schermo per sempre.
-        if (feedTimestamp > 0 && nowEpoch - feedTimestamp > STALE_SECONDS) {
+        // Una previsione vecchia non e' la previsione di adesso, ma e' molto
+        // piu' di niente: si tiene e si dice di quando e'.
+        //
+        // Fino al 16/09 dopo dieci minuti si ripiegava sulla stima. Con
+        // l'origine ferma — misurato, diciotto minuti in piena mattina — quel
+        // ripiego voleva dire tornare all'orario di tabella su tutte le
+        // righe, e in quella finestra l'app sapeva meno delle ufficiali.
+        // Oltre [FORGET_SECONDS] invece si molla davvero.
+        val eta = if (feedTimestamp > 0) (nowEpoch - feedTimestamp).toInt() else 0
+        if (eta > FORGET_SECONDS) {
             return fallback.at(tripIndex, position, stopCount, nowEpoch)
         }
         val offset = r.offset ?: return fallback.at(tripIndex, position, stopCount, nowEpoch)
@@ -91,7 +96,7 @@ class LiveFromPredictions(
             // Nessuna previsione arriva fin qui: la prima e' gia' oltre, cioe'
             // il mezzo ha passato questa fermata.
             ?: return r.trip.points.firstOrNull()
-                ?.let { LiveTimes.At(it.delaySec, Certainty.SERVED) }
+                ?.let { LiveTimes.At(it.delaySec, Certainty.SERVED, eta) }
                 ?: fallback.at(tripIndex, position, stopCount, nowEpoch)
 
         // "Senza dati" e' una dichiarazione esplicita del feed: da li' in poi
@@ -102,7 +107,7 @@ class LiveFromPredictions(
         }
 
         val certainty = if (point.stopSeq == targetSeq) Certainty.DECLARED else Certainty.PROPAGATED
-        return LiveTimes.At(point.delaySec, certainty)
+        return LiveTimes.At(point.delaySec, certainty, eta)
     }
 
     /**
@@ -163,6 +168,14 @@ class LiveFromPredictions(
     companion object {
         /** Oltre questa eta' la previsione non descrive piu' il presente. */
         const val STALE_SECONDS = 600L
+
+        /**
+         * Oltre questa eta' una previsione non si mostra piu' nemmeno datata.
+         *
+         * Come per il modello dei ritardi: tre quarti d'ora dopo, quel numero
+         * non descrive piu' niente, e "visto 45 min fa" non aiuta a decidere.
+         */
+        const val FORGET_SECONDS = 45 * 60L
 
         /**
          * Risolve le previsioni contro il bundle, una volta per snapshot.

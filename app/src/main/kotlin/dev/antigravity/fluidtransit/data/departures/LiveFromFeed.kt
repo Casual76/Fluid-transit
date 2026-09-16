@@ -34,7 +34,7 @@ class LiveFromFeed(
 
     override fun at(tripIndex: Int, position: Int, stopCount: Int, nowEpoch: Long): LiveTimes.At? {
         val live = delays.at(tripIndex, position, stopCount, nowEpoch) ?: return null
-        return LiveTimes.At(live.delaySeconds, live.confidence.asCertainty())
+        return LiveTimes.At(live.delaySeconds, live.confidence.asCertainty(), live.ageSeconds)
     }
 
     override fun covers(tripIndex: Int): Boolean =

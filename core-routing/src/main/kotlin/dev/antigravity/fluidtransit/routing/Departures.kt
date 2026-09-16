@@ -48,7 +48,15 @@ enum class Certainty {
 /** Cosa il tempo reale sa di una corsa. L'implementazione sta nell'app. */
 interface LiveTimes {
 
-    class At(val delaySeconds: Int, val certainty: Certainty)
+    /**
+     * @param ageSeconds da quanti secondi e' vecchia l'osservazione da cui
+     *   viene il numero. Zero quando e' fresca. Oltre i dieci minuti l'app
+     *   mostra ancora il ritardo ma dice di quando e': deciso il 16/09, dopo
+     *   aver misurato che l'origine si ferma per quarti d'ora anche di
+     *   mattina e che buttare il numero rende l'app meno utile delle
+     *   ufficiali proprio nella finestra in cui serve.
+     */
+    class At(val delaySeconds: Int, val certainty: Certainty, val ageSeconds: Int = 0)
 
     /**
      * Il ritardo da applicare alla fermata in posizione [position] di un
@@ -104,6 +112,8 @@ class NextDeparture(
     /** Il ritardo applicato, in secondi. Null = nessun dato dal vivo. */
     val delaySeconds: Int?,
     val certainty: Certainty?,
+    /** Da quanto e' vecchia l'osservazione che ha prodotto quel ritardo. */
+    val ageSeconds: Int = 0,
     val canceled: Boolean,
     val skipped: Boolean,
     val monitored: Boolean,
@@ -211,6 +221,7 @@ object Departures {
                 scheduledEpoch = d.instant.epochSecond,
                 delaySeconds = usable?.delaySeconds,
                 certainty = usable?.certainty,
+                ageSeconds = usable?.ageSeconds ?: 0,
                 canceled = live?.canceled(d.tripIndex) ?: false,
                 skipped = false,
                 monitored = live?.monitored(d.tripIndex, nowEpoch) ?: false,

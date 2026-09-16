@@ -102,6 +102,8 @@ class TripInfo(
         val effectiveEpoch: Long,
         /** Da dove viene la correzione: null = nessun dato live. */
         val certainty: Certainty?,
+        /** Da quanto e' vecchia l'osservazione che ha prodotto quell'orario. */
+        val ageSeconds: Int = 0,
         /** Il feed dichiara che questa corsa, oggi, qui non ferma. */
         val skipped: Boolean,
         val isLast: Boolean,
@@ -176,6 +178,7 @@ class TripInfo(
                         scheduledEpoch = scheduled,
                         effectiveEpoch = eff,
                         certainty = certainty,
+                        ageSeconds = at?.ageSeconds ?: 0,
                         skipped = skipped,
                         isLast = i == n - 1,
                     ),
@@ -552,6 +555,7 @@ fun TripFullContent(
                             certainty = stop.certainty,
                             skipped = stop.skipped,
                             nowEpoch = nowSec,
+                            ageSeconds = stop.ageSeconds,
                         )
                         // La provenienza sotto il nome, non sotto il numero.
                         //

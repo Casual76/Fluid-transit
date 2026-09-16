@@ -73,14 +73,26 @@ class DelayModelTest {
     }
 
     @Test
-    fun `un'osservazione vecchia non e' il ritardo di adesso`() {
+    fun `un'osservazione vecchia si tiene, ma porta la sua eta'`() {
         val m = DelayModel()
         m.observe(trip, delaySeconds = 480, nextStopSeq = 5, atEpoch = 1_000)
-        // Poco dopo vale ancora.
-        assertNotNull(m.at(trip, 8, 20, nowEpoch = 1_200))
-        // Venti minuti dopo no: il feed ha smesso di parlare di questa corsa
-        // e l'ultimo numero visto non descrive piu' niente.
-        assertNull(m.at(trip, 8, 20, nowEpoch = 1_000 + 20 * 60))
+
+        // Poco dopo vale, e non ha un'eta' da dichiarare.
+        val fresca = m.at(trip, 8, 20, nowEpoch = 1_200)
+        assertNotNull(fresca)
+        assertEquals(200, fresca.ageSeconds)
+
+        // Venti minuti dopo vale ancora — deciso il 16/09, perche' con
+        // l'origine ferma buttarla vuol dire tornare all'orario di tabella
+        // su tutte le righe — ma l'eta' viaggia col numero e le parole la
+        // dicono: "dal bus, visto 20 min fa".
+        val vecchia = m.at(trip, 8, 20, nowEpoch = 1_000 + 20 * 60)
+        assertNotNull(vecchia)
+        assertEquals(20 * 60, vecchia.ageSeconds)
+
+        // Oltre i tre quarti d'ora no: quel numero non descrive piu' niente,
+        // nemmeno datato.
+        assertNull(m.at(trip, 8, 20, nowEpoch = 1_000 + 46 * 60))
     }
 
     @Test

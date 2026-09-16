@@ -21,6 +21,7 @@ class DepartureTextTest {
         certainty: Certainty? = null,
         canceled: Boolean = false,
         monitored: Boolean = false,
+        age: Int = 0,
     ) = NextDeparture(
         tripIndex = 1,
         patternIndex = 0,
@@ -30,6 +31,7 @@ class DepartureTextTest {
         scheduledEpoch = now + scheduledIn,
         delaySeconds = delay,
         certainty = certainty,
+        ageSeconds = age,
         canceled = canceled,
         skipped = false,
         monitored = monitored,
@@ -92,6 +94,27 @@ class DepartureTextTest {
         val p = DepartureText.phrase(row(300, delay = 180, certainty = Certainty.ESTIMATED), now)
         assertEquals(DepartureText.Tone.ON_TIME, p.tone)
         assertTrue(p.support.startsWith("stimato"), p.support)
+    }
+
+    @Test
+    fun `un numero vecchio si mostra, ma dice di quando e'`() {
+        // L'origine della Regione si ferma: misurato il 16/09, diciotto
+        // minuti in piena mattina. Buttare il ritardo faceva tornare tutte le
+        // righe all'orario di tabella, e in quella finestra l'app sapeva meno
+        // delle ufficiali. Adesso il numero resta e porta la sua eta'.
+        val vecchia = DepartureText.phrase(
+            row(600, delay = 480, certainty = Certainty.DECLARED, age = 15 * 60),
+            now,
+        )
+        assertTrue(vecchia.support.startsWith("dal bus"), vecchia.support)
+        assertTrue(vecchia.support.contains("15 min fa"), vecchia.support)
+
+        // Fresca: l'eta' non si dice, si dice l'orario di tabella.
+        val fresca = DepartureText.phrase(
+            row(600, delay = 480, certainty = Certainty.DECLARED),
+            now,
+        )
+        assertTrue(!fresca.support.contains("fa"), fresca.support)
     }
 
     @Test

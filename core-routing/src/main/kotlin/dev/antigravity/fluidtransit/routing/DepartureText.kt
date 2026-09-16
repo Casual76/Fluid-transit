@@ -63,6 +63,14 @@ object DepartureText {
         CANCELED,
     }
 
+    /**
+     * Da qui in su un numero dal vivo si presenta con la sua eta'.
+     *
+     * Dieci minuti: e' la stessa soglia oltre la quale il dato smetteva di
+     * essere mostrato del tutto. Adesso non sparisce, si data.
+     */
+    const val VECCHIO_SECONDS = 600
+
     /** Da qui in su il ritardo si vede: il colore passa all'ambra. */
     const val LATE_SECONDS = 5 * 60
 
@@ -102,6 +110,7 @@ object DepartureText {
         skipped = row.skipped,
         monitored = row.monitored,
         nowEpoch = nowEpoch,
+        ageSeconds = row.ageSeconds,
     )
 
     /**
@@ -124,8 +133,10 @@ object DepartureText {
         skipped: Boolean = false,
         monitored: Boolean = false,
         nowEpoch: Long,
+        ageSeconds: Int = 0,
     ): Phrase = phraseOf(
         scheduledEpoch, delaySeconds, certainty, canceled, skipped, monitored, nowEpoch,
+        ageSeconds,
     )
 
     private fun phraseOf(
@@ -136,6 +147,7 @@ object DepartureText {
         skipped: Boolean,
         monitored: Boolean,
         nowEpoch: Long,
+        ageSeconds: Int = 0,
     ): Phrase {
         if (canceled) {
             return Phrase(
@@ -172,6 +184,17 @@ object DepartureText {
         val source = if (fromFeed) "dal bus" else "stimato"
 
         val support = when {
+            // Un numero vecchio si mostra, ma dicendo di quando e'.
+            //
+            // Quando l'origine si ferma — succede, ed e' stato misurato: un
+            // quarto d'ora in piena mattina — il ritardo di prima resta
+            // l'informazione migliore che abbiamo, e buttarlo faceva tornare
+            // tutte le righe all'orario di tabella. Ma un numero vecchio
+            // spacciato per fresco e' peggio di nessun numero: qui si dice
+            // l'eta' al posto dell'orario di tabella, che in quel momento e'
+            // la cosa meno interessante.
+            live && ageSeconds >= VECCHIO_SECONDS ->
+                "$source · visto ${Words.age(ageSeconds.toLong())} fa"
             // Il ritardo e' zero ma il feed sta seguendo la corsa: "in orario"
             // e' un'informazione, ed e' diversa da "non sappiamo niente".
             live && delaySeconds == 0 -> "$source · in orario"

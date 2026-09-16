@@ -237,6 +237,17 @@ breve", "Nessun avviso in corso" — cioe' un'affermazione sul mondo mentre il
 guasto era nostro. Quando una funzione puo' non riuscire, il suo tipo di
 ritorno deve poterlo dire: `null` o un `Result`, non una lista vuota.
 
+**E la sorgente dei minuti e' una sola.** Il tabellone di una fermata, la
+scheda di una corsa e il motore degli itinerari chiedono tutti a `LiveTimes`,
+che risponde "il ritardo di QUESTA corsa a QUESTA fermata" con la provenienza
+accanto. Fino al 16/09 il motore faceva eccezione: prendeva un numero per
+corsa e lo applicava a tutto il percorso. Misurato sul feed delle 07:30, su
+2.346 corse con piu' di una previsione, lo scarto fra la prima e la piu'
+lontana e' in media 78 s e supera il minuto su un terzo delle corse — cioe'
+la scheda e l'itinerario dicevano due orari diversi per lo stesso bus.
+Chiunque aggiunga una superficie che mostra orari chiede a `LiveTimes`: e' la
+stessa regola del vocabolario, applicata ai numeri invece che alle parole.
+
 **E l'orologio e' uno solo.** `UiClock.ticks()` batte ogni dieci secondi
 allineato al muro, non all'istante in cui una schermata si e' aperta: due
 schermate mostrano lo stesso minuto perche' partono dallo stesso istante, non

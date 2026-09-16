@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DirectionsBus
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.Icon
@@ -105,6 +106,17 @@ fun StopPanelContent(
     onFlyToBus: (tripIndex: Int) -> Unit = {},
     /** "Parti da qui": questa fermata come ORIGINE del pianificatore. */
     onStartHere: (() -> Unit)? = null,
+    /**
+     * Gli avvisi in corso sulle linee che passano di qui, gia' filtrati.
+     *
+     * Il feed della Regione non nomina mai le fermate negli avvisi —
+     * contati sul feed vero del 16/09: 746 riferimenti, tutti a linee, zero
+     * a fermate — quindi "questa fermata e' spostata" non si puo' sapere.
+     * Le linee si': se la 12 che passa di qui oggi e' deviata, chi e' alla
+     * fermata deve saperlo prima di aspettarla.
+     */
+    alerts: List<String> = emptyList(),
+    onOpenAlerts: (() -> Unit)? = null,
     /** Il tocco su una riga: "perche' questo numero", aperto sulla riga stessa. */
     onWhyTap: (
         dev.antigravity.fluidtransit.routing.NextDeparture,
@@ -172,6 +184,33 @@ fun StopPanelContent(
                 )
                 .padding(8.dp),
         )
+    }
+
+    // Gli avvisi delle linee di questa fermata, sopra tutto il resto: se la
+    // linea che aspetti oggi e' deviata, saperlo dopo gli orari non serve.
+    for (a in alerts.take(2)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .let { m -> if (onOpenAlerts != null) m.clickable { onOpenAlerts() } else m }
+                .padding(horizontal = 20.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Info,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = a,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 
     // "Parti da qui": la fermata aperta diventa l'origine del pianificatore.

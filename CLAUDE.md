@@ -87,6 +87,13 @@ quella verso cui il bus sta andando.
 innocuo: l'eta' del fix e' congelata, quindi il bersaglio resta fermo mentre il
 mezzo simulato avanza, e la "correzione" lo tira indietro.
 
+**Gli avvisi non nominano mai le fermate.** GTFS-RT prevede che un avviso
+indichi le entita' toccate, e fra queste c'e' `stop_id`. Contati sul feed vero
+del 16/09/2026: **746 riferimenti, tutti a linee, zero a fermate**. Quindi
+"questa fermata oggi e' spostata" non si puo' sapere, anche quando il testo
+dell'avviso lo dice a parole. Cio' che si puo' fare — ed e' fatto — e' mostrare
+alla fermata gli avvisi delle LINEE che ci passano.
+
 **Gli indici del bundle non sopravvivono alla notte.** Sono assegnati
 nell'ordine in cui il builder scandisce gli orari: dopo lo scambio, un ritardo
 di ieri appiccicato allo stesso indice finisce su un'altra corsa. Per questo

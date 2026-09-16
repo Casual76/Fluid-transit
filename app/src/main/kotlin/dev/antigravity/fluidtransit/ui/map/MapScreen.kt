@@ -500,6 +500,53 @@ fun MapScreen(
         }
     }
 
+    // Gli avvisi delle linee che passano dalla fermata aperta.
+    //
+    // Il feed della Regione non nomina mai le fermate negli avvisi —
+    // contati sul feed vero: 746 riferimenti, tutti a linee, zero a
+    // fermate — quindi "questa fermata e' spostata" non si puo' sapere. Le
+    // linee si', ed e' quello che serve a chi sta li' ad aspettare.
+    val currentStopHash = (panel as? Panel.Stop)?.tap?.idHashHex
+    val avvisiDiFermata by produceState(
+        initialValue = emptyList<String>(),
+        currentStopHash, ready?.buildId,
+    ) {
+        val reader = ready?.reader
+        val hex = currentStopHash
+        if (reader == null || hex == null) {
+            value = emptyList()
+            return@produceState
+        }
+        val stop = hex.toULongOrNull(16)?.toLong()?.let { reader.findStopByIdHash(it) } ?: -1
+        if (stop < 0) {
+            value = emptyList()
+            return@produceState
+        }
+        val linee = HashMap<Long, String>()
+        for (pattern in reader.patternsAtStop(stop)) {
+            val route = reader.patternRoute(pattern)
+            if (route >= 0) {
+                linee[reader.routeIdHash(route)] = reader.routeShortName(route)
+                    .ifEmpty { reader.routeLongName(route) }
+            }
+        }
+        val tutti = runCatching { app.realtime.fetchAlerts() }.getOrDefault(emptyList())
+        val adesso = java.time.Instant.now().epochSecond
+        value = tutti
+            .filter { a ->
+                a.routeHashes.any { it in linee.keys } &&
+                    dev.antigravity.fluidtransit.routing.AlertText
+                        .active(a.startEpoch, a.endEpoch, adesso)
+            }
+            .map { a ->
+                val quali = a.routeHashes.mapNotNull { linee[it] }.distinct().take(3)
+                val testo = a.header.ifEmpty {
+                    dev.antigravity.fluidtransit.routing.AlertText.body(a.description).take(80)
+                }
+                if (quali.isEmpty()) testo else quali.joinToString(", ") + " · " + testo
+            }
+    }
+
     // Gli avvisi di servizio della linea aperta.
     //
     // L'app li aveva e non li diceva dove servono: aprendo la 12 mentre e'
@@ -1770,6 +1817,8 @@ fun MapScreen(
                                     },
                                     onDismiss = { panel = null },
                                     onRouteTap = ::showRoute,
+                                    alerts = avvisiDiFermata,
+                                    onOpenAlerts = onOpenAlerts,
                                     onWhyTap = { r, rect ->
                                         whyRow = r
                                         whyOrigin = rect

@@ -127,6 +127,10 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
                 rt.delayByTrip,
                 rt.canceledTrips,
                 java.time.Instant.now().epochSecond,
+                // Le stesse previsioni del tabellone e della mappa: se
+                // l'assistente calcolasse su un altro numero, direbbe a voce
+                // un orario diverso da quello scritto due centimetri sopra.
+                live = app.departureBoards.live(),
             )
         } else {
             Raptor.Realtime.NONE

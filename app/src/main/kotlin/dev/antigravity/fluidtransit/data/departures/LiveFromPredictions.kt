@@ -79,6 +79,15 @@ class LiveFromPredictions(
         return LiveTimes.At(point.delaySec, certainty)
     }
 
+    /**
+     * Sapere QUALCOSA di questa corsa, in una lettura sola.
+     *
+     * Il ripiego copre tutto, quindi la risposta e' la sua: si sa qualcosa
+     * se lo sa il feed delle previsioni oppure il modello dei ritardi.
+     */
+    override fun covers(tripIndex: Int): Boolean =
+        byTrip.containsKey(tripIndex) || fallback.covers(tripIndex)
+
     override fun canceled(tripIndex: Int): Boolean =
         tripIndex in canceledTrips || byTrip[tripIndex]?.trip?.canceled == true
 

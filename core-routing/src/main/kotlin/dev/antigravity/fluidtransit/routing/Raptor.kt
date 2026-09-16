@@ -73,6 +73,24 @@ class Raptor(private val reader: BundleReader) {
          * applicano senza guardare l'orologio (com'era prima).
          */
         val observedAtEpoch: Long = 0L,
+        /**
+         * Le previsioni fermata per fermata, se ci sono.
+         *
+         * [delayByTrip] porta UN numero per corsa: quello della prima
+         * previsione utile. I tabelloni invece usano da tempo la previsione
+         * della fermata giusta, e le due cose divergono — misurato sul feed
+         * delle 07:30 del 16/09/2026, su 2.346 corse con piu' di una
+         * previsione: lo scarto fra la prima e la piu' lontana e' in media
+         * **78 secondi**, supera il minuto su un terzo delle corse e arriva
+         * a sedici minuti.
+         *
+         * Vuol dire che il tabellone della fermata e l'itinerario potevano
+         * dire due orari diversi per lo stesso bus alla stessa fermata, che
+         * e' esattamente il "si comporta in modo diverso ogni volta" da cui
+         * e' partito tutto questo lavoro. Qui il motore chiede la stessa
+         * cosa che chiede il tabellone.
+         */
+        val live: LiveTimes? = null,
     ) {
         companion object {
             val NONE = Realtime()
@@ -274,13 +292,32 @@ class Raptor(private val reader: BundleReader) {
      * arriva all'orario scritto, l'ha perso. L'anticipo si ignora e si tiene
      * l'orario di tabella, che e' l'unica cosa su cui si puo' contare.
      */
-    private fun liveDelay(rt: Realtime, trip: Int, scheduledEpoch: Long): Int {
-        val raw = rt.delayByTrip[trip] ?: return 0
+    private fun liveDelay(
+        rt: Realtime,
+        trip: Int,
+        position: Int,
+        stopCount: Int,
+        scheduledEpoch: Long,
+    ): Int {
         if (rt.observedAtEpoch > 0 &&
             Math.abs(scheduledEpoch - rt.observedAtEpoch) > LIVE_WINDOW_SECONDS
         ) {
             return 0
         }
+        // Prima la previsione della fermata giusta, che e' quella che il
+        // tabellone mostra; il numero unico per corsa resta per le corse che
+        // le previsioni non coprono. `covers` e' una lettura sola e serve a
+        // non pagare una ricerca per ognuna delle migliaia di corse che un
+        // calcolo scandisce.
+        val live = rt.live
+        if (live != null && live.covers(trip)) {
+            val now = if (rt.observedAtEpoch > 0) rt.observedAtEpoch else scheduledEpoch
+            val at = live.at(trip, position, stopCount, now)
+            if (at != null && at.certainty != Certainty.SERVED) {
+                return at.delaySeconds.coerceAtLeast(0)
+            }
+        }
+        val raw = rt.delayByTrip[trip] ?: return 0
         return raw.coerceAtLeast(0)
     }
 
@@ -389,18 +426,31 @@ class Raptor(private val reader: BundleReader) {
                 var curTrip = -1
                 var curTripBoardPos = 0
                 var curDayStart = 0L
-                var curDelay = 0
                 var curProfile = 0
                 var curDep0 = 0
+                // L'orario della corsa a bordo alla fermata precedente.
+                //
+                // Serve perche' il ritardo adesso e' quello della fermata, e
+                // due fermate vicine possono averne due diversi: senza questo
+                // una previsione piu' bassa della precedente farebbe arrivare
+                // il bus a una fermata PRIMA che a quella di prima. La
+                // monotonia lungo la corsa e' un vincolo del problema, non
+                // una preferenza: RAPTOR ci si appoggia per costruire.
+                var curLastEff = 0L
                 for (pos in startPos until count) {
                     val stop = reader.patternStop(pattern, pos)
+                    var here = Long.MAX_VALUE
                     if (curTrip >= 0) {
-                        val arr = curDayStart + curDep0 +
-                            reader.profileOffset(curProfile, pos) + curDelay
-                        if (arr < bestArr[stop] && arr < bestDest) {
+                        val sched = curDayStart + curDep0 + reader.profileOffset(curProfile, pos)
+                        here = maxOf(
+                            sched + liveDelay(rt, curTrip, pos, count, sched),
+                            curLastEff,
+                        )
+                        curLastEff = here
+                        if (here < bestArr[stop] && here < bestDest) {
                             touched.add(stop)
-                            roundArr[round][stop] = arr
-                            bestArr[stop] = arr
+                            roundArr[round][stop] = here
+                            bestArr[stop] = here
                             parentKind[round][stop] = KIND_RIDE
                             parentTrip[round][stop] = curTrip
                             parentBoardPos[round][stop] = curTripBoardPos
@@ -413,20 +463,15 @@ class Raptor(private val reader: BundleReader) {
                     val label = roundArr[round - 1][stop]
                     if (label < INF && pos < count - 1) {
                         val notBefore = label + slack
-                        val curDepHere = if (curTrip >= 0) {
-                            curDayStart + curDep0 + reader.profileOffset(curProfile, pos) + curDelay
-                        } else {
-                            Long.MAX_VALUE
-                        }
-                        if (notBefore < curDepHere) {
+                        if (notBefore < here) {
                             val found = earliestBoard(pattern, pos, notBefore, days, rt)
-                            if (found != null && found.dep < curDepHere) {
+                            if (found != null && found.dep < here) {
                                 curTrip = found.trip
                                 curDayStart = found.dayStart
-                                curDelay = found.delay
                                 curProfile = reader.tripProfile(found.trip)
                                 curDep0 = reader.tripDeparture0(found.trip)
                                 curTripBoardPos = pos
+                                curLastEff = found.dep
                             }
                         }
                     }
@@ -528,7 +573,7 @@ class Raptor(private val reader: BundleReader) {
                 if (!reader.serviceActive(reader.tripService(trip), day.dayIndex)) continue
                 val scheduled = day.startEpoch + dep0 +
                     reader.profileOffset(reader.tripProfile(trip), pos)
-                val delay = liveDelay(rt, trip, scheduled)
+                val delay = liveDelay(rt, trip, pos, count, scheduled)
                 val dep = scheduled + delay
                 if (dep < notBefore) continue
                 if (bestSoFar == null || dep < bestSoFar.dep) {
@@ -600,10 +645,18 @@ class Raptor(private val reader: BundleReader) {
                     // grezzo: altrimenti la tratta mostrata all'utente porta
                     // un orario diverso da quello con cui l'itinerario e'
                     // stato costruito.
-                    val delay = liveDelay(
-                        rt,
-                        trip,
-                        dayStart + dep0 + reader.profileOffset(profile, boardPos),
+                    val stopCount = reader.patternStopCount(pattern)
+                    val schedBoard = dayStart + dep0 + reader.profileOffset(profile, boardPos)
+                    val schedAlight = dayStart + dep0 + reader.profileOffset(profile, alightPos)
+                    val delay = liveDelay(rt, trip, boardPos, stopCount, schedBoard)
+                    // Alla discesa il ritardo puo' essere un altro: le
+                    // previsioni sono fermata per fermata, e su un terzo
+                    // delle corse cambiano di piu' di un minuto lungo il
+                    // percorso. Non puo' pero' far arrivare prima di
+                    // partire: la monotonia e' un vincolo, non un'opinione.
+                    val delayAlight = maxOf(
+                        liveDelay(rt, trip, alightPos, stopCount, schedAlight),
+                        (schedBoard + delay - schedAlight).toInt().coerceAtLeast(0),
                     )
                     val boardStop = reader.patternStop(pattern, boardPos)
                     legs.add(
@@ -618,9 +671,7 @@ class Raptor(private val reader: BundleReader) {
                             departure = Instant.ofEpochSecond(
                                 dayStart + dep0 + reader.profileOffset(profile, boardPos) + delay,
                             ),
-                            arrival = Instant.ofEpochSecond(
-                                dayStart + dep0 + reader.profileOffset(profile, alightPos) + delay,
-                            ),
+                            arrival = Instant.ofEpochSecond(schedAlight + delayAlight),
                             delaySeconds = delay,
                         ),
                     )

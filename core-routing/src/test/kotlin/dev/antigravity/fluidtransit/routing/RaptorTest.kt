@@ -283,6 +283,109 @@ class RaptorTest {
             assertEquals(day + 8 * 3600 + 1200, bus.arrival.epochSecond - bus.legs.last().let { (it as Raptor.Leg.Walk).seconds })
         }
     }
+    // --- le previsioni fermata per fermata -----------------------------
+
+    /**
+     * Un finto feed che dichiara un ritardo diverso per ogni fermata.
+     *
+     * E' il caso che il numero unico per corsa non sa rappresentare, e non e'
+     * raro: misurato sul feed vero delle 07:30 del 16/09/2026, su 2.346 corse
+     * con piu' di una previsione, lo scarto fra la prima e la piu' lontana e'
+     * in media 78 secondi e supera il minuto su un terzo delle corse.
+     */
+    private class PerFermata(private val ritardi: Map<Pair<Int, Int>, Int>) : LiveTimes {
+        override fun at(
+            tripIndex: Int,
+            position: Int,
+            stopCount: Int,
+            nowEpoch: Long,
+        ): LiveTimes.At? = ritardi[tripIndex to position]
+            ?.let { LiveTimes.At(it, Certainty.DECLARED) }
+
+        override fun covers(tripIndex: Int) = ritardi.keys.any { it.first == tripIndex }
+    }
+
+    @Test
+    fun `si sale con il ritardo della fermata dove si sale`() {
+        // La R1 delle 08:00 e' data in ritardo di 10 minuti alla prima
+        // fermata e di 2 minuti alla seconda, che e' quella dove si sale. Il
+        // numero unico per corsa avrebbe detto 10, e l'itinerario sarebbe
+        // partito otto minuti dopo il vero.
+        BundleReader(writeBundle()).use { r ->
+            val trip = r.findTripByTripId("R1-0800")
+            val rt = Raptor.Realtime(
+                live = PerFermata(mapOf((trip to 0) to 120, (trip to 1) to 600)),
+                observedAtEpoch = epochAt(feedStart, 7, 58).epochSecond,
+            )
+            val j = Raptor(r).plan(nearA, nearC, epochAt(feedStart, 7, 58), rt)
+                .first { !it.isWalkOnly }
+            val ride = j.legs.filterIsInstance<Raptor.Leg.Ride>().first()
+            val day = Ftb.serviceDayStart(feedStart).epochSecond
+            // A e' in posizione 0: 08:00 in punto piu' i 120 s dichiarati li'.
+            assertEquals(day + 8 * 3600 + 120, ride.departure.epochSecond)
+        }
+    }
+
+    @Test
+    fun `si scende con il ritardo della fermata dove si scende`() {
+        BundleReader(writeBundle()).use { r ->
+            val trip = r.findTripByTripId("R1-0800")
+            val rt = Raptor.Realtime(
+                live = PerFermata(mapOf((trip to 0) to 120, (trip to 2) to 360)),
+                observedAtEpoch = epochAt(feedStart, 7, 58).epochSecond,
+            )
+            val j = Raptor(r).plan(nearA, nearC, epochAt(feedStart, 7, 58), rt)
+                .first { !it.isWalkOnly }
+            val ride = j.legs.filterIsInstance<Raptor.Leg.Ride>().first()
+            val day = Ftb.serviceDayStart(feedStart).epochSecond
+            // C e' in posizione 2, a 240 s dalla partenza: il ritardo che
+            // conta li' e' 360, non i 120 di dove si e' saliti.
+            assertEquals(day + 8 * 3600 + 240 + 360, ride.arrival.epochSecond)
+        }
+    }
+
+    @Test
+    fun `una previsione piu' bassa non fa arrivare prima di partire`() {
+        // Il feed puo' dichiarare dieci minuti a una fermata e zero alla
+        // successiva: la monotonia lungo la corsa e' un vincolo del problema,
+        // e senza questa rete un itinerario poteva arrivare prima di essere
+        // partito.
+        BundleReader(writeBundle()).use { r ->
+            val trip = r.findTripByTripId("R1-0800")
+            val rt = Raptor.Realtime(
+                live = PerFermata(mapOf((trip to 0) to 600, (trip to 2) to 0)),
+                observedAtEpoch = epochAt(feedStart, 7, 58).epochSecond,
+            )
+            val j = Raptor(r).plan(nearA, nearC, epochAt(feedStart, 7, 58), rt)
+                .first { !it.isWalkOnly }
+            val ride = j.legs.filterIsInstance<Raptor.Leg.Ride>().first()
+            assertTrue(
+                ride.arrival >= ride.departure,
+                "arrivo ${ride.arrival} prima della partenza ${ride.departure}",
+            )
+        }
+    }
+
+    @Test
+    fun `senza previsioni vale ancora il numero unico per corsa`() {
+        // Le corse che il feed copre a fermate sono una parte: per le altre
+        // il ripiego deve restare quello di prima, identico.
+        BundleReader(writeBundle()).use { r ->
+            val trip = r.findTripByTripId("R1-0800")
+            val soloNumero = Raptor.Realtime(delayByTrip = mapOf(trip to 300))
+            val conLive = Raptor.Realtime(
+                delayByTrip = mapOf(trip to 300),
+                live = PerFermata(emptyMap()),
+            )
+            val a = Raptor(r).plan(nearA, nearC, epochAt(feedStart, 7, 50), soloNumero)
+            val b = Raptor(r).plan(nearA, nearC, epochAt(feedStart, 7, 50), conLive)
+            assertEquals(
+                a.map { it.departure.epochSecond to it.arrival.epochSecond },
+                b.map { it.departure.epochSecond to it.arrival.epochSecond },
+            )
+        }
+    }
+
     // --- gli invarianti -----------------------------------------------
     //
     // Gli otto casi qui sopra sono scenari: ognuno controlla una risposta

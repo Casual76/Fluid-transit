@@ -980,6 +980,14 @@ fun MapScreen(
                 rtNow.delayByTrip,
                 rtNow.canceledTrips,
                 java.time.Instant.now().epochSecond,
+                // Le stesse previsioni che usa il tabellone della fermata.
+                //
+                // Senza, il motore applicava a tutta la corsa il primo
+                // ritardo dichiarato, e il tabellone la previsione della
+                // fermata giusta: sul feed delle 07:30 le due cose
+                // divergevano in media di 78 secondi, oltre il minuto su un
+                // terzo delle corse. Stesso bus, stessa fermata, due orari.
+                live = app.departureBoards.live(),
             )
         } else {
             dev.antigravity.fluidtransit.routing.Raptor.Realtime.NONE

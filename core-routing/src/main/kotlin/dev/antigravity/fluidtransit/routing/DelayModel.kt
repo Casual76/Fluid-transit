@@ -218,6 +218,15 @@ class DelayModel {
 
     val size: Int get() = synchronized(lock) { tracks.size }
 
+    /**
+     * Si sa qualcosa di questa corsa?
+     *
+     * Una lettura sola, per chi deve chiederlo migliaia di volte dentro un
+     * giro stretto — il motore degli itinerari — prima di mettersi a
+     * calcolare la proiezione.
+     */
+    fun knows(tripIndex: Int): Boolean = synchronized(lock) { tracks.containsKey(tripIndex) }
+
     private companion object {
         /** Quante osservazioni bastano a leggere un andamento senza inseguire il rumore. */
         const val HISTORY = 5

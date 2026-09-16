@@ -57,6 +57,20 @@ interface LiveTimes {
      */
     fun at(tripIndex: Int, position: Int, stopCount: Int, nowEpoch: Long): At?
 
+    /**
+     * Il feed sa qualcosa di questa corsa?
+     *
+     * Serve al motore degli itinerari, che chiede il ritardo per ogni corsa
+     * candidata dentro il suo giro piu' stretto: una risposta secca prima di
+     * mettersi a cercare la previsione giusta e' la differenza fra una
+     * lettura e una ricerca binaria, moltiplicata per le migliaia di corse
+     * che un calcolo scandisce.
+     *
+     * Il valore di default dice "chiedimelo": chi non sa rispondere in fretta
+     * non e' peggio di come stava prima.
+     */
+    fun covers(tripIndex: Int): Boolean = true
+
     /** Il feed dichiara questa corsa cancellata. */
     fun canceled(tripIndex: Int): Boolean = false
 

@@ -30,6 +30,9 @@ class LiveFromFeed(
         return LiveTimes.At(live.delaySeconds, live.confidence.asCertainty())
     }
 
+    override fun covers(tripIndex: Int): Boolean =
+        delays.knows(tripIndex) || tripIndex in canceled || tripIndex in withVehicle
+
     override fun canceled(tripIndex: Int): Boolean = tripIndex in canceled
 
     /**
@@ -64,6 +67,8 @@ class LiveFromFeed(
                 stopCount: Int,
                 nowEpoch: Long,
             ): LiveTimes.At? = null
+
+            override fun covers(tripIndex: Int): Boolean = false
         }
     }
 }

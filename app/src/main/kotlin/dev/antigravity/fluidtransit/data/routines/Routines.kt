@@ -16,7 +16,11 @@ import org.json.JSONObject
  * `lastAdvice*` e' l'ultimo consiglio calcolato dalle sveglie: la scheda
  * Oggi lo mostra senza rifare il calcolo.
  */
-class Routines(context: Context) {
+class Routines(private val file: File) {
+
+    /** Quello di tutti i giorni; l'altro prende il file, e si puo' provare. */
+    constructor(context: Context) : this(File(context.filesDir, "routines.json"))
+
 
     class Routine(
         val id: Long,
@@ -36,7 +40,6 @@ class Routines(context: Context) {
         val lastAdviceText: String = "",
     )
 
-    private val file = File(context.filesDir, "routines.json")
     val version = MutableStateFlow(0)
 
     fun list(): List<Routine> = runCatching {

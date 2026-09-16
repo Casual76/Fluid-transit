@@ -180,4 +180,12 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    // `org.json` vero nei test unitari.
+    //
+    // Nell'android.jar per i test e' uno stub: ogni metodo solleva, e con
+    // `isReturnDefaultValues` torna zero o null. Gli archivi dell'utente —
+    // stelle, routine, posti salvati — sono JSON, quindi senza questa riga
+    // non si possono provare affatto, e sono l'unica cosa nell'app che
+    // l'utente ha creato a mano.
+    testImplementation("org.json:json:20240303")
 }

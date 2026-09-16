@@ -16,12 +16,20 @@ import org.json.JSONObject
  * JSON su file come gli altri archivi utente; [version] scatta a ogni
  * modifica cosi' la UI si ricompone senza rileggere il disco a ogni frame.
  */
-class Favorites(context: Context) {
+class Favorites(private val file: File) {
+
+    /**
+     * Il costruttore di tutti i giorni.
+     *
+     * Quello sopra prende il file e basta: e' cio' che permette di provare
+     * questo archivio senza un telefono. Le stelle sono l'unica cosa in
+     * quest'app che l'utente ha creato a mano, e finora non c'era una riga di
+     * prova che dicesse che sopravvivono a un giro di scrittura e rilettura.
+     */
+    constructor(context: Context) : this(File(context.filesDir, "favorites.json"))
 
     class Stop(val idHashHex: String, val name: String)
     class Route(val idHashHex: String, val shortName: String, val colorRgb: Int)
-
-    private val file = File(context.filesDir, "favorites.json")
     val version = MutableStateFlow(0)
 
     /**

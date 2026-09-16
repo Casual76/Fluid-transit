@@ -79,7 +79,15 @@ tabellone da dodici righe sono pochi kilobyte — ma e' senza tetto. Un tetto
 fatto male sarebbe peggio del difetto: togliere un flusso che qualcuno sta
 ancora guardando vuol dire che il prossimo che chiede la stessa fermata ne
 crea un secondo, e due flussi sulla stessa fermata sono esattamente la cosa
-che questa classe esiste per impedire. Va fatto contando chi guarda.
+che questa classe esiste per impedire.
+
+Provato a pensarlo con i riferimenti deboli, che sarebbe la soluzione
+elegante: **non funziona.** Il flusso lo tiene vivo la coroutine che
+`stateIn` lancia nello scope dell'Application, e quella coroutine non finisce
+mai — `WhileSubscribed` la lascia in attesa di iscritti per sempre. Quindi il
+riferimento debole non si svuota mai e il tetto non scatta. Per farlo davvero
+bisogna contare gli iscritti per chiave, come la classe fa gia' per il giro
+dei ritardi, e cancellare la coroutine quando restano a zero da un po'.
 — letto il 16/09/2026
 
 **Il Cron Trigger di Cloudflare non e' un metronomo.** `crons = ["* * * * *"]`

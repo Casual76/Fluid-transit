@@ -80,7 +80,11 @@ fun AssistantSettingsGroup(app: FluidTransitApp) {
                 meta = when {
                     state.verified -> "ok"
                     state.present -> "da provare"
-                    else -> "—"
+                    // Non "—": in queste righe il trattino restava sospeso
+                    // sotto il testo senza dire cosa fare, mentre le altre
+                    // due parole lo dicono. Qui la riga e' un'azione, e il
+                    // suo stato e' "non l'hai ancora messa".
+                    else -> "da impostare"
                 },
                 onClick = { editing = provider },
             )

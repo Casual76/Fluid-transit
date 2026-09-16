@@ -258,17 +258,27 @@ fun FavoritesTab(
             item {
                 FluidListGroup {
                     for (r in routes) {
+                        // Il nome della linea, non il suo numero ripetuto.
+                        //
+                        // La riga diceva "Linea 17" con accanto un pallino
+                        // colorato muto: il colore senza il numero e il
+                        // numero senza il colore. Adesso il numero sta nella
+                        // sua pastiglia — come in tutto il resto dell'app — e
+                        // il titolo puo' dire dove va quella linea, che e'
+                        // l'unica cosa che uno non sa gia' guardando la
+                        // pastiglia.
+                        val nomeLungo = remember(r.idHashHex, reader) {
+                            val h = r.idHashHex.toULongOrNull(16)?.toLong()
+                            val idx = h?.let { reader?.findRouteByIdHash(it) } ?: -1
+                            if (idx >= 0) reader?.routeLongName(idx)?.ifEmpty { null } else null
+                        }
                         FluidListRow(
-                            title = "Linea ${r.shortName}",
+                            title = nomeLungo ?: "Linea ${r.shortName}",
                             subtitle = "La tratta sulla mappa",
                             leading = {
-                                androidx.compose.foundation.layout.Box(
-                                    modifier = Modifier
-                                        .size(14.dp)
-                                        .background(
-                                            color = Color(0xFF000000 or r.colorRgb.toLong()),
-                                            shape = CircleShape,
-                                        ),
+                                dev.antigravity.fluidtransit.ui.map.RoutePill(
+                                    text = r.shortName,
+                                    colorRgb = r.colorRgb,
                                 )
                             },
                             onClick = { onOpenOnMap(MapIntent.Route(r.idHashHex)) },

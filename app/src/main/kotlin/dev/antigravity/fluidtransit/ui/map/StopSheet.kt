@@ -186,6 +186,62 @@ fun StopPanelContent(
         )
     }
 
+    // Chi passa di qui, sempre.
+    //
+    // Il tabellone dice cosa passa nelle prossime due ore, che di notte o su
+    // una linea ogni ora e' quasi niente: la domanda "da questa fermata
+    // quali linee partono?" restava senza risposta proprio quando serviva di
+    // piu'. Le pastiglie la danno in una riga, e sono le stesse pastiglie di
+    // tutto il resto — si toccano e aprono la linea.
+    val lineeQui = androidx.compose.runtime.remember(stopIndex, reader) {
+        if (stopIndex < 0) {
+            emptyList()
+        } else {
+            val viste = LinkedHashMap<Int, Pair<String, Int>>()
+            for (pattern in reader.patternsAtStop(stopIndex)) {
+                val route = reader.patternRoute(pattern)
+                if (route < 0) continue
+                viste.getOrPut(route) {
+                    reader.routeShortName(route).ifEmpty { reader.routeLongName(route) } to
+                        reader.routeDisplayColor(route)
+                }
+            }
+            viste.entries.map { (route, nomeColore) -> Triple(route, nomeColore.first, nomeColore.second) }
+        }
+    }
+    if (lineeQui.isNotEmpty()) {
+        androidx.compose.foundation.layout.FlowRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            for ((route, nome, colore) in lineeQui.take(10)) {
+                RoutePill(
+                    text = nome,
+                    colorRgb = colore,
+                    modifier = Modifier.clickable(
+                        interactionSource = androidx.compose.runtime.remember {
+                            MutableInteractionSource()
+                        },
+                        indication = null,
+                        role = Role.Button,
+                        onClickLabel = "Mostra la linea $nome",
+                        onClick = { onRouteTap(route) },
+                    ),
+                )
+            }
+            if (lineeQui.size > 10) {
+                Text(
+                    text = "+${lineeQui.size - 10}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+
     // Gli avvisi delle linee di questa fermata, sopra tutto il resto: se la
     // linea che aspetti oggi e' deviata, saperlo dopo gli orari non serve.
     dev.antigravity.fluidtransit.ui.common.AlertRows(alerts, onOpenAlerts)

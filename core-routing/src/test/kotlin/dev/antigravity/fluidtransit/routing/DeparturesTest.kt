@@ -159,6 +159,9 @@ class DeparturesTest {
                 live = Live(delays = mapOf(2 to (-300 to Certainty.DECLARED))),
             )
 
+            // Il tabellone non e' vuoto: se lo fosse, "non c'e' la corsa 2"
+            // sarebbe vero senza voler dire niente.
+            assertTrue(board.rows.isNotEmpty(), "il tabellone e' vuoto: la prova non prova niente")
             assertTrue(board.rows.none { it.tripIndex == 2 }, "una corsa passata non e' imminente")
         }
     }
@@ -289,6 +292,7 @@ class DeparturesTest {
     fun `ogni riga sa da che fermata parte`() {
         BundleReader(busy()).use { r ->
             val board = Departures.merged(r, stops = listOf(0, 1), now = at("07:50"), limit = 8)
+            assertTrue(board.rows.isNotEmpty(), "senza righe, quel controllo e' vero e non dice niente")
             assertTrue(board.rows.all { it.stopName.isNotEmpty() })
         }
     }

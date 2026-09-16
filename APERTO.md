@@ -66,9 +66,14 @@ e portare la mappa dove serve. — visto il 15/09/2026
 **`/rt/v1/refresh` e' aperto.** Il codice che controlla il segreto c'è e si
 accende da solo, ma `REFRESH_SECRET` non è configurato. Si chiude con
 `wrangler secret put REFRESH_SECRET` e la corrispondente variabile nel
-workflow `rt-keepalive.yml`: serve chi ha le chiavi di Cloudflare. Nel
-frattempo l'endpoint è limitato a un giro ogni venti secondi per isolate.
-— aperto dal 15/09/2026
+workflow `rt-keepalive.yml`: serve chi ha le chiavi di Cloudflare.
+
+Nel frattempo il danno possibile e' stato ridotto a zero per aritmetica: il
+limite e' passato da venti a cinquantacinque secondi per isolate, cioe' al
+massimo poco piu' di tre fetch al minuto verso l'origine della Regione —
+esattamente quello che ordina il nostro cron. Chi conoscesse l'URL non
+ottiene una leva su qualcun altro, solo su di noi, e nemmeno tanta.
+— aperto dal 15/09/2026, ridotto il 16/09/2026
 
 **La cache dei tabelloni non butta mai niente.** `DepartureBoards` tiene una
 `ConcurrentHashMap` da chiave (fermate, limite, orizzonte) a flusso, e non

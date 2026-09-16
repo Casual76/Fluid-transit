@@ -91,11 +91,23 @@ const BLOCKING_REFRESH_AFTER_SECONDS = 90;
 /**
  * Ogni quanto /rt/v1/refresh puo' far lavorare davvero.
  *
- * Venti secondi sono sotto il periodo del keepalive e ben sotto i due minuti
- * con cui l'origine si rigenera: chi ha diritto di chiamarlo non se ne
- * accorge, chi volesse usarlo come pompa non ottiene niente.
+ * Cinquantacinque secondi, e il numero e' un conto, non un gusto.
+ *
+ * L'endpoint e' ancora aperto — `REFRESH_SECRET` non e' configurato — e il
+ * suo URL sta in chiaro in un workflow pubblico. Il costo di un giro sono
+ * tre fetch verso l'origine della Regione; le scritture su R2 no, perche' un
+ * giro che trova gli stessi timestamp non scrive niente.
+ *
+ * Con venti secondi, chi volesse usarlo come pompa poteva ordinare nove
+ * fetch al minuto verso la Regione: il triplo di quello che fa il cron, che
+ * ne ordina tre. Con cinquantacinque ne ordina al massimo poco piu' di tre,
+ * cioe' non piu' del nostro stesso battito: l'endpoint smette di essere una
+ * leva su qualcun altro anche senza segreto.
+ *
+ * Chi ha diritto di chiamarlo non se ne accorge: il keepalive gira ogni ore,
+ * non ogni secondo, e l'origine si rigenera comunque ogni due minuti.
  */
-const REFRESH_MIN_INTERVAL_SECONDS = 20;
+const REFRESH_MIN_INTERVAL_SECONDS = 55;
 
 /** Il refresh in corso, condiviso: le richieste in parallelo non ne fanno tre. */
 let refreshInFlight = null;
@@ -218,7 +230,7 @@ async function serveRefresh(request, env) {
   // questo, chiunque conoscesse l'URL — che sta in chiaro in un workflow
   // pubblico — poteva ordinare un giro completo (tre fetch dall'origine, due
   // parse integrali, quattro scritture su R2) ogni paio di secondi, per
-  // sempre. Sotto i venti secondi si risponde con l'esito di prima, che e'
+  // sempre. Sotto il minuto si risponde con l'esito di prima, che e'
   // esattamente quello che avrebbe prodotto un giro nuovo: l'origine si
   // rigenera ogni due minuti.
   const nowSec = Math.floor(Date.now() / 1000);

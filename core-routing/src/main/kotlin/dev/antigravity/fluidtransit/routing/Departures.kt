@@ -115,6 +115,20 @@ class DepartureBoard(
     val stopName: String,
     val computedAtEpoch: Long,
     val rows: List<NextDeparture>,
+    /**
+     * Oggi non e' dentro la validita' degli orari che abbiamo.
+     *
+     * Succede quando il bundle e' scaduto: il job notturno non pubblica da
+     * troppo tempo, e gli orari in tasca non coprono piu' questo giorno.
+     * Senza questo campo il tabellone e' semplicemente vuoto, e "nessun
+     * passaggio nelle prossime due ore" e' la spiegazione sbagliata di un
+     * problema che non ha niente a che fare con gli autobus: lo stesso
+     * messaggio che si vede alle tre di notte, quando invece e' vero.
+     *
+     * A settembre 2026 il cancello del job notturno ha bloccato sette notti
+     * di fila un feed sano: venti giorni non sono impensabili.
+     */
+    val outsideValidity: Boolean = false,
 ) {
     companion object {
         fun empty(stopIndex: Int, stopName: String, nowEpoch: Long) =
@@ -142,6 +156,8 @@ object Departures {
     ): DepartureBoard {
         val nowEpoch = now.epochSecond
         val name = reader.stopName(stopIndex)
+        val oggi = now.atZone(Ftb.ROME).toLocalDate()
+        val fuoriValidita = oggi.isBefore(reader.feedStart) || oggi.isAfter(reader.feedEnd)
         // Si chiede qualche corsa in piu' del necessario: alcune spariranno
         // perche' saltate o gia' passate, e il tabellone deve restare pieno.
         // Si interroga qualche secondo indietro: il lettore taglia tutto
@@ -197,6 +213,7 @@ object Departures {
             stopName = name,
             computedAtEpoch = nowEpoch,
             rows = if (rows.size > limit) rows.subList(0, limit).toList() else rows,
+            outsideValidity = fuoriValidita,
         )
     }
 
@@ -223,8 +240,11 @@ object Departures {
     ): DepartureBoard {
         val nowEpoch = now.epochSecond
         val all = ArrayList<NextDeparture>()
+        var fuoriValidita = false
         for (s in stops) {
-            all.addAll(build(reader, s, now, limit, horizonSeconds, live).rows)
+            val uno = build(reader, s, now, limit, horizonSeconds, live)
+            all.addAll(uno.rows)
+            if (uno.outsideValidity) fuoriValidita = true
         }
         val rank = HashMap<Int, Int>(stops.size * 2)
         stops.forEachIndexed { i, s -> rank.putIfAbsent(s, i) }
@@ -235,6 +255,7 @@ object Departures {
             stopName = "",
             computedAtEpoch = nowEpoch,
             rows = if (rows.size > limit) rows.subList(0, limit).toList() else rows,
+            outsideValidity = fuoriValidita,
         )
     }
 

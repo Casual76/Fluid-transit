@@ -142,6 +142,7 @@ class DepartureBoards(private val app: FluidTransitApp) {
             stopName = reader.stopName(stop),
             computedAtEpoch = merged.computedAtEpoch,
             rows = merged.rows,
+            outsideValidity = merged.outsideValidity,
         )
     }
 

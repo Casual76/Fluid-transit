@@ -177,6 +177,8 @@ fun FavoritesTab(
                             // carica e' peggio che non dire niente.
                             subtitle = when {
                                 board == null || board.computedAtEpoch == 0L -> "Leggo gli orari…"
+                                board.outsideValidity ->
+                                    "Gli orari sono scaduti e non ne arrivano di nuovi"
                                 board.rows.isEmpty() -> "Nessun passaggio nelle prossime due ore"
                                 else -> board.rows.joinToString(" · ") {
                                     DepartureText.compact(it, board.computedAtEpoch)

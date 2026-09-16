@@ -89,7 +89,11 @@ fun NearbyCapsule(
         Spacer(Modifier.width(10.dp))
         if (row == null) {
             Text(
-                text = "Qui intorno non passa niente a breve",
+                text = if (board.outsideValidity) {
+                    "Gli orari sono scaduti"
+                } else {
+                    "Qui intorno non passa niente a breve"
+                },
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -175,8 +179,18 @@ fun NearbyPanelContent(
 
         board.rows.isEmpty() -> {
             FluidEmptyState(
-                title = "Niente a breve, qui intorno",
-                detail = "Dalle fermate a piedi da qui non parte niente nelle prossime due ore.",
+                title = if (board.outsideValidity) {
+                    "Gli orari sono scaduti"
+                } else {
+                    "Niente a breve, qui intorno"
+                },
+                detail = if (board.outsideValidity) {
+                    "Quelli che abbiamo non coprono piu' oggi, e non ne " +
+                        "arrivano di nuovi. Non vuol dire che i bus non " +
+                        "passino: vuol dire che non sappiamo quando."
+                } else {
+                    "Dalle fermate a piedi da qui non parte niente nelle prossime due ore."
+                },
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
             Spacer(Modifier.height(16.dp))

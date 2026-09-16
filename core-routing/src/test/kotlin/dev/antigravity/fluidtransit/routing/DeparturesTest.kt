@@ -355,4 +355,33 @@ class DeparturesTest {
             assertEquals("Borgo Delta", board.stopName)
         }
     }
+    @Test
+    fun `un giorno fuori dalla validita' si dichiara, invece di sembrare notte`() {
+        // Un bundle scaduto da' tabelloni vuoti dappertutto, e "nessun
+        // passaggio nelle prossime due ore" e' la spiegazione sbagliata di un
+        // problema che non ha niente a che fare con gli autobus: e' la stessa
+        // frase che si legge alle tre di notte, quando invece e' vera. A
+        // settembre 2026 il cancello del job notturno ha bloccato sette notti
+        // di fila un feed sano.
+        BundleReader(busy()).use { r ->
+            val dentro = Departures.build(r, stopIndex = 0, now = at("08:00"))
+            assertTrue(!dentro.outsideValidity, "questo giorno e' coperto")
+
+            val dopo = Ftb.serviceDayStart(TestBundle.feedStart.plusDays(90))
+                .plusSeconds(8 * 3600)
+            val fuori = Departures.build(r, stopIndex = 0, now = dopo)
+            assertTrue(fuori.outsideValidity, "questo giorno non e' coperto")
+            assertTrue(fuori.rows.isEmpty())
+        }
+    }
+
+    @Test
+    fun `il tabellone unito dichiara la scadenza come quelli singoli`() {
+        BundleReader(busy()).use { r ->
+            val dopo = Ftb.serviceDayStart(TestBundle.feedStart.plusDays(90))
+                .plusSeconds(8 * 3600)
+            assertTrue(Departures.merged(r, listOf(0, 1), dopo).outsideValidity)
+        }
+    }
+
 }

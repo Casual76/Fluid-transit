@@ -190,8 +190,17 @@ fun TodayTab(
                         FluidListRow(title = "Un attimo…", subtitle = "Leggo gli orari")
                     } else if (departures.isEmpty()) {
                         FluidListRow(
-                            title = "Nessun passaggio a breve",
-                            subtitle = "Dalle tue fermate non parte niente nelle prossime due ore",
+                            title = if (board.outsideValidity) {
+                                "Gli orari sono scaduti"
+                            } else {
+                                "Nessun passaggio a breve"
+                            },
+                            subtitle = if (board.outsideValidity) {
+                                "Quelli che abbiamo non coprono piu' oggi, e non " +
+                                    "ne arrivano di nuovi"
+                            } else {
+                                "Dalle tue fermate non parte niente nelle prossime due ore"
+                            },
                         )
                     } else {
                         for (d in departures) {

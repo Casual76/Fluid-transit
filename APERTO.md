@@ -91,11 +91,21 @@ esattamente quello che ordina il nostro cron. Chi conoscesse l'URL non
 ottiene una leva su qualcun altro, solo su di noi, e nemmeno tanta.
 — aperto dal 15/09/2026, ridotto il 16/09/2026
 
-**Il Cron Trigger di Cloudflare non e' un metronomo.** `crons = ["* * * * *"]`
-è configurato, ma `/rt/v1/health` ha riportato battiti a 26 minuti e a 102
-minuti di distanza. Non fa danni — il refresh pigro e quello bloccante coprono
-il buco — ma vuol dire che la freschezza dipende dal traffico, non dal
-programma. — misurato il 15/09/2026
+**Il Cron Trigger di Cloudflare non e' un metronomo, e adesso si vede anche
+nell'app.** `crons = ["* * * * *"]` e' configurato, ma `/rt/v1/health` ha
+riportato battiti a 26 e a 102 minuti di distanza; stamattina alle 07:40, in
+piena ora di punta, l'ultimo battito era di **un'ora prima** e lo snapshot
+restava fresco solo perche' il refresh pigro lo riscriveva a ogni richiesta.
+
+La conseguenza visibile e' arrivata oggi: l'app e' passata alla sorgente
+diretta — "Ritardi non disponibili" sulla mappa, quindi nessun ritardo e
+nessuna previsione — perche' ha letto tre volte di fila uno snapshot vecchio.
+Si rimette da sola dopo cinque minuti, ed e' il comportamento voluto, ma il
+motivo per cui succede non e' un guasto del proxy: e' che senza traffico
+nessuno lo sveglia, e il cron che dovrebbe farlo non scatta.
+
+Non si chiude da qui: serve chi ha le chiavi di Cloudflare per guardare
+perche' il trigger non parte. — misurato di nuovo il 16/09/2026
 
 **La chiave Google Maps e' dentro gli APK 1.0.0, 1.0.1 e 1.1.0 gia'
 distribuiti.** È stata tolta da `local.properties`, ma quello che è stato

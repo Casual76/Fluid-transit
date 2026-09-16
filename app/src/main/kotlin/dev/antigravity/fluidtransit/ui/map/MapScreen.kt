@@ -1240,6 +1240,11 @@ fun MapScreen(
     )
 
     // Le ricerche recenti e i suggerimenti del pannello.
+    //
+    // Da dove si misura: dove sei, e se non lo sappiamo il centro della
+    // mappa. E' lo stesso riferimento della ricerca e di "qui intorno":
+    // tre elenchi che si vedono insieme non possono misurare da tre posti.
+    val dovePerLaDistanza = controller.lastLocation() ?: controller.cameraCenter()
     val recentStore = remember { RecentSearches(context) }
     var recentsVersion by remember { mutableStateOf(0) }
     val recents = remember(recentsVersion) { recentStore.load() }
@@ -1541,9 +1546,10 @@ fun MapScreen(
                 // MAI: cercare "via Bolognese 12" e ricercarla il giorno dopo
                 // erano due ricerche identiche e complete.
                 recents = recents.filter { it.kind != "route" }
-                    .map { it.toSuggestion() },
+                    .map { it.toSuggestion(dovePerLaDistanza) },
                 nearby = nearby,
-                recentLines = recents.filter { it.kind == "route" }.map { it.toSuggestion() },
+                recentLines = recents.filter { it.kind == "route" }
+                    .map { it.toSuggestion(dovePerLaDistanza) },
                 onOpen = { searchOpen = true },
                 onClose = {
                     searchOpen = false
@@ -2325,8 +2331,29 @@ fun MapScreen(
     }
 }
 
-private fun RecentSearches.Entry.toSuggestion() =
-    Suggestion(kind, key, title, subtitle, colorRgb, lat, lon)
+/**
+ * Un recente, con la distanza di ADESSO.
+ *
+ * Il sottotitolo si salva insieme alla ricerca, e per le fermate contiene la
+ * distanza: quindi restava quella di quando l'avevi cercata. Sul telefono,
+ * nello stesso istante: "STAZIONE PIAZZA ADUA · Fermata · a 0 m" fra i
+ * recenti — misurata mesi fa con la mappa centrata li' sopra — e la stessa
+ * fermata a un chilometro e mezzo nell'elenco sotto. La distanza e' l'unica
+ * cosa che un recente non puo' ricordare, perche' e' l'unica che dipende da
+ * dove sei adesso.
+ */
+private fun RecentSearches.Entry.toSuggestion(riferimento: Pair<Double, Double>?): Suggestion {
+    val sub = if (kind == "stop") {
+        riferimento?.let { (la, lo) ->
+            "Fermata · a " + dev.antigravity.fluidtransit.routing.Words.distance(
+                dev.antigravity.fluidtransit.routing.BundleReader.haversine(la, lo, lat, lon),
+            )
+        } ?: "Fermata"
+    } else {
+        subtitle
+    }
+    return Suggestion(kind, key, title, sub, colorRgb, lat, lon)
+}
 
 private fun hhmm(epochSecond: Long): String {
     if (epochSecond <= 0) return "—"

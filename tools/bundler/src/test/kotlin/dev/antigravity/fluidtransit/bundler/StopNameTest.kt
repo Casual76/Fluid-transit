@@ -62,6 +62,17 @@ class StopNameTest {
     }
 
     @Test
+    fun `anche i nomi delle linee passano di qui`() {
+        // Contati sul feed del 16/09/2026: 208 nomi di linea su 1.892 hanno
+        // uno spazio in coda. Da soli non si vedono, ma aprono un buco
+        // davanti al puntino che separa i pezzi di una riga.
+        assertEquals(
+            "ABBADIA - CALP - COLLE P.ZA ARNOLFO - SCUOLE MEDIE",
+            b.pulisciNome("ABBADIA - CALP - COLLE P.ZA ARNOLFO - SCUOLE MEDIE "),
+        )
+    }
+
+    @Test
     fun `un nome fatto solo di code non diventa qualcosa di strano`() {
         assertEquals("", b.pulisciNome("_"))
         assertEquals("", b.pulisciNome("  "))

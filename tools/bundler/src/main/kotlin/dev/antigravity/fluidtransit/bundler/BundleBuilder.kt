@@ -281,8 +281,13 @@ class BundleBuilder(
                 val id = csv.string(cId)
                 r.idToIndex[id] = r.size
                 r.ids.add(id)
-                r.shortName.add(csv.string(cShort))
-                r.longName.add(csv.string(cLong))
+                // Contati sul feed del 16/09/2026: 208 nomi di linea su
+                // 1.892 hanno uno spazio in coda. Invisibile da solo, ma
+                // apre un buco davanti al puntino che separa i pezzi di una
+                // riga — "12 - CENTRO  - ogni 20 min" — e rompe l'ordine
+                // alfabetico fra due nomi identici.
+                r.shortName.add(pulisciNome(csv.string(cShort)))
+                r.longName.add(pulisciNome(csv.string(cLong)))
                 val agencyId = csv.string(cAgency)
                 r.agency.add(agencyNames[agencyId] ?: agencyId)
                 r.type.add(csv.int(cType, 3))

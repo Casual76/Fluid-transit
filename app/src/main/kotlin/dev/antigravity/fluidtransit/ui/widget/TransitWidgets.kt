@@ -305,10 +305,9 @@ class RoutineWidget : GlanceAppWidget() {
         //
         // Cinque minuti di grazia: chi guarda il telefono appena dopo essere
         // uscito vuole ancora vedere qual era il piano.
-        val consiglioValido = todayRoutine != null && todayRoutine.lastAdviceEpoch > 0 &&
-            Instant.ofEpochSecond(todayRoutine.lastAdviceEpoch).atZone(Ftb.ROME)
-                .toLocalDate() == oggi &&
-            adesso <= todayRoutine.lastAdviceEpoch + GRAZIA_CONSIGLIO_S
+        val consiglioValido = todayRoutine != null &&
+            dev.antigravity.fluidtransit.data.routines.Routines
+                .adviceStillGood(todayRoutine, adesso)
 
         // L'ora della routine di oggi: serve a distinguere "il consiglio deve
         // ancora arrivare" da "per oggi e' andata", che prima erano la stessa
@@ -373,10 +372,5 @@ class RoutineWidget : GlanceAppWidget() {
                 }
             }
         }
-    }
-
-    private companion object {
-        /** Quanto un consiglio resta in vetrina dopo l'ora di uscire. */
-        const val GRAZIA_CONSIGLIO_S = 5 * 60L
     }
 }

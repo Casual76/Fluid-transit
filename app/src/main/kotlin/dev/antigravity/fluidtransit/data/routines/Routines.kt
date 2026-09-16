@@ -98,4 +98,29 @@ class Routines(private val file: File) {
         }
         version.value++
     }
+
+    companion object {
+
+        /**
+         * Quanto un consiglio resta buono dopo l'ora di uscire.
+         *
+         * Cinque minuti: chi guarda il telefono appena uscito di casa vuole
+         * ancora vedere qual era il piano.
+         */
+        const val GRAZIA_CONSIGLIO_S = 5 * 60L
+
+        /**
+         * Il consiglio di oggi vale ancora?
+         *
+         * `lastAdviceEpoch` e' l'ora a cui USCIRE, non l'ora in cui il
+         * consiglio e' stato calcolato, e chi lo leggeva come "e' di oggi"
+         * lo teneva in vetrina fino a mezzanotte: alle 09:47 la scheda Oggi
+         * e il widget dicevano tutti e due "Esci alle 07:25". Due copie
+         * della stessa svista, quindi la regola sta qui.
+         */
+        fun adviceStillGood(routine: Routine, nowEpoch: Long): Boolean =
+            routine.lastAdviceEpoch > 0 &&
+                routine.lastAdviceText.isNotEmpty() &&
+                nowEpoch <= routine.lastAdviceEpoch + GRAZIA_CONSIGLIO_S
+    }
 }

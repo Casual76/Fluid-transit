@@ -137,6 +137,12 @@ fun TodayTab(
 
     val today = LocalDate.now(Ftb.ROME).dayOfWeek.value
 
+    // L'orologio comune: si muove col battito delle schede, cosi' il
+    // consiglio di una routine smette di comparire quando e' ora, non alla
+    // prossima ricomposizione che capita.
+    val adesso = dev.antigravity.fluidtransit.data.time.UiClock.ticks()
+        .collectAsStateWithLifecycle(initialValue = Instant.now().epochSecond).value
+
     // Tira giu' per aggiornare.
     //
     // I numeri si rinfrescano da soli ogni trenta secondi, quindi questo
@@ -284,9 +290,11 @@ fun TodayTab(
                 FluidListGroup {
                     for (r in routines) {
                         val isToday = today in r.days
-                        val adviceToday = r.lastAdviceEpoch > 0 &&
-                            Instant.ofEpochSecond(r.lastAdviceEpoch).atZone(Ftb.ROME)
-                                .toLocalDate() == LocalDate.now(Ftb.ROME)
+                        // Finche' non e' passata l'ora di uscire: prima
+                        // bastava che il consiglio fosse di oggi, e alle
+                        // dieci del mattino la riga diceva ancora "Esci alle
+                        // 07:25".
+                        val adviceToday = Routines.adviceStillGood(r, adesso)
                         FluidListRow(
                             title = r.label.ifEmpty { "→ ${r.toName}" },
                             subtitle = buildString {
@@ -294,7 +302,7 @@ fun TodayTab(
                                 append(" · ")
                                 append(if (r.anchor == "arrive") "entro le " else "parti alle ")
                                 append("%02d:%02d".format(r.anchorMinutes / 60, r.anchorMinutes % 60))
-                                if (isToday && adviceToday && r.lastAdviceText.isNotEmpty()) {
+                                if (isToday && adviceToday) {
                                     append("\n")
                                     append(r.lastAdviceText)
                                 }

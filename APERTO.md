@@ -9,23 +9,26 @@ Una riga esce da qui solo quando è risolta, o quando si è deciso e scritto
 
 ---
 
+## Deciso di lasciare com'e'
+
+**In orizzontale la ricerca mostra una riga sola, ed e' aritmetica.** Misurato
+il 16/09 con lo schermo girato: la finestra e' alta **411 dp** e la tastiera
+ne prende **266**. Restano 145 dp per la barra (52) e l'elenco: una riga e
+mezzo. Non e' un difetto di layout — un pannello laterale, l'elenco sopra la
+barra, le righe compatte: qualunque cosa si faccia, quei 145 dp restano
+quelli.
+
+L'unico modo per vederne di piu' e' che la tastiera non ci sia, ed e'
+esattamente quello che fa la modalita' estratta di Android: provata, toglie
+l'app di mezzo e mostra un campo di testo suo con un tasto CERCA, quindi
+**zero righe mentre scrivi** e tutte e sei dopo aver confermato. Cambia il
+modo di cercare, non lo migliora.
+
+Deciso con Alessio il 16/09: si lascia una riga che pero' si aggiorna a ogni
+lettera. Questa riga resta qui coi numeri, perche' senza numeri sembra una
+svista e qualcuno ci ritorna sopra. — misurato e deciso il 16/09/2026
+
 ## Si vede
-
-**In orizzontale la ricerca mostra una riga sola, e per meta'.** Rimisurato il
-16/09 con lo schermo girato: si scrive "san", esce "SAN FREDIANO CESTELLO" e
-la tastiera gli passa sopra a meta' altezza. Il resto dello schermo e'
-sprecato in un altro modo ancora: la tenda della ricerca sta in una colonna
-centrale larga poco piu' di meta' schermo, e le due fasce ai lati mostrano
-la mappa che in quel momento non serve a niente.
-
-Le due strade sono tutt'e due un cambio di aspetto, e vanno decise con
-Alessio: o la ricerca in orizzontale diventa un pannello laterale a tutta
-altezza (la mappa resta a destra, l'elenco a sinistra, e le righe visibili
-diventano cinque o sei), oppure si lascia che la tastiera vada a schermo
-intero come fa Android quando un'app non glielo impedisce. Allargare e
-basta la tenda non serve: le righe stanno una sotto l'altra, e il problema
-e' l'altezza.
-— rimisurato il 16/09/2026
 
 **La camera della mappa NON riparte da capo cambiando scheda.** Era scritto
 qui come difetto; riprovato due volte, e' falso: si apre una fermata, si va su

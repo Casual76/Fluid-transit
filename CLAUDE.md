@@ -194,6 +194,37 @@ sano, perche' l'inizio dell'anno scolastico aveva aggiunto il 53% di corse.
 I gate sono ora asimmetrici (stretti in giu', larghi in su) e c'e' un
 interruttore manuale `ignora_gate`.
 
+## Il vocabolario sta in un posto solo
+
+Le parole con cui l'app dice le cose vivono in `:core-routing`, che e' l'unico
+modulo che vedono tutti: le schermate, i widget Glance e gli strumenti
+dell'assistente. Non e' pedanteria — ogni volta che una di queste e' stata
+riscritta in casa da qualcuno, la copia e' divergita:
+
+| dove | cosa dice |
+|---|---|
+| `DepartureText` | una partenza: "dal bus", "stimato", "orario da tabella", il tono, il pallino |
+| `Times.delayLabel` | il ritardo: "+3 min di ritardo", "in orario" |
+| `Times.durationLabel` | una durata: "43 min", "4 h 10 min" — mai "250 min" |
+| `Times.serviceTime` | un orario oltre le 24: "01:13 di notte" — mai un modulo 24 secco |
+| `Times.hhmm` | l'orologio, sempre a due cifre |
+| `AlertText.period` / `.moment` | un periodo e un istante: "oggi alle 10:15", "28 febbraio 2027" |
+| `Words.count` | il singolare: "1 fermata" e non "1 fermate" |
+| `Words.distance` | "350 m", "2,4 km" |
+| `Words.age` | l'eta' di un dato: "18s", "6 min" |
+| `FidelityText` | il confronto con la fonte |
+
+Se serve una frase che una di queste quasi dice, si cambia quella: una seconda
+copia scritta in casa e' come nascono i difetti che si vedono solo in una
+schermata su quattro.
+
+**E l'orologio e' uno solo.** `UiClock.ticks()` batte ogni dieci secondi
+allineato al muro, non all'istante in cui una schermata si e' aperta: due
+schermate mostrano lo stesso minuto perche' partono dallo stesso istante, non
+perche' chi le ha scritte e' stato attento. Una schermata che chiama
+`Instant.now()` dentro la propria composizione e' fuori dal battito, e si
+vede: i minuti restano fermi finche' qualcos'altro non la fa ricomporre.
+
 ## Regole di stile
 
 Commenti e messaggi di commit in **italiano**, con l'apostrofo ASCII al posto

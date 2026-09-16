@@ -236,7 +236,11 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
         is BundleState.AskMetered -> "in attesa: servono ${state.bytes / 1_000_000} MB su rete a consumo"
         BundleState.WaitingForWifi -> "in attesa del Wi-Fi"
         BundleState.Missing -> "mancante: l'orario non e' ancora stato scaricato"
-        is BundleState.Failed -> "non scaricato: ${state.message}"
+        // La stessa frase delle due schermate. Qui conta il doppio: quello
+        // che legge l'assistente finisce in una risposta a voce, e un
+        // messaggio di eccezione letto ad alta voce e' una supercazzola.
+        is BundleState.Failed -> "non scaricato: " +
+            dev.antigravity.fluidtransit.data.bundle.BundleFailure.words(state.message).title
     }
 
     override suspend fun refreshData(): String {

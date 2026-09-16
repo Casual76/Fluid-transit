@@ -453,50 +453,58 @@ fun TripFullContent(
                                     shape = CircleShape,
                                 ),
                         )
-                        Text(
-                            text = stop.name,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
+                        // Le stesse parole, gli stessi toni e la stessa
+                        // regola del pallino del resto dell'app: qui c'erano
+                        // un "previsto" che voleva dire un'altra cosa, il
+                        // verde anche sulle stime e un 60 scritto a mano.
+                        val phrase = DepartureText.alongTrip(
+                            scheduledEpoch = stop.scheduledEpoch,
+                            delaySeconds = (stop.effectiveEpoch - stop.scheduledEpoch)
+                                .toInt().takeIf { stop.certainty != null },
+                            certainty = stop.certainty,
+                            skipped = stop.skipped,
+                            nowEpoch = nowSec,
                         )
-                        if (stop.isLast) {
-                            Text(
-                                text = "Capolinea",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Column(horizontalAlignment = Alignment.End) {
-                            // Le stesse parole, gli stessi toni e la stessa
-                            // regola del pallino del resto dell'app: qui
-                            // c'erano un "previsto" che voleva dire un'altra
-                            // cosa, il verde anche sulle stime e un 60
-                            // scritto a mano.
-                            val phrase = DepartureText.alongTrip(
-                                scheduledEpoch = stop.scheduledEpoch,
-                                delaySeconds = (stop.effectiveEpoch - stop.scheduledEpoch)
-                                    .toInt().takeIf { stop.certainty != null },
-                                certainty = stop.certainty,
-                                skipped = stop.skipped,
-                                nowEpoch = nowSec,
-                            )
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                            ) {
-                                if (phrase.pulse) LiveDot(toneColor(phrase.tone))
+                        // La provenienza sotto il nome, non sotto il numero.
+                        //
+                        // Stava a destra, e cosi' la colonna dei minuti era
+                        // larga quanto "dal bus - da tabella alle 05:05":
+                        // restavano diciassette caratteri per il nome della
+                        // fermata, e "BESLAN T1 FORTE..." non e' un nome. Il
+                        // tabellone della fermata era gia' stato sistemato
+                        // cosi'; questa lista era rimasta indietro.
+                        Column(modifier = Modifier.weight(1f)) {
+                            if (stop.isLast) {
                                 Text(
-                                    text = phrase.headline,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = toneColor(phrase.tone),
+                                    text = "Capolinea",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
+                            Text(
+                                text = stop.name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                             Text(
                                 text = phrase.support,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        ) {
+                            if (phrase.pulse) LiveDot(toneColor(phrase.tone))
+                            Text(
+                                text = phrase.headline,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = toneColor(phrase.tone),
                             )
                         }
                     }

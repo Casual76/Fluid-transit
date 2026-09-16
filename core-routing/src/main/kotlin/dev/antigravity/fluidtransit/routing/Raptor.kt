@@ -31,7 +31,28 @@ class Raptor(private val reader: BundleReader) {
 
     class Options(
         val maxRounds: Int = 5,
+        /**
+         * Quanto si concede fra l'arrivo a una fermata e la partenza del
+         * mezzo. Tre quarti di minuto: il tempo di attraversare la strada e
+         * di accorgersi che il bus e' quello giusto.
+         */
         val boardSlackSeconds: Int = 45,
+        /**
+         * Quanto si cammina, e quanto si allunga rispetto alla linea d'aria.
+         *
+         * 1,1 m/s sono quattro chilometri all'ora scarsi: un passo normale
+         * con la borsa della spesa, non quello di chi corre. Il fattore 1,35
+         * e' il rapporto con cui un percorso su strada supera la linea d'aria
+         * in un tessuto urbano a isolati — le distanze fra fermate qui si
+         * misurano in linea d'aria, perche' il bundle non porta il grafo
+         * pedonale, e senza quel correttivo ogni camminata sarebbe
+         * sistematicamente ottimista.
+         *
+         * Le due cose insieme fanno un'andatura effettiva di 0,81 m/s, cioe'
+         * tre chilometri all'ora scarsi in linea d'aria: e' prudente di
+         * proposito. Un viaggio che si perde per trenta secondi e' peggio di
+         * uno che arriva con trenta secondi di margine.
+         */
         val walkSpeedMs: Double = 1.1,
         val walkFactor: Double = 1.35,
         /** Raggio di accesso a piedi da luogo a fermate (e viceversa). */

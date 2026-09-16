@@ -30,7 +30,23 @@ class SearchIndex private constructor(
     private val routeNameEnd: IntArray,
     private val routeDest: Array<String>,
     private val routeColor: IntArray,
-    private val routeFirstStop: IntArray,
+    /**
+     * Dove portare la mappa quando si tocca una linea.
+     *
+     * Erano DUE array e un indice: il numero della prima fermata della
+     * linea, con cui si andava a leggere `stopLat`. Ma `stopLat` e'
+     * indicizzato per GRUPPO di fermate omonime, non per fermata: col
+     * raggruppamento acceso — cioe' sempre, nell'app — quel numero
+     * pescava le coordinate di un gruppo qualunque, e quando superava il
+     * numero dei gruppi cadeva sul ripiego zero, che e' il Golfo di
+     * Guinea. Effetto doppio: la mappa si apriva sul posto sbagliato, e
+     * il premio per la vicinanza premiava la linea sbagliata — cercando
+     * "6" da Firenze veniva su per prima quella di Empoli.
+     *
+     * Adesso sono coordinate vere, lette dal bundle una volta sola.
+     */
+    private val routeLat: DoubleArray,
+    private val routeLon: DoubleArray,
 ) {
 
     sealed interface Hit {
@@ -67,15 +83,38 @@ class SearchIndex private constructor(
         refLon: Double = Double.NaN,
     ): List<Hit> {
         val tokens = Relevance.tokens(query)
-        if (tokens.isEmpty() || tokens.sumOf { it.length } < 2) return emptyList()
+        if (tokens.isEmpty()) return emptyList()
         val hasRef = !refLat.isNaN() && !refLon.isNaN()
+
+        /**
+         * Un carattere solo: si guardano SOLO le linee, e per la sigla.
+         *
+         * Prima un carattere solo non cercava niente, e la guardia aveva la
+         * sua ragione — una lettera sola su 34.000 nomi di fermata pesa
+         * l'indice intero per restituire mezza Toscana. Ma le linee a una
+         * cifra esistono, sono fra le piu' usate di Firenze, e "6" e'
+         * esattamente come una persona le chiama: chi scriveva 6 non trovava
+         * niente e restava li' a chiedersi cosa avesse sbagliato.
+         *
+         * Le linee sono 946 e la sigla e' corta: cercarci dentro un
+         * carattere costa niente, e il risultato e' preciso invece che
+         * vago.
+         */
+        val soloSigla = tokens.sumOf { it.length } < 2
 
         // Linee e fermate nella STESSA sessione: cosi' la rarita' di una
         // parola si misura sull'intero insieme e i due punteggi sono
         // confrontabili fra loro e con quelli dei luoghi.
         fun sessione(fuzzy: Boolean): Relevance.Session {
             val s = Relevance.Session(tokens, fuzzy)
-            for (i in routeNorm.indices) s.observe(i, routeNorm[i], routeNameEnd[i])
+            for (i in routeNorm.indices) {
+                // Con un carattere solo si guarda la sigla e non il
+                // capolinea: "6" non deve tirare fuori ogni linea che passa
+                // da "via 6 agosto".
+                if (soloSigla) s.observe(i, routeShortOf(i), routeNameEnd[i])
+                else s.observe(i, routeNorm[i], routeNameEnd[i])
+            }
+            if (soloSigla) return s
             for (i in stopNorm.indices) {
                 s.observe(routeNorm.size + i, stopNorm[i], stopNorm[i].length)
             }
@@ -95,9 +134,10 @@ class SearchIndex private constructor(
         for (k in 0 until session.candidateCount) {
             val id = session.candidateId(k)
             val score = if (id < routeNorm.size) {
-                val lat = stopLat.getOrElse(routeFirstStop[id]) { 0.0 }
-                val lon = stopLon.getOrElse(routeFirstStop[id]) { 0.0 }
-                session.score(k, ROUTE_BONUS, distance(hasRef, refLat, refLon, lat, lon))
+                session.score(
+                    k, ROUTE_BONUS,
+                    distance(hasRef, refLat, refLon, routeLat[id], routeLon[id]),
+                )
             } else {
                 val i = id - routeNorm.size
                 session.score(k, STOP_BONUS, distance(hasRef, refLat, refLon, stopLat[i], stopLon[i]))
@@ -115,8 +155,8 @@ class SearchIndex private constructor(
                         routeIndex = id,
                         destination = routeDest[id],
                         colorRgb = routeColor[id],
-                        lat = stopLat.getOrElse(routeFirstStop[id]) { 0.0 },
-                        lon = stopLon.getOrElse(routeFirstStop[id]) { 0.0 },
+                        lat = routeLat[id],
+                        lon = routeLon[id],
                     ),
                 )
             } else {
@@ -126,6 +166,9 @@ class SearchIndex private constructor(
         }
         return out
     }
+
+    /** La sola sigla della linea, senza il capolinea che le sta attaccato. */
+    private fun routeShortOf(i: Int): String = routeNorm[i].substring(0, routeNameEnd[i])
 
     private fun distance(
         hasRef: Boolean,
@@ -179,14 +222,26 @@ class SearchIndex private constructor(
                 r.routeLongName(i).ifEmpty { r.routeAgency(i) }
             }
             val routeColor = IntArray(nRoutes) { r.routeDisplayColor(it) }
-            // Un punto qualsiasi della linea per centrarci la mappa: la prima
-            // fermata del suo primo pattern.
-            val routeFirstStop = IntArray(nRoutes) { i ->
-                r.patternsOfRoute(i).firstOrNull()?.let { p -> r.patternStop(p, 0) } ?: 0
+            // Un punto qualsiasi della linea per centrarci la mappa: la
+            // prima fermata del suo primo pattern, letta dal bundle come
+            // coordinate e non come numero di fermata. Il numero da solo non
+            // bastava: piu' sotto si andava a cercarlo in un array
+            // indicizzato per gruppo di omonime, che e' un'altra cosa.
+            val routeLat = DoubleArray(nRoutes)
+            val routeLon = DoubleArray(nRoutes)
+            for (i in 0 until nRoutes) {
+                val stop = r.patternsOfRoute(i).firstOrNull()?.let { p -> r.patternStop(p, 0) }
+                if (stop != null && stop >= 0) {
+                    routeLat[i] = r.stopLat(stop)
+                    routeLon[i] = r.stopLon(stop)
+                } else {
+                    routeLat[i] = Double.NaN
+                    routeLon[i] = Double.NaN
+                }
             }
             return SearchIndex(
                 stopNames, stopNorm, stopLat, stopLon, representatives,
-                routeNames, routeNorm, routeNameEnd, routeDest, routeColor, routeFirstStop,
+                routeNames, routeNorm, routeNameEnd, routeDest, routeColor, routeLat, routeLon,
             )
         }
     }

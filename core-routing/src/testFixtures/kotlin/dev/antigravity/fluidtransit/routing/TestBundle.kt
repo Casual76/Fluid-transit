@@ -45,8 +45,20 @@ object TestBundle {
         tmp: MutableList<File>,
         tripIds: List<String> = this.tripIds,
         dep0s: List<Int> = this.dep0s,
+        /**
+         * I nomi delle fermate, quando a un test servono le OMONIME.
+         *
+         * Sulla rete vera le fermate che condividono il nome sono il 53%, e
+         * una manciata di cose — il raggruppamento della ricerca, e quindi
+         * tutto cio' che indicizza per gruppo invece che per banchina — si
+         * comporta in modo diverso solo quando ce ne sono. Con quattro nomi
+         * tutti diversi quel ramo non si prova mai, ed e' li' che si era
+         * nascosto un difetto vero.
+         */
+        stopNames: List<String> = this.stopNames,
     ): File {
         require(tripIds.size == dep0s.size) { "una corsa, un orario" }
+        require(stopNames.size == this.stopNames.size) { "la rete ha quattro fermate" }
         val n = tripIds.size
         val file = File.createTempFile("roundtrip", ".ftb").also { tmp.add(it) }
         val strings = StringTable()

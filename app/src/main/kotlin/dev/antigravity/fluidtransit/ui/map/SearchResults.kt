@@ -45,7 +45,16 @@ internal fun rememberSearchResults(
         initialValue = emptyList<Suggestion>(),
         query, searchIndex, placesReady, reader,
     ) {
-        if (query.length < MIN_QUERY) {
+        // Un carattere basta, ed e' il caso piu' comune che non funzionava.
+        //
+        // Il commento qui sotto diceva gia' "se scrivi 6 viene su la linea",
+        // ma questa guardia fermava tutto prima: chi scriveva 6 — che e'
+        // esattamente come si chiamano le linee a una cifra, fra le piu'
+        // usate di Firenze — vedeva i recenti e le fermate vicine, cioe' la
+        // risposta a una domanda che non aveva fatto. Il minimo resta per i
+        // LUOGHI, che sono mezzo milione e su un carattere non direbbero
+        // niente di utile.
+        if (query.isEmpty()) {
             value = emptyList()
             return@produceState
         }
@@ -98,7 +107,11 @@ internal fun rememberSearchResults(
                     )
                 }
             }
-            val luoghi = placesReady?.search?.fast(query, PLACE_LIMIT, rLat, rLon).orEmpty().map { h ->
+            val luoghi = if (query.length < MIN_PLACE_QUERY) {
+                emptyList()
+            } else {
+                placesReady?.search?.fast(query, PLACE_LIMIT, rLat, rLon).orEmpty()
+            }.map { h ->
                 Suggestion(
                     kind = "place",
                     key = "%.5f,%.5f".format(h.lat, h.lon),
@@ -151,7 +164,8 @@ internal fun rememberSearchResults(
 }
 
 /** Sotto due lettere qualunque cosa somiglia a qualunque altra. */
-private const val MIN_QUERY = 2
+/** Sotto due caratteri i luoghi non dicono niente: sono mezzo milione. */
+private const val MIN_PLACE_QUERY = 2
 
 /** Scrivere e' un gesto continuo: si aspetta la fine della parola. */
 private const val FAST_DEBOUNCE_MS = 160L

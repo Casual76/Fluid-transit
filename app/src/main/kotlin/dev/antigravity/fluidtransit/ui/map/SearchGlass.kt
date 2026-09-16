@@ -265,7 +265,12 @@ fun SearchGlass(
                     .heightIn(max = panelListMax(480.dp, reserve = AROUND_THE_SEARCH))
                     .padding(bottom = 10.dp),
             ) {
-                if (query.length >= 2) {
+                // Un carattere e' gia' una domanda: le linee a una cifra
+                // sono fra le piu' usate, e "6" e' come si chiamano. Sotto
+                // c'era il minimo di due, e chi scriveva 6 vedeva i recenti
+                // e le fermate vicine — la risposta a una domanda che non
+                // aveva fatto.
+                if (query.isNotEmpty()) {
                     if (results.isEmpty()) {
                         item {
                             Text(

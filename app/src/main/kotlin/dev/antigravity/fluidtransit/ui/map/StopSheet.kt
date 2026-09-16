@@ -188,30 +188,7 @@ fun StopPanelContent(
 
     // Gli avvisi delle linee di questa fermata, sopra tutto il resto: se la
     // linea che aspetti oggi e' deviata, saperlo dopo gli orari non serve.
-    for (a in alerts.take(2)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .let { m -> if (onOpenAlerts != null) m.clickable { onOpenAlerts() } else m }
-                .padding(horizontal = 20.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Info,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp),
-            )
-            Text(
-                text = a,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
+    dev.antigravity.fluidtransit.ui.common.AlertRows(alerts, onOpenAlerts)
 
     // "Parti da qui": la fermata aperta diventa l'origine del pianificatore.
     // E' una delle quattro strade decise per scegliere una partenza diversa

@@ -538,6 +538,11 @@ fun MapScreen(
                     dev.antigravity.fluidtransit.routing.AlertText
                         .active(a.startEpoch, a.endEpoch, adesso)
             }
+            // Il piu' recente per primo: su una fermata di stazione ce ne
+            // sono venti in corso, e due sole stanno in cima. Fra un avviso
+            // cominciato l'anno scorso e uno di ieri, quello che una persona
+            // non sa ancora e' il secondo.
+            .sortedByDescending { it.startEpoch }
             .map { a ->
                 val quali = a.routeHashes.mapNotNull { linee[it] }.distinct().take(3)
                 val testo = a.header.ifEmpty {
@@ -576,6 +581,8 @@ fun MapScreen(
                     dev.antigravity.fluidtransit.routing.AlertText
                         .active(a.startEpoch, a.endEpoch, adesso)
             }
+            // Il piu' recente per primo, come sulla fermata.
+            .sortedByDescending { it.startEpoch }
             .map { a ->
                 a.header.ifEmpty {
                     dev.antigravity.fluidtransit.routing.AlertText.body(a.description).take(90)

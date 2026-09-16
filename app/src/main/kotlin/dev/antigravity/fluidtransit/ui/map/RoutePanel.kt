@@ -407,30 +407,7 @@ fun RouteFullContent(
         // In cima, sotto la testata: se questa linea oggi e' deviata o
         // sostituita, tutto quello che c'e' sotto — orari, fermate, minuti —
         // puo' essere sbagliato, e saperlo dopo non serve a niente.
-        for (a in alerts.take(2)) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .let { m -> if (onOpenAlerts != null) m.clickable { onOpenAlerts() } else m }
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                androidx.compose.material3.Icon(
-                    imageVector = Icons.Rounded.Info,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(18.dp),
-                )
-                Text(
-                    text = a,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
+        dev.antigravity.fluidtransit.ui.common.AlertRows(alerts, onOpenAlerts)
 
         // --- oggi: prima/ultima corsa e frequenza ------------------------
         if (info.firstDepToday != null && info.lastDepToday != null) {

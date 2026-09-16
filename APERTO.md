@@ -147,6 +147,18 @@ veicoli, quindi la chiave è già stabile fra le corse, e `attachMotion`
 riaggancia la geometria nuova ripartendo dalla posizione disegnata. Il difetto
 non esiste su questo feed. — misurato il 15/09/2026
 
+**Una tolleranza nel matcher secondario.** Il piano la chiedeva: il matcher
+per `(linea, direzione, ora di partenza)` pretende che l'orario del feed
+combaci **al secondo** con quello del bundle, e bastava un minuto di scarto
+fra le due generazioni di dati perche' la corsa restasse orfana. Misurato
+stamattina con centosessantasette mezzi vivi: **corse riconosciute 100%**. Il
+matcher primario, quello sul `trip_id`, aggancia tutto, e il secondario non
+entra quasi mai in gioco. Una tolleranza aggiungerebbe il rischio di
+agganciare la corsa sbagliata su una linea ad alta frequenza, per risolvere
+un problema che su questo feed non si misura. C'e' una riga di test che
+fissa il comportamento attuale e che diventera' rossa il giorno in cui si
+decidesse di cambiarlo. — misurato il 16/09/2026
+
 **L'indirizzo `trip/<hash>`.** Era nel piano dei deep link. Nessuno lo emette,
 e senza un emettitore non si può provare davvero. Sono quattro righe il giorno
 che servirà. — 15/09/2026

@@ -19,6 +19,7 @@ import dev.antigravity.fluidtransit.routing.BundleReader
 import dev.antigravity.fluidtransit.routing.DelayModel
 import dev.antigravity.fluidtransit.routing.PlacesSearch
 import dev.antigravity.fluidtransit.routing.Raptor
+import dev.antigravity.fluidtransit.routing.Reference
 import dev.antigravity.fluidtransit.routing.TripProgress
 import dev.antigravity.fluidtransit.routing.Words
 import dev.antigravity.fluidtransit.ui.map.ResolvedRt
@@ -376,11 +377,6 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
 
     // ------------------------------------------------------------------ interni
 
-    /** La stessa regola della ricerca: dove sei, ma la mappa vince se l'hai spostata. */
-    private fun referencePoint(): Pair<Double, Double>? {
-        val h = here ?: return looking
-        val l = looking ?: return h
-        val away = BundleReader.haversine(h.first, h.second, l.first, l.second)
-        return if (away > 20_000.0) l else h
-    }
+    /** La stessa regola della ricerca, e adesso lo e' davvero: [Reference]. */
+    private fun referencePoint(): Pair<Double, Double>? = Reference.point(here, looking)
 }

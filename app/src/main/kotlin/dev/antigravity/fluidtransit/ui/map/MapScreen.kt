@@ -69,13 +69,6 @@ import kotlinx.coroutines.withContext
 private const val STALE_HIDE_SECONDS = 180L
 
 /**
- * Quanto lontano deve stare la mappa da te perche' a decidere la vicinanza
- * dei risultati sia quello che guardi invece di dove sei. Sotto questa
- * soglia stai ancora girando per casa tua; sopra, stai esplorando altrove.
- */
-private const val MAP_WINS_METERS = 20_000.0
-
-/**
  * Sotto questa distanza partenza e arrivo sono lo stesso posto.
  *
  * Sessanta metri: la larghezza di un incrocio. Chi deve fare sessanta metri
@@ -1244,7 +1237,9 @@ fun MapScreen(
     // Da dove si misura: dove sei, e se non lo sappiamo il centro della
     // mappa. E' lo stesso riferimento della ricerca e di "qui intorno":
     // tre elenchi che si vedono insieme non possono misurare da tre posti.
-    val dovePerLaDistanza = controller.lastLocation() ?: controller.cameraCenter()
+    val dovePerLaDistanza = dev.antigravity.fluidtransit.routing.Reference.point(
+        controller.lastLocation(), controller.cameraCenter(),
+    )
     val recentStore = remember { RecentSearches(context) }
     var recentsVersion by remember { mutableStateOf(0) }
     val recents = remember(recentsVersion) { recentStore.load() }
@@ -1254,7 +1249,9 @@ fun MapScreen(
             value = emptyList()
             return@produceState
         }
-        val center = controller.cameraCenter() ?: return@produceState
+        val center = dev.antigravity.fluidtransit.routing.Reference.point(
+            controller.lastLocation(), controller.cameraCenter(),
+        ) ?: return@produceState
         value = withContext(Dispatchers.Default) {
             // `stopsNear` esce gia' dalla piu' vicina: prendere le prime
             // cinque vuol dire prendere le cinque piu' vicine.
@@ -1265,7 +1262,17 @@ fun MapScreen(
                         kind = "stop",
                         key = java.lang.Long.toHexString(reader.stopIdHash(s)),
                         title = reader.stopName(s),
-                        subtitle = "Fermata",
+                        // Con la distanza, come i recenti e i risultati: e'
+                        // l'unico elenco dei tre che non ce l'aveva, ed e'
+                        // quello ordinato PER distanza — quindi l'unica cosa
+                        // che diceva sul suo ordine bisognava indovinarla.
+                        subtitle = "Fermata · a " +
+                            dev.antigravity.fluidtransit.routing.Words.distance(
+                                dev.antigravity.fluidtransit.routing.BundleReader.haversine(
+                                    center.first, center.second,
+                                    reader.stopLat(s), reader.stopLon(s),
+                                ),
+                            ),
                         colorRgb = 0,
                         lat = reader.stopLat(s),
                         lon = reader.stopLon(s),
@@ -1464,21 +1471,13 @@ fun MapScreen(
                 searchIndex = searchIndex,
                 places = placesState,
                 reader = ready?.reader,
+                // Da dove si pesa la vicinanza: la regola sta in
+                // `Reference`, ed e' la stessa dei recenti, delle fermate
+                // vicine e dell'assistente.
                 reference = {
-                    // Da dove si pesa la vicinanza, come deciso: normalmente
-                    // da dove sei; ma se hai portato la mappa lontano da li',
-                    // comanda quello che stai guardando — cercare "via roma"
-                    // mentre si esplora Siena deve dare le vie senesi.
-                    val here = controller.lastLocation()
-                    val looking = controller.cameraCenter()
-                    when {
-                        here == null -> looking
-                        looking == null -> here
-                        dev.antigravity.fluidtransit.routing.BundleReader.haversine(
-                            here.first, here.second, looking.first, looking.second,
-                        ) > MAP_WINS_METERS -> looking
-                        else -> here
-                    }
+                    dev.antigravity.fluidtransit.routing.Reference.point(
+                        controller.lastLocation(), controller.cameraCenter(),
+                    )
                 },
             )
 

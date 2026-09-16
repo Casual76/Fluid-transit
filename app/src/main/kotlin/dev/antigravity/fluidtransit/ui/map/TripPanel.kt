@@ -39,15 +39,14 @@ import dev.antigravity.fluidengine.ui.fluid.FluidTabBarDefaults
 import dev.antigravity.fluidtransit.routing.BundleReader
 import dev.antigravity.fluidtransit.routing.Certainty
 import dev.antigravity.fluidtransit.routing.DepartureText
-import dev.antigravity.fluidtransit.routing.Ftb
 import dev.antigravity.fluidtransit.routing.LiveTimes
 import dev.antigravity.fluidtransit.routing.StopTimes
 import dev.antigravity.fluidtransit.routing.Times
+import dev.antigravity.fluidtransit.routing.TripProgress
 import dev.antigravity.fluidtransit.routing.Words
 import dev.antigravity.fluidtransit.ui.common.toneColor
 import java.time.Instant
 import java.time.ZonedDateTime
-import java.time.temporal.ChronoUnit
 
 /**
  * Le chiavi di un bus toccato, come bastano a risalire a corsa e linea.
@@ -128,26 +127,11 @@ class TripInfo(
             val profile = reader.tripProfile(ref.tripIndex)
             val dep0 = reader.tripDeparture0(ref.tripIndex)
             val n = reader.patternStopCount(pattern)
-            val today = now.atZone(Ftb.ROME).toLocalDate()
 
             // Il giorno di servizio della corsa IN CORSO: quasi sempre oggi,
             // ma una notturna dopo mezzanotte appartiene a ieri (le "25:30").
-            var dayStartSec = 0L
-            var found = false
-            for (offset in 0 downTo -1) {
-                val date = today.plusDays(offset.toLong())
-                val dayIndex = ChronoUnit.DAYS.between(reader.feedStart, date).toInt()
-                if (dayIndex < 0 || dayIndex >= reader.dayCount) continue
-                if (!reader.serviceActive(reader.tripService(ref.tripIndex), dayIndex)) continue
-                val start = Ftb.serviceDayStart(date).epochSecond + dep0
-                // Corrente = partita da meno di 12 ore o in partenza entro 2.
-                if (now.epochSecond in (start - 2 * 3600)..(start + 12 * 3600)) {
-                    dayStartSec = Ftb.serviceDayStart(date).epochSecond
-                    found = true
-                    break
-                }
-            }
-            if (!found) dayStartSec = Ftb.serviceDayStart(today).epochSecond
+            val dayStartSec =
+                TripProgress.serviceDayStart(reader, ref.tripIndex, now.epochSecond)
 
             // Le fermate gemelle: il feed da' lo stesso minuto a due fermate
             // vicine, e la scheda mostrava due righe identiche una sotto
@@ -165,17 +149,19 @@ class TripInfo(
                 // dentro voleva dire calcolare una stessa scheda con due
                 // istanti diversi.
                 val at = live?.at(ref.tripIndex, i, n, now.epochSecond)
-                // Il feed dice fin dove il bus e' arrivato: piu' affidabile
-                // dell'orologio quando la corsa e' in anticipo.
-                if (at?.certainty == Certainty.SERVED) continue
+                val eff = scheduled + (at?.delaySeconds ?: delaySec ?: 0)
+                // Il feed dice fin dove il bus e' arrivato, e quando tace
+                // decide l'orologio: e' la stessa regola che sceglie da dove
+                // comincia "sono su questo bus" e quale fermata annuncia la
+                // navigazione, perche' erano tre risposte diverse alla
+                // stessa domanda.
+                if (TripProgress.served(at, eff, now.epochSecond)) continue
                 // Il ritardo del mezzo intero vale come ripiego, ma e' una
                 // stima nostra e va detto: e' una fermata che il feed non
                 // copre, non una previsione che ha dichiarato.
                 val certainty = at?.certainty
                     ?: if (delaySec != null) Certainty.ESTIMATED else null
                 val skipped = live?.skipped(ref.tripIndex, i) == true
-                val eff = scheduled + (at?.delaySeconds ?: delaySec ?: 0)
-                if (eff < now.epochSecond - 60) continue // gia' passata
                 val s = reader.patternStop(pattern, i)
                 stops.add(
                     NextStop(

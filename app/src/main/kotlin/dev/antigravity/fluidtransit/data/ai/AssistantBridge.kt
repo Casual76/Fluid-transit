@@ -19,6 +19,7 @@ import dev.antigravity.fluidtransit.routing.BundleReader
 import dev.antigravity.fluidtransit.routing.DelayModel
 import dev.antigravity.fluidtransit.routing.PlacesSearch
 import dev.antigravity.fluidtransit.routing.Raptor
+import dev.antigravity.fluidtransit.routing.TripProgress
 import dev.antigravity.fluidtransit.routing.Words
 import dev.antigravity.fluidtransit.ui.map.ResolvedRt
 import dev.antigravity.fluidtransit.ui.map.SearchIndex
@@ -180,24 +181,58 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
         .take(limit)
         .map { RouteHit(it.routeIndex, it.title, it.destination) }
 
+    /**
+     * I mezzi di una linea, con la fermata verso cui stanno andando.
+     *
+     * Il nome della prossima fermata era sempre nullo, e lo strumento
+     * prometteva nella sua descrizione di darlo: chiedendo "dov'e' il 6"
+     * l'assistente rispondeva con una distanza in linea d'aria — "a 1,2 km
+     * da te" — che e' il numero meno utile fra quelli che aveva. Adesso dice
+     * la fermata, e la sceglie con la stessa regola della scheda della corsa,
+     * cosi' a voce e sullo schermo non escono due fermate diverse.
+     */
     override fun vehiclesOfRoute(routeIndex: Int): List<LiveVehicle> {
         val r = reader ?: return emptyList()
         val rt = resolved ?: return emptyList()
+        val live = app.departureBoards.live()
+        val now = System.currentTimeMillis() / 1000
         return rt.busMetaByKey.values
             .filter { it.routeIndex == routeIndex }
             .map { meta ->
                 val pattern = if (meta.tripIndex >= 0) r.tripPattern(meta.tripIndex) else -1
+                val delay = rt.delayByTrip[meta.tripIndex]
                 LiveVehicle(
                     routeShortName = r.routeShortName(routeIndex)
                         .ifEmpty { r.routeLongName(routeIndex) },
                     headsign = if (pattern >= 0) r.patternDestination(pattern) else "",
                     lat = meta.lat,
                     lon = meta.lon,
-                    delaySeconds = rt.delayByTrip[meta.tripIndex],
-                    nextStopName = null,
+                    delaySeconds = delay,
+                    nextStopName = nextStopName(r, live, meta.tripIndex, pattern, delay, now),
                     fixAgeSeconds = meta.fixAgeSec.coerceAtLeast(0),
                 )
             }
+    }
+
+    /** La fermata verso cui il mezzo sta andando, se si riesce a saperlo. */
+    private fun nextStopName(
+        r: BundleReader,
+        live: dev.antigravity.fluidtransit.routing.LiveTimes,
+        tripIndex: Int,
+        pattern: Int,
+        delaySec: Int?,
+        nowEpoch: Long,
+    ): String? {
+        if (tripIndex < 0 || pattern < 0) return null
+        val n = r.patternStopCount(pattern)
+        val dayStart = TripProgress.serviceDayStart(r, tripIndex, nowEpoch)
+        val dep0 = r.tripDeparture0(tripIndex)
+        val profile = r.tripProfile(tripIndex)
+        val pos = TripProgress.nextPosition(live, tripIndex, n, nowEpoch, delaySec ?: 0) { p ->
+            dayStart + dep0 + r.profileOffset(profile, p)
+        }
+        if (pos < 0) return null
+        return r.stopName(r.patternStop(pattern, pos))
     }
 
     override fun savedPlaces(): List<NamedPoint> =

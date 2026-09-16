@@ -416,17 +416,22 @@ class NavigationService : Service() {
                         )
                     }
                     if (now < alightTime) {
-                        // A bordo: la prossima fermata e' la prima col tempo davanti.
-                        var nextPos = leg.alightPosition
-                        for (pos in leg.boardPosition + 1..leg.alightPosition) {
-                            val posDelay = live
-                                .at(leg.trip, pos, stops, now)?.delaySeconds ?: 0
-                            val t = leg.dayStartEpoch + leg.dep0 +
-                                reader.profileOffset(leg.profile, pos) + posDelay
-                            if (t > now) {
-                                nextPos = pos
-                                break
+                        // A bordo: la prossima fermata la dice la stessa regola
+                        // della scheda della corsa. Qui si guardava solo
+                        // l'orologio, e il feed che dichiarava servita una
+                        // fermata non veniva ascoltato: su una corsa in
+                        // anticipo la notifica annunciava una fermata che il
+                        // bus si era gia' lasciato indietro, e contava una
+                        // fermata di troppo da qui alla discesa.
+                        val trovata = dev.antigravity.fluidtransit.routing.TripProgress
+                            .nextPosition(live, leg.trip, stops, now) { pos ->
+                                leg.dayStartEpoch + leg.dep0 +
+                                    reader.profileOffset(leg.profile, pos)
                             }
+                        val nextPos = if (trovata < 0) {
+                            leg.alightPosition
+                        } else {
+                            minOf(maxOf(trovata, leg.boardPosition + 1), leg.alightPosition)
                         }
                         val remaining = leg.alightPosition - nextPos + 1
                         val alightStop = reader.patternStop(leg.pattern, leg.alightPosition)

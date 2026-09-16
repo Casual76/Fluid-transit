@@ -39,6 +39,8 @@ import dev.antigravity.fluidengine.ui.fluid.GlassBackdropState
 import dev.antigravity.fluidengine.ui.theme.FluidEmptyState
 import dev.antigravity.fluidtransit.routing.BundleReader
 import dev.antigravity.fluidtransit.routing.Ftb
+import dev.antigravity.fluidtransit.routing.LiveTimes
+import dev.antigravity.fluidtransit.routing.TripProgress
 import dev.antigravity.fluidtransit.routing.Raptor
 import dev.antigravity.fluidtransit.routing.Times
 import dev.antigravity.fluidtransit.routing.Words
@@ -897,40 +899,41 @@ fun NavMiniContent(
 
 /**
  * Il piano per "sono su questo bus": una sola tappa in vettura, dalla
- * prossima fermata al capolinea. Il giorno di servizio si risolve come
- * nella scheda corsa (una notturna dopo mezzanotte appartiene a ieri).
+ * prossima fermata al capolinea.
+ *
+ * Dove sia arrivato il mezzo lo dice [TripProgress], che e' la stessa regola
+ * della lista di fermate mostrata subito sopra: qui si guardava solo
+ * l'orologio, col ritardo della corsa intera, e su una corsa in anticipo il
+ * viaggio partiva da una fermata che il pannello aveva gia' tolto dalla
+ * lista.
+ *
+ * Ed era anche il posto dove "questa corsa e' finita" non si riconosceva
+ * mai: il ciclo cercava la prima fermata futura e, non trovandone, lasciava
+ * la posizione a zero — cioe' proponeva di salire al capolinea di partenza
+ * di ore prima, e il messaggio scritto apposta per quel caso non e' mai
+ * comparso a nessuno.
  */
 fun buildBusNavPlan(
     reader: BundleReader,
     tripIndex: Int,
     delaySec: Int,
+    live: LiveTimes?,
 ): dev.antigravity.fluidtransit.data.nav.NavPlan? {
     val pattern = reader.tripPattern(tripIndex)
     val profile = reader.tripProfile(tripIndex)
     val dep0 = reader.tripDeparture0(tripIndex)
     val n = reader.patternStopCount(pattern)
     val now = Instant.now()
-    val today = now.atZone(Ftb.ROME).toLocalDate()
+    val dayStart = TripProgress.serviceDayStart(reader, tripIndex, now.epochSecond)
 
-    var dayStart = Ftb.serviceDayStart(today).epochSecond
-    for (offset in 0 downTo -1) {
-        val date = today.plusDays(offset.toLong())
-        val start = Ftb.serviceDayStart(date).epochSecond + dep0
-        if (now.epochSecond in (start - 2 * 3600)..(start + 12 * 3600)) {
-            dayStart = Ftb.serviceDayStart(date).epochSecond
-            break
-        }
+    val next = TripProgress.nextPosition(live, tripIndex, n, now.epochSecond, delaySec) { pos ->
+        dayStart + dep0 + reader.profileOffset(profile, pos)
     }
-
-    var boardPos = 0
-    for (pos in 0 until n) {
-        val t = dayStart + dep0 + reader.profileOffset(profile, pos) + delaySec
-        if (t > now.epochSecond) {
-            boardPos = (pos - 1).coerceAtLeast(0)
-            break
-        }
-    }
-    if (boardPos >= n - 1) return null // corsa gia' finita
+    if (next < 0) return null // corsa gia' finita
+    // Si sale dalla fermata che il mezzo ha appena lasciato: e' li' che sta
+    // la persona che dice "sono su questo bus".
+    val boardPos = (next - 1).coerceAtLeast(0)
+    if (boardPos >= n - 1) return null
 
     val route = reader.patternRoute(pattern)
     val destName = reader.patternDestination(pattern)

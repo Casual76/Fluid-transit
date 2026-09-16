@@ -76,6 +76,21 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
             }
         }
 
+    // Quelli che devono ancora cominciare.
+    //
+    // Un avviso attivo lo scopri quando ti tocca; uno sciopero annunciato per
+    // giovedi' serve mercoledi'. La schermata li buttava via tutti — il
+    // filtro teneva solo cio' che e' gia' cominciato — e cosi' l'unica cosa
+    // che un avviso di servizio puo' fare davvero, cioe' farti cambiare
+    // programma prima, non la faceva.
+    //
+    // Due settimane di orizzonte: piu' in la' e' un annuncio, non un avviso,
+    // e riempirebbe la schermata di cose che non riguardano questa settimana.
+    val futuri = (alerts ?: emptyList())
+        .filter { it.startEpoch > now && it.startEpoch < now + PROSSIMI_GIORNI * 24 * 3600 }
+        .filter { it.endEpoch == 0L || it.endEpoch > now }
+        .sortedBy { it.startEpoch }
+
     FluidScreen(
         title = "Avvisi",
         subtitle = "Deviazioni, scioperi e lavori dichiarati dal gestore",
@@ -96,7 +111,7 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
             item { dev.antigravity.fluidengine.ui.fluid.FluidLoadingBlock() }
             return@FluidScreen
         }
-        if (attivi.isEmpty()) {
+        if (attivi.isEmpty() && futuri.isEmpty()) {
             item {
                 FluidEmptyState(
                     title = "Nessun avviso in corso",
@@ -123,8 +138,15 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
             }
             item { AlertGroup(altri, reader, now) }
         }
+        if (futuri.isNotEmpty()) {
+            item { FluidSectionTitle(eyebrow = "Avvisi", title = "Nei prossimi giorni") }
+            item { AlertGroup(futuri, reader, now) }
+        }
     }
 }
+
+/** Quanto in la' si guarda per gli avvisi che devono ancora cominciare. */
+private const val PROSSIMI_GIORNI = 14
 
 @Composable
 private fun AlertGroup(

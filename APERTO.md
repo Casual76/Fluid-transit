@@ -38,13 +38,17 @@ su 946** di un altro colore. Ora il costruttore parte dai colori dell'ultimo
 bundle pubblicato, che il job scarica dalla release. Rimisurato allo stesso
 modo dopo: **0 su 946**. — misurato e chiuso il 16/09/2026
 
-**Il velo sulla basemap non e' ancora stato visto su uno schermo tranquillo.**
-Sotto la nostra rete c'e' ora un velo (`MapCatalog.VELO_OPACITA`, 0,22) che
-abbassa la mappa stradale e lascia intatte le tratte e le etichette. Si e'
-visto funzionare, ma solo attraverso il velo grigio dei dialoghi di ANR che
-l'emulatore ha cominciato a produrre in continuazione: le linee dominano, le
-strade e il fiume restano leggibili. Va guardato una volta su uno schermo
-pulito, e se e' troppo si cambia un numero solo. — da verificare, 16/09/2026
+**Il velo sulla basemap, guardato.** Sotto la nostra rete c'e' un velo
+(`MapCatalog.VELO_OPACITA`, 0,22) che abbassa la mappa stradale e lascia
+intatte le tratte e le etichette. Visto su Firenze a schermo pulito: le
+strade restano gialle chiare e leggibili, il fiume e i verdi si riconoscono,
+le etichette sono nitide, e le tratte colorate sono senza dubbio la cosa
+principale. Prima erano una fra tante. — verificato il 16/09/2026
+
+**Per guardare l'app su un emulatore che va in ANR di continuo**, i dialoghi
+di sistema si tolgono con `adb shell settings put global hide_error_dialogs
+1` (e si rimettono con `0`). Senza, ogni schermata si guarda attraverso il
+grigio del dialogo, e i tocchi finiscono su "Wait". — 16/09/2026
 
 **Il gate degli orari bloccava le pubblicazioni da giorni, e aveva ragione.**
 La divergenza era sempre la stessa query: RISTORANTE LA BIANCA, alle 12:00,
@@ -239,6 +243,17 @@ dell'emulatore, non dell'app. L'avvio resta lento sull'emulatore — 9,5 e 12,2 
 fotogramma, con GL software e build di debug non ottimizzata — e quel
 numero non dice niente su un telefono vero.
 — diagnosticato e corretto il 16/09/2026
+
+**E la causa vera dell'ANR che restava: la build di debug non e'
+compilata.** La traccia dell'ennesimo blocco lo dice senza ambiguita': il
+thread principale sta dentro `ClassVerifier::VerifyClass`, cioe' ART sta
+verificando le classi una per una mentre l'app parte, perche' il dex non e'
+mai stato compilato in anticipo ("Failed to determine oat file name ...
+Dalvik cache directory does not exist" nei log). Forzandola a mano
+(`adb shell pm compile -m speed -f <pkg>`) l'avvio a freddo e' passato da
+10,5 a **6,5 secondi** e il dialogo e' sparito. Su un telefono vero, con una
+build di release e il suo baseline profile, questo passaggio non esiste.
+— misurato il 16/09/2026
 
 ## Deciso di non fare
 

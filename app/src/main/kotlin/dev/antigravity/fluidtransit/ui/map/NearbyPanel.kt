@@ -90,7 +90,7 @@ fun NearbyCapsule(
         if (row == null) {
             Text(
                 text = if (board.outsideValidity) {
-                    "Gli orari sono scaduti"
+                    DepartureText.empty(DepartureText.Trouble.ORARI_SCADUTI).title
                 } else {
                     "Qui intorno non passa niente a breve"
                 },
@@ -178,16 +178,15 @@ fun NearbyPanelContent(
         }
 
         board.rows.isEmpty() -> {
+            // Gli orari scaduti si dicono con le parole di tutte le altre
+            // schede, che erano ricopiate qui identiche; il "niente qui
+            // intorno" resta suo, perche' il soggetto non e' una fermata ne'
+            // le tue fermate ma le fermate a piedi da dove stai guardando.
+            val scaduti = DepartureText.empty(DepartureText.Trouble.ORARI_SCADUTI)
             FluidEmptyState(
-                title = if (board.outsideValidity) {
-                    "Gli orari sono scaduti"
-                } else {
-                    "Niente a breve, qui intorno"
-                },
+                title = if (board.outsideValidity) scaduti.title else "Niente a breve, qui intorno",
                 detail = if (board.outsideValidity) {
-                    "Quelli che abbiamo non coprono piu' oggi, e non ne " +
-                        "arrivano di nuovi. Non vuol dire che i bus non " +
-                        "passino: vuol dire che non sappiamo quando."
+                    scaduti.detail
                 } else {
                     "Dalle fermate a piedi da qui non parte niente nelle prossime due ore."
                 },

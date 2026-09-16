@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.antigravity.fluidengine.ui.fluid.FluidHairline
 import dev.antigravity.fluidengine.ui.fluid.FluidTabBarDefaults
 import dev.antigravity.fluidtransit.routing.BundleReader
@@ -144,7 +145,10 @@ class TripInfo(
                 // Il ritardo di QUESTA fermata. Prima era lo stesso intero su
                 // tutte, e la scheda prometteva gli stessi otto minuti di
                 // ritardo al capolinea di un'ora dopo.
-                val at = live?.at(ref.tripIndex, i, n, java.time.Instant.now().epochSecond)
+                // `now`, quello passato: leggere di nuovo l'orologio qui
+                // dentro voleva dire calcolare una stessa scheda con due
+                // istanti diversi.
+                val at = live?.at(ref.tripIndex, i, n, now.epochSecond)
                 // Il feed dice fin dove il bus e' arrivato: piu' affidabile
                 // dell'orologio quando la corsa e' in anticipo.
                 if (at?.certainty == Certainty.SERVED) continue
@@ -286,6 +290,17 @@ fun TripFullContent(
     onBoardBus: (() -> Unit)? = null,
     onDismiss: (() -> Unit)? = null,
 ) {
+    // Il battito dell'app, uno solo.
+    //
+    // Ogni riga di questa scheda leggeva l'orologio per conto suo, dentro la
+    // propria composizione: due righe della stessa scheda potevano essere
+    // calcolate a istanti diversi, e nessuna si aggiornava al passare del
+    // minuto finche' qualcos'altro non faceva ricomporre. Il resto dell'app
+    // sta sul battito condiviso dalla Fase 9; questa scheda era rimasta
+    // fuori, ed e' proprio quella che si guarda mentre si aspetta.
+    val nowSec by dev.antigravity.fluidtransit.data.time.UiClock.ticks()
+        .collectAsStateWithLifecycle(initialValue = System.currentTimeMillis() / 1000)
+
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -414,7 +429,6 @@ fun TripFullContent(
                             // c'erano un "previsto" che voleva dire un'altra
                             // cosa, il verde anche sulle stime e un 60
                             // scritto a mano.
-                            val nowSec = java.time.Instant.now().epochSecond
                             val phrase = DepartureText.alongTrip(
                                 scheduledEpoch = stop.scheduledEpoch,
                                 delaySeconds = (stop.effectiveEpoch - stop.scheduledEpoch)

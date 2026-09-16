@@ -74,6 +74,17 @@ class TripInfo(
     val canceled: Boolean,
     val stops: List<NextStop>, // le prossime fermate, coi minuti gia' corretti
     val stopsTotal: Int,
+    /**
+     * Quante fermate hanno l'orario ripartito da noi.
+     *
+     * Il feed regionale pubblica gli orari al minuto tondo, quindi due
+     * fermate vicine finiscono con lo stesso identico minuto e la scheda
+     * mostrava due righe "14:32" una sotto l'altra, come se l'app avesse
+     * sbagliato i conti. Il divario lo stimiamo noi, dalla distanza vera —
+     * ed e' una stima, quindi va detta dove compare invece di passare per un
+     * orario di tabella come gli altri.
+     */
+    val spreadStops: Int = 0,
 ) {
     class NextStop(
         val name: String,
@@ -140,6 +151,8 @@ class TripInfo(
             // vicine, e la scheda mostrava due righe identiche una sotto
             // l'altra. Il divario lo stimiamo noi, dalla distanza vera.
             val offsets = StopTimes.offsets(reader, pattern, profile)
+            val grezzi = IntArray(n) { reader.profileOffset(profile, it) }
+            val ripartite = StopTimes.twinCount(grezzi)
             val stops = ArrayList<NextStop>(n)
             for (i in 0 until n) {
                 val scheduled = dayStartSec + dep0 + offsets[i]
@@ -185,6 +198,7 @@ class TripInfo(
                 canceled = canceled,
                 stops = stops,
                 stopsTotal = n,
+                spreadStops = ripartite,
             )
         }
     }
@@ -462,6 +476,22 @@ fun TripFullContent(
                     }
                 }
             }
+        }
+
+        // Quando gli orari di qualche fermata li abbiamo ripartiti noi, si
+        // dice. Il feed pubblica al minuto tondo, quindi due fermate a
+        // duecento metri escono con lo stesso identico minuto; il divario e'
+        // una nostra stima dalla distanza vera, e una stima che si presenta
+        // come un orario di tabella e' la cosa che questa campagna sta
+        // togliendo dall'app.
+        if (info.spreadStops > 0) {
+            Text(
+                text = "Fra fermate vicinissime il divario lo stimiamo noi: " +
+                    "il feed pubblica lo stesso minuto per tutte.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+            )
         }
         Spacer(Modifier.height(8.dp))
     }

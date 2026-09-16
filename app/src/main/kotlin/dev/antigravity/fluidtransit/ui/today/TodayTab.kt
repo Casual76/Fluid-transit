@@ -103,17 +103,28 @@ fun TodayTab(
     // con la stella: la stella sulle linee quasi nessuno la mette, e senza
     // questo la scheda diceva "nessun avviso sulle tue linee" con un avviso
     // in corso proprio sulla linea della fermata sotto casa.
-    val alerts by produceState(
-        initialValue = emptyList<dev.antigravity.fluidtransit.data.rt.GtfsRtLite.RtAlert>(),
-        favVersion, stopIndexes, ready?.buildId,
-    ) {
+    // Tre stati e non uno: sto leggendo, non ci sono riuscito, ecco la lista.
+    //
+    // Prima il fallimento diventava una lista vuota, e qui una lista vuota si
+    // legge "Nessun avviso sulle tue linee" — una frase rassicurante. Con il
+    // telefono senza rete, provato in aereo sull'emulatore, la scheda diceva
+    // esattamente questo: un'affermazione sul mondo mentre il guasto era
+    // nostro. La schermata degli avvisi l'aveva gia' imparato; questa, che e'
+    // la piu' letta, no.
+    val esitoAvvisi by produceState<
+        Result<List<dev.antigravity.fluidtransit.data.rt.GtfsRtLite.RtAlert>>?,
+        >(null, favVersion, stopIndexes, ready?.buildId) {
         val mine = dev.antigravity.fluidtransit.data.favorites.MyRoutes.hashes(
             reader = ready?.reader,
             starredRoutes = favRoutes.mapNotNull { it.idHashHex.toULongOrNull(16)?.toLong() }
                 .toSet(),
             starredStops = stopIndexes,
         )
-        val all = app.realtime.fetchAlerts()
+        val all = app.realtime.fetchAlertsOrNull()
+        if (all == null) {
+            value = Result.failure(java.io.IOException("avvisi non scaricati"))
+            return@produceState
+        }
         val now = Instant.now().epochSecond
         // Anche quelli di domani.
         //
@@ -123,17 +134,20 @@ fun TodayTab(
         // "Oggi" resta oggi. Il periodo lo dice gia' ogni riga, quindi non si
         // confonde un avviso in corso con uno che comincia.
         val orizzonte = now + 2 * 24 * 3600
-        value = all
-            .filter { a -> a.routeHashes.isEmpty() || a.routeHashes.any { it in mine } }
-            .filter { a ->
-                val giaFinito = a.endEpoch != 0L && a.endEpoch < now
-                val troppoInLa = a.startEpoch > orizzonte
-                !giaFinito && !troppoInLa
-            }
-            // Prima quelli in corso: chi apre la scheda vuole sapere cosa sta
-            // succedendo adesso, e poi cosa succedera'.
-            .sortedBy { a -> if (a.startEpoch == 0L || a.startEpoch <= now) 0 else 1 }
+        value = Result.success(
+            all
+                .filter { a -> a.routeHashes.isEmpty() || a.routeHashes.any { it in mine } }
+                .filter { a ->
+                    val giaFinito = a.endEpoch != 0L && a.endEpoch < now
+                    val troppoInLa = a.startEpoch > orizzonte
+                    !giaFinito && !troppoInLa
+                }
+                // Prima quelli in corso: chi apre la scheda vuole sapere cosa
+                // sta succedendo adesso, e poi cosa succedera'.
+                .sortedBy { a -> if (a.startEpoch == 0L || a.startEpoch <= now) 0 else 1 },
+        )
     }
+    val alerts = esitoAvvisi?.getOrNull().orEmpty()
 
     val today = LocalDate.now(Ftb.ROME).dayOfWeek.value
 
@@ -402,7 +416,20 @@ fun TodayTab(
         // tue, ma qualcosa in giro" e' esattamente quello in cui la porta
         // serve di piu'.
         item { FluidSectionTitle(eyebrow = "Avvisi", title = "Sulle tue linee") }
-        if (alerts.isEmpty()) {
+        if (esitoAvvisi == null) {
+            item { dev.antigravity.fluidengine.ui.fluid.FluidLoadingBlock() }
+        } else if (esitoAvvisi?.isFailure == true) {
+            item {
+                FluidListGroup {
+                    FluidListRow(
+                        title = "Non sappiamo se ci sono avvisi",
+                        subtitle = "Non siamo riusciti a scaricarli: non e' la stessa cosa " +
+                            "che non ce ne siano. Apri per riprovare",
+                        onClick = onOpenAlerts,
+                    )
+                }
+            }
+        } else if (alerts.isEmpty()) {
             item {
                 FluidListGroup {
                     FluidListRow(

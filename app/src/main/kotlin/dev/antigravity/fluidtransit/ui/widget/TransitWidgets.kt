@@ -113,6 +113,17 @@ class StopWidget : GlanceAppWidget() {
         val prefs = getAppWidgetState(context, PreferencesGlanceStateDefinition, id)
         val stopHash = prefs[KEY_STOP_HASH]
         val stopName = prefs[KEY_STOP_NAME] ?: ""
+        // Il numero del widget, per poter riaprire la sua configurazione.
+        //
+        // Un widget senza fermata scriveva "Tocca per configurare" e poi,
+        // toccato, apriva l'app: la configurazione non si vedeva da nessuna
+        // parte, e l'unico modo per arrivarci era togliere il widget e
+        // rimetterlo. Una frase che dice di fare una cosa e un tocco che ne
+        // fa un'altra e' peggio di nessuna frase.
+        val widgetId = runCatching {
+            androidx.glance.appwidget.GlanceAppWidgetManager(context).getAppWidgetId(id)
+        }.getOrDefault(android.appwidget.AppWidgetManager.INVALID_APPWIDGET_ID)
+
         val esito = loadBoard(app, stopHash)
         val board = (esito as? StopBoard.Ready)?.board
         val rows = board?.rows
@@ -132,7 +143,18 @@ class StopWidget : GlanceAppWidget() {
                 palette = palette,
                 layout = layout,
                 onClick = actionStartActivity(
-                    openLink(context, stopHash?.let { Deeplink.stop(it, nome) }),
+                    if (stopHash == null && widgetId != android.appwidget.AppWidgetManager
+                            .INVALID_APPWIDGET_ID
+                    ) {
+                        android.content.Intent(context, StopWidgetConfigActivity::class.java)
+                            .putExtra(
+                                android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_ID,
+                                widgetId,
+                            )
+                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    } else {
+                        openLink(context, stopHash?.let { Deeplink.stop(it, nome) })
+                    },
                 ),
             ) {
                 EngineWidgetHeader(

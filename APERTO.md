@@ -35,16 +35,15 @@ sottolineata dove si puo' aprire, che e' il modo in cui da sempre si dice
 testo da sottolineare — la porta e' il menu della tenuta premuta. Tenuto qui
 perche' la riga di prima diceva il contrario. — chiuso il 16/09/2026
 
-**Il widget della fermata dopo la configurazione: non si riproduce piu', ma
-la prova non e' quella giusta.** Riprovato il 16/09 lanciando la schermata di
-configurazione a mano su un widget gia' agganciato: si sceglie la fermata, si
-torna alla home, e il widget si ridisegna con i numeri giusti. Il caso
-originale pero' e' un widget appena AGGIUNTO, che il lanciatore aggancia dopo
-che la schermata di configurazione si e' chiusa, e quello non si e' potuto
-ricreare a comando. Nel frattempo il budget di tempo del disegno e' sceso da
-quattordici secondi a otto, che era il sospetto piu' probabile. Resta da
-guardare la prossima volta che si aggiunge un widget da zero.
-— riprovato il 16/09/2026
+**Il widget non configurato adesso apre la sua configurazione.** Diceva
+"Tocca per configurare" e, toccato, apriva l'app: la configurazione non si
+vedeva da nessuna parte, e l'unico modo per arrivarci era togliere il widget
+e rimetterlo. Sistemato e provato sull'emulatore il 16/09: si tocca il
+widget spento sulla home, si sceglie SODERINI TORRINO SANTA ROSA, si torna
+alla home e il widget si e' gia' ridisegnato coi passaggi giusti. Il caso
+che resta davvero aperto e' solo quello di un widget appena TRASCINATO dal
+lanciatore, che non si e' potuto ricreare a comando.
+— sistemato e riprovato il 16/09/2026
 
 **Le parole del pannello corsa, viste su un bus vivo.** Aspettate le ore di
 servizio e fatte alle 05:10 sulla linea 23 verso CROCE A VARLIANO: "Posizione

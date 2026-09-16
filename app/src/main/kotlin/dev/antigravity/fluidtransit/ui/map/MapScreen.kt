@@ -103,14 +103,17 @@ fun MapScreen(
     val bundleState by app.bundleManager.state.collectAsStateWithLifecycle()
     val ready = bundleState as? BundleState.Ready
 
-    var mode by rememberSaveable { mutableStateOf(MapCatalog.MapMode.STREETS) }
-    // Il filtro e' una scelta, e le scelte si ritrovano.
+    // Le scelte fatte sulla mappa si ritrovano.
     //
-    // Stava solo nello stato salvabile: sopravviveva a una rotazione e non
-    // alla chiusura dell'app, quindi chi lo metteva su "Urbani" lo ritrovava
-    // su "Tutti" il giorno dopo. I chip in cima dicono sempre qual e' attivo,
-    // quindi ricordarlo non nasconde niente.
+    // La vista e il filtro stavano solo nello stato salvabile: sopravvivevano
+    // a una rotazione e non alla chiusura dell'app. Chi metteva il filtro su
+    // "Urbani" o passava al satellite li ritrovava come prima il giorno dopo.
+    // Sono piccole, ma sono della stessa famiglia del "si comporta in modo
+    // diverso ogni volta": una scelta fatta apposta che sparisce da sola. E
+    // ricordarle non nasconde niente, perche' i chip e il tasto dicono sempre
+    // in che stato sono.
     val mapPrefs = remember(context) { MapPrefs(context) }
+    var mode by rememberSaveable { mutableStateOf(mapPrefs.mode) }
     var filter by rememberSaveable { mutableStateOf(mapPrefs.filter) }
     var follow by rememberSaveable { mutableStateOf(FollowMode.FREE) }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
@@ -1487,6 +1490,7 @@ fun MapScreen(
                 } else {
                     MapCatalog.MapMode.STREETS
                 }
+                mapPrefs.mode = mode
             },
             modifier = Modifier
                 .align(Alignment.BottomStart)

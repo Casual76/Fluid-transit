@@ -18,6 +18,19 @@ class MapPrefs(context: Context) {
 
     private val prefs = context.getSharedPreferences("map", Context.MODE_PRIVATE)
 
+    /**
+     * Vista stradale o satellite.
+     *
+     * Come il filtro: e' una scelta, e spariva alla chiusura dell'app.
+     */
+    var mode: MapCatalog.MapMode
+        get() = runCatching {
+            MapCatalog.MapMode.valueOf(prefs.getString(KEY_MODE, null) ?: "")
+        }.getOrDefault(MapCatalog.MapMode.STREETS)
+        set(value) {
+            prefs.edit().putString(KEY_MODE, value.name).apply()
+        }
+
     var filter: CategoryFilter
         get() = runCatching { CategoryFilter.valueOf(prefs.getString(KEY_FILTER, null) ?: "") }
             .getOrDefault(CategoryFilter.ALL)
@@ -56,6 +69,7 @@ class MapPrefs(context: Context) {
 
     private companion object {
         const val KEY_FILTER = "filter"
+        const val KEY_MODE = "mode"
         const val KEY_LAT = "lat"
         const val KEY_LON = "lon"
         const val KEY_ZOOM = "zoom"

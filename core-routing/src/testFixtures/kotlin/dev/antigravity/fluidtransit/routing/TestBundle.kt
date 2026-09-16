@@ -56,10 +56,24 @@ object TestBundle {
          * nascosto un difetto vero.
          */
         stopNames: List<String> = this.stopNames,
+        /**
+         * Le fermate del pattern, quando a un test serve un ANELLO.
+         *
+         * Una linea che passa due volte dalla stessa fermata esiste sulla
+         * rete vera — e il cancello notturno ci ha sbattuto contro — ma con
+         * un pattern A, B, C non si prova mai: la fermata ripetuta va
+         * dichiarata, e la catena che ne discende (numero di fermate del
+         * pattern, profilo degli scostamenti, indice fermata->pattern) si
+         * ricava da qui come la ricava il builder.
+         */
+        patternStops: List<Int> = listOf(0, 1, 2),
     ): File {
         require(tripIds.size == dep0s.size) { "una corsa, un orario" }
         require(stopNames.size == this.stopNames.size) { "la rete ha quattro fermate" }
+        require(patternStops.size >= 2) { "un pattern ha almeno due fermate" }
         val n = tripIds.size
+        // Due minuti fra una fermata e l'altra, come il profilo di default.
+        val offsets = List(patternStops.size) { it * 120 }
         val file = File.createTempFile("roundtrip", ".ftb").also { tmp.add(it) }
         val strings = StringTable()
         val nameIdx = stopNames.map { strings.intern(it) }
@@ -114,20 +128,22 @@ object TestBundle {
 
         // PATTERNS: route, firstStop, stopCount u16, dir u8, pad, firstTrip, tripCount.
         val patterns = ByteBuf().i32(1).i32(0)
-            .i32(0).i32(0).u16(3).u8(0).u8(0).i32(0).i32(n)
+            .i32(0).i32(0).u16(patternStops.size).u8(0).u8(0).i32(0).i32(n)
         w.section(Ftb.S_PATTERNS, patterns)
 
-        // PATTERN_STOPS: A, B, C.
-        w.section(Ftb.S_PATTERN_STOPS, ByteBuf().i32(3).i32(0).i32(0).i32(1).i32(2))
+        // PATTERN_STOPS: A, B, C (o l'anello che il test ha chiesto).
+        val patternStopsBuf = ByteBuf().i32(patternStops.size).i32(0)
+        patternStops.forEach { patternStopsBuf.i32(it) }
+        w.section(Ftb.S_PATTERN_STOPS, patternStopsBuf)
 
         // TRIPS (16 B): pattern, service u16, pad u16, dep0, profile. Ordinate per dep0.
         val trips = ByteBuf().i32(n).i32(0)
         for (t in 0 until n) trips.i32(0).u16(0).u16(0).i32(dep0s[t]).i32(0)
         w.section(Ftb.S_TRIPS, trips)
 
-        // PROFILES: un profilo condiviso [0, 120, 240].
-        val profiles = ByteBuf().i32(1).i32(3).i32(0).i32(3)
-        profileOffsets.forEach { profiles.u16(it) }
+        // PROFILES: un profilo condiviso [0, 120, 240, ...].
+        val profiles = ByteBuf().i32(1).i32(offsets.size).i32(0).i32(offsets.size)
+        offsets.forEach { profiles.u16(it) }
         w.section(Ftb.S_PROFILES, profiles)
 
         // DWELL: nessuna sosta.
@@ -140,13 +156,19 @@ object TestBundle {
         tripOrder.forEach { tripIdx.i32(it) }
         w.section(Ftb.S_TRIP_ID_INDEX, tripIdx)
 
-        // STOP_PATTERNS (CSR): A, B, C -> pattern 0; D -> niente.
-        w.section(
-            Ftb.S_STOP_PATTERNS,
-            ByteBuf().i32(4).i32(3)
-                .i32(0).i32(1).i32(2).i32(3).i32(3) // offset per 4 fermate + sentinella
-                .i32(0).i32(0).i32(0),
-        )
+        // STOP_PATTERNS (CSR): le fermate del pattern -> pattern 0.
+        //
+        // Una voce per OGNI passaggio, non per ogni pattern: e' quello che
+        // scrive il builder, e su una linea ad anello significa lo stesso
+        // pattern scritto due volte sotto la stessa fermata. Chi legge deve
+        // reggerlo, quindi il bundle di prova deve poterlo produrre.
+        val perStop = List(4) { st -> patternStops.count { it == st } }
+        val sp = ByteBuf().i32(4).i32(patternStops.size)
+        var accSp = 0
+        sp.i32(0)
+        perStop.forEach { accSp += it; sp.i32(accSp) }
+        perStop.forEach { quante -> repeat(quante) { sp.i32(0) } }
+        w.section(Ftb.S_STOP_PATTERNS, sp)
 
         // SERVICES: un servizio attivo tutti i giorni.
         val bitmapBytes = (dayCount + 7) / 8
@@ -183,14 +205,14 @@ object TestBundle {
             pLat = il
             pLon = io
         }
-        val poly = ByteBuf().i32(1).i32(3).i32(0).i32(blob.size)
-        intArrayOf(0, 2, 4).forEach { poly.u16(it) }
+        val poly = ByteBuf().i32(1).i32(patternStops.size).i32(0).i32(blob.size)
+        patternStops.forEach { poly.u16(minOf(it * 2, polyPts.size - 1)) }
         poly.padTo(4)
         poly.bytes(blob.array.copyOf(blob.size))
         w.section(Ftb.S_POLYLINES, poly)
 
         w.section(Ftb.S_STRINGS, strings.build())
-        val maxEnd = dep0s.max() + profileOffsets.last()
+        val maxEnd = dep0s.max() + offsets.last()
         w.write(file, feedStart, feedStart.plusDays(dayCount - 1L), dayCount, maxEnd)
         return file
     }

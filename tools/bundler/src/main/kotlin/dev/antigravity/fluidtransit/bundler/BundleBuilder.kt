@@ -1005,19 +1005,34 @@ class BundleBuilder(
         for (i in hashOrder) indexBuf.i32(i)
 
         // --- STOP_PATTERNS: CSR fermata -> pattern che la servono -----------
+        //
+        // Un pattern per fermata, anche quando ci passa due volte.
+        //
+        // Una linea ad anello tocca la stessa fermata all'andata e al
+        // ritorno, e questo indice ne scriveva una voce per passaggio. Ma chi
+        // legge le partenze scandisce da se' tutte le posizioni in cui la
+        // fermata compare nel pattern: una voce in piu' significa OGNI
+        // partenza contata due volte. Il cancello notturno del 16/09 l'ha
+        // visto al RISTORANTE LA BIANCA — la stessa corsa due volte di fila
+        // alle 12:00, e la quinta partenza vera fuori dalla lista — e da
+        // allora il lettore sa difendersi, ma un bundle che non ha il
+        // doppione lo aggiusta anche per le versioni gia' installate.
+        // Le fermate distinte di ogni pattern, nell'ordine in cui compaiono.
+        val fermateDelPattern = c.patternStops.map { stops ->
+            val visti = LinkedHashSet<Int>(stops.size * 2)
+            for (s in stops) visti.add(newIndexOf.getValue(s))
+            visti
+        }
         val degree = IntArray(kept.size)
-        for (p in c.patternStops.indices) {
-            for (s in c.patternStops[p]) degree[newIndexOf.getValue(s)]++
+        for (p in fermateDelPattern.indices) {
+            for (ns in fermateDelPattern[p]) degree[ns]++
         }
         val spStart = IntArray(kept.size + 1)
         for (i in kept.indices) spStart[i + 1] = spStart[i] + degree[i]
         val fill = spStart.copyOf()
         val spValues = IntArray(spStart[kept.size])
-        for (p in c.patternStops.indices) {
-            for (s in c.patternStops[p]) {
-                val ns = newIndexOf.getValue(s)
-                spValues[fill[ns]++] = p
-            }
+        for (p in fermateDelPattern.indices) {
+            for (ns in fermateDelPattern[p]) spValues[fill[ns]++] = p
         }
         val stopPatternsBuf = ByteBuf(spValues.size * 4 + kept.size * 4 + 8)
         stopPatternsBuf.i32(kept.size)

@@ -82,6 +82,16 @@ i numeri originali il builder li butta dopo aver ordinato. Confrontarli come se
 fossero la stessa cosa sposta tutto di una fermata, e a sparire e' proprio
 quella verso cui il bus sta andando.
 
+**L'indice fermata -> pattern ha una voce per PASSAGGIO.** Una linea ad
+anello tocca la stessa fermata due volte, e il builder scriveva il suo pattern
+due volte sotto quella fermata. Chi legge le partenze scandisce da se' tutte le
+posizioni in cui la fermata compare nel pattern, quindi ogni voce in piu'
+raddoppia ogni partenza: al RISTORANTE LA BIANCA il tabellone dava la stessa
+corsa due volte di fila allo stesso minuto, e la quinta partenza vera finiva
+fuori dalla lista. L'ha trovato il golden gate, non una persona. Ora
+`patternsAtStop` deduplica in lettura — cosi' valgono anche i bundle gia'
+pubblicati — e il builder non scrive piu' il doppione.
+
 **Meta' degli snapshot realtime sono fotocopie.** L'origine si rigenera ogni
 ~2 minuti, l'app polla ogni 30 s. Riapplicare lo stesso rilevamento non e'
 innocuo: l'eta' del fix e' congelata, quindi il bersaglio resta fermo mentre il

@@ -508,6 +508,22 @@ class BundleReader(file: File, private val verifyCrcOnFirstUse: Boolean = true) 
 
     // ------------------------------------------------------- STOP_PATTERNS
 
+    /**
+     * I pattern che passano da una fermata, ciascuno UNA volta.
+     *
+     * L'indice ne porta uno per passaggio, non per pattern: una linea ad
+     * anello che tocca la stessa fermata all'andata e al ritorno ci compare
+     * due volte. Chi legge scandisce da se' tutte le posizioni in cui la
+     * fermata compare nel pattern, quindi un pattern elencato due volte
+     * significa ogni sua partenza contata due volte.
+     *
+     * Si vedeva cosi', ed e' il cancello notturno ad averlo trovato: al
+     * RISTORANTE LA BIANCA il tabellone del 16/09 dava alle 12:00 la stessa
+     * corsa due volte di fila, allo stesso minuto, e la quinta partenza vera
+     * spariva in fondo alla lista. Il difetto sta qui e non nel bundle: i
+     * bundle gia' pubblicati hanno l'indice fatto cosi', e l'app deve
+     * leggerli bene oggi.
+     */
     fun patternsAtStop(stop: Int): IntArray {
         val s = sec(Ftb.S_STOP_PATTERNS)
         val stops = s.getInt(0)
@@ -515,7 +531,19 @@ class BundleReader(file: File, private val verifyCrcOnFirstUse: Boolean = true) 
         val from = s.getInt(8 + stop * 4)
         val to = s.getInt(8 + (stop + 1) * 4)
         val valuesBase = 8 + (stops + 1) * 4
-        return IntArray(to - from) { s.getInt(valuesBase + (from + it) * 4) }
+        val out = IntArray(to - from)
+        var n = 0
+        for (i in from until to) {
+            val p = s.getInt(valuesBase + i * 4)
+            // Una scansione lineare, non un insieme: le liste sono di poche
+            // voci — una fermata molto servita ne ha una ventina — e un
+            // HashSet qui costerebbe piu' allocazioni che confronti, dentro
+            // il giro piu' stretto di RAPTOR.
+            var gia = false
+            for (j in 0 until n) if (out[j] == p) { gia = true; break }
+            if (!gia) out[n++] = p
+        }
+        return if (n == out.size) out else out.copyOf(n)
     }
 
     // ----------------------------------------------------------- TRANSFERS

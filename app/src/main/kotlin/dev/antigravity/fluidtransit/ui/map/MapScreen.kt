@@ -8,8 +8,10 @@ import android.speech.RecognizerIntent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -35,6 +37,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.animation.togetherWith
@@ -1344,12 +1347,21 @@ fun MapScreen(
         if (locationGranted) follow = FollowMode.FOLLOW
     }
 
-    // Logo e attribuzione MapLibre sopra la tab bar, non sotto.
+    // Logo e attribuzione MapLibre sopra tutto quello che c'e' in fondo.
+    //
+    // Non e' decorazione: la licenza dei dati chiede che si vedano. Il
+    // margine era fisso all'altezza della tab bar, e da quando sopra la tab
+    // bar c'e' anche la capsula "qui intorno" il logo finiva sotto il suo
+    // vetro, tagliato a meta'. Ora lo dice lo stack stesso quanto e' alto:
+    // quando la capsula non c'e', il logo torna giu' da solo.
     val density = androidx.compose.ui.platform.LocalDensity.current
-    LaunchedEffect(Unit) {
-        controller.chromeBottomPx = with(density) {
-            (FluidTabBarDefaults.ContentInset + 6.dp).toPx()
-        }.toInt()
+    var altezzaFondo by remember { mutableStateOf(0) }
+    LaunchedEffect(altezzaFondo) {
+        controller.chromeBottomPx = if (altezzaFondo > 0) {
+            altezzaFondo + with(density) { 6.dp.toPx() }.toInt()
+        } else {
+            with(density) { (FluidTabBarDefaults.ContentInset + 6.dp).toPx() }.toInt()
+        }
     }
 
     // Il selettore d'orario: "Parti alle / Arriva entro" col TimePicker.
@@ -1704,44 +1716,24 @@ fun MapScreen(
             }
         }
 
-        // --- angoli bassi: livelli a sinistra, posizione a destra --------
+        // --- lo stack in fondo: i due comandi d'angolo, poi "qui intorno" --
         //
-        // Spariscono quando si apre un pannello grande. Restavano dov'erano,
-        // sotto il vetro, e si vedevano in trasparenza dentro l'elenco delle
-        // partenze: due cerchi fantasma in fondo alla scheda, che non si
-        // possono nemmeno toccare perche' il pannello prende il tocco. Il
-        // vetro deve lasciar vedere la MAPPA, non i comandi di un'altra
-        // superficie.
-        val pannelloGrande = panel is Panel.Stop || panel is Panel.RouteFull ||
-            panel is Panel.TripFull || panel is Panel.Journeys ||
-            panel is Panel.JourneyDetail || panel is Panel.Place ||
-            panel is Panel.Nearby
-        val bottomInset = FluidTabBarDefaults.ContentInset + 14.dp
-        androidx.compose.animation.AnimatedVisibility(
-            visible = !pannelloGrande,
-            modifier = Modifier.align(Alignment.BottomStart),
-            enter = androidx.compose.animation.fadeIn(),
-            exit = androidx.compose.animation.fadeOut(),
-        ) {
-        MapCornerButton(
-            icon = Icons.Rounded.Layers,
-            contentDescription = if (mode == MapCatalog.MapMode.STREETS) {
-                "Passa alla vista ibrida"
-            } else {
-                "Passa alla vista stradale"
-            },
-            backdrop = backdrop,
-            onClick = {
-                mode = if (mode == MapCatalog.MapMode.STREETS) {
-                    MapCatalog.MapMode.HYBRID
-                } else {
-                    MapCatalog.MapMode.STREETS
-                }
-                mapPrefs.mode = mode
-            },
-            modifier = Modifier.padding(start = 14.dp, bottom = bottomInset),
-        )
-        }
+        // In una colonna sola, e non piu' liberi di sovrapporsi.
+        //
+        // Erano tre cose ancorate in fondo che non si conoscevano: i due
+        // cerchi agli angoli a 14 punti dal fondo e la capsula "qui intorno"
+        // a 10, cioe' praticamente alla stessa altezza. La capsula e' larga
+        // quanto lo schermo, quindi li copriva: sulla mappa si vedevano due
+        // mezzelune spuntare da sotto un vetro, e toccarle non si poteva.
+        // Impilati, ognuno sa quanto spazio prende l'altro.
+        val reader = ready?.reader
+        // I comandi della mappa servono quando si guarda la MAPPA.
+        //
+        // Sparivano gia' sotto i pannelli grandi, perche' si vedevano in
+        // trasparenza dentro il vetro; ma la stessa cosa succedeva con la
+        // capsula di una linea, con la ricerca aperta e in navigazione — e
+        // in nessuno di quei momenti si cambia vista satellite.
+        val comandiVisibili = panel == null && !searchOpen && !plannerOpen && !navActive
         // In bussola l'icona del tasto GIRA col nord: e' l'unica bussola
         // dell'app (quella di MapLibre in alto e' spenta). La scrittura di
         // stato avviene SOLO in bussola: fuori, aggiornare a ogni frame di
@@ -1752,44 +1744,112 @@ fun MapScreen(
         } else {
             null
         }
-        androidx.compose.animation.AnimatedVisibility(
-            visible = !pannelloGrande,
-            modifier = Modifier.align(Alignment.BottomEnd),
-            enter = androidx.compose.animation.fadeIn(),
-            exit = androidx.compose.animation.fadeOut(),
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                // Prima di `navigationBarsPadding`, cosi' la misura comprende
+                // anche l'inserto di sistema: e' l'altezza vera di cio' che
+                // copre la mappa, ed e' quella che serve al logo.
+                .onSizeChanged { altezzaFondo = it.height }
+                .navigationBarsPadding(),
         ) {
-        MapCornerButton(
-            icon = when (follow) {
-                FollowMode.FREE -> Icons.Rounded.LocationSearching
-                FollowMode.FOLLOW -> Icons.Rounded.MyLocation
-                FollowMode.COMPASS -> Icons.Rounded.Explore
-            },
-            contentDescription = when (follow) {
-                FollowMode.FREE -> "Centrati sulla mia posizione"
-                FollowMode.FOLLOW -> "Passa alla bussola"
-                FollowMode.COMPASS -> "Torna alla vista normale"
-            },
-            backdrop = backdrop,
-            iconRotation = { if (follow == FollowMode.COMPASS) -bearing else 0f },
-            onClick = {
-                if (!locationGranted) {
-                    permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                } else {
-                    follow = when (follow) {
-                        FollowMode.FREE -> FollowMode.FOLLOW
-                        FollowMode.FOLLOW -> FollowMode.COMPASS
-                        FollowMode.COMPASS -> FollowMode.FOLLOW
-                    }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = comandiVisibili,
+                    enter = androidx.compose.animation.fadeIn(),
+                    exit = androidx.compose.animation.fadeOut(),
+                ) {
+                    MapCornerButton(
+                        icon = Icons.Rounded.Layers,
+                        contentDescription = if (mode == MapCatalog.MapMode.STREETS) {
+                            "Passa alla vista ibrida"
+                        } else {
+                            "Passa alla vista stradale"
+                        },
+                        backdrop = backdrop,
+                        onClick = {
+                            mode = if (mode == MapCatalog.MapMode.STREETS) {
+                                MapCatalog.MapMode.HYBRID
+                            } else {
+                                MapCatalog.MapMode.STREETS
+                            }
+                            mapPrefs.mode = mode
+                        },
+                        modifier = Modifier.padding(start = 14.dp),
+                    )
                 }
-            },
-            modifier = Modifier.padding(end = 14.dp, bottom = bottomInset),
-        )
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = comandiVisibili,
+                    enter = androidx.compose.animation.fadeIn(),
+                    exit = androidx.compose.animation.fadeOut(),
+                ) {
+                    MapCornerButton(
+                        icon = when (follow) {
+                            FollowMode.FREE -> Icons.Rounded.LocationSearching
+                            FollowMode.FOLLOW -> Icons.Rounded.MyLocation
+                            FollowMode.COMPASS -> Icons.Rounded.Explore
+                        },
+                        contentDescription = when (follow) {
+                            FollowMode.FREE -> "Centrati sulla mia posizione"
+                            FollowMode.FOLLOW -> "Passa alla bussola"
+                            FollowMode.COMPASS -> "Torna alla vista normale"
+                        },
+                        backdrop = backdrop,
+                        iconRotation = { if (follow == FollowMode.COMPASS) -bearing else 0f },
+                        onClick = {
+                            if (!locationGranted) {
+                                permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                            } else {
+                                follow = when (follow) {
+                                    FollowMode.FREE -> FollowMode.FOLLOW
+                                    FollowMode.FOLLOW -> FollowMode.COMPASS
+                                    FollowMode.COMPASS -> FollowMode.FOLLOW
+                                }
+                            }
+                        },
+                        modifier = Modifier.padding(end = 14.dp),
+                    )
+                }
+            }
+            // Cosa passa qui intorno, dove la tab bar lascia spazio: si legge
+            // senza toccare niente, e toccandola si apre tutto.
+            androidx.compose.animation.AnimatedVisibility(
+                // Da lontano "qui intorno" non vuol dire niente.
+                //
+                // Al primo avvio, senza permesso della posizione, la mappa si
+                // apre su tutta la Toscana: il centro cade in campagna fra
+                // Siena e Colle, e la capsula mostrava le partenze di un paese
+                // a caso come se fossero le tue. Sotto lo zoom in cui si
+                // distinguono le strade, l'unica risposta onesta e' non
+                // rispondere: c'e' il mirino, ed e' li' accanto.
+                visible = comandiVisibili && reader != null &&
+                    nearbyBoard.computedAtEpoch != 0L &&
+                    cameraZoom >= MapCatalog.NEARBY_MIN_ZOOM,
+                enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it / 3 }) +
+                    androidx.compose.animation.fadeIn(),
+                exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it / 3 }) +
+                    androidx.compose.animation.fadeOut(),
+            ) {
+                NearbyCapsule(
+                    board = nearbyBoard,
+                    backdrop = backdrop,
+                    onClick = { panel = Panel.Nearby },
+                    modifier = Modifier
+                        .padding(top = 10.dp)
+                        .padding(horizontal = FluidTabBarDefaults.HorizontalMargin),
+                )
+            }
+            Spacer(Modifier.height(FluidTabBarDefaults.ContentInset + 10.dp))
         }
 
         // --- l'unico pannello dal basso: fermata, linea, o linea ridotta ---
         // Il passaggio fra i tre e' un morphing della stessa superficie di
         // vetro; in modalita' linea il pannello prende il posto della tab bar.
-        val reader = ready?.reader
         val inRoutePanel = panel is Panel.RouteMini || panel is Panel.RouteFull ||
             panel is Panel.TripMini || panel is Panel.TripFull
         // In modalita' linea il pannello siede ESATTAMENTE dove sedeva la
@@ -1803,38 +1863,6 @@ fun MapScreen(
             },
             label = "panelBottomPad",
         )
-        // Cosa passa qui intorno, dove la tab bar lascia spazio: si legge
-        // senza toccare niente, e toccandola si apre tutto.
-        androidx.compose.animation.AnimatedVisibility(
-            // Da lontano "qui intorno" non vuol dire niente.
-            //
-            // Al primo avvio, senza permesso della posizione, la mappa si
-            // apre su tutta la Toscana: il centro cade in campagna fra
-            // Siena e Colle, e la capsula mostrava le partenze di un paese
-            // a caso come se fossero le tue. Sotto lo zoom in cui si
-            // distinguono le strade, l'unica risposta onesta e' non
-            // rispondere: c'e' il mirino, ed e' li' accanto.
-            visible = panel == null && !searchOpen && !plannerOpen && !navActive &&
-                reader != null && nearbyBoard.computedAtEpoch != 0L &&
-                cameraZoom >= MapCatalog.NEARBY_MIN_ZOOM,
-            enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it / 3 }) +
-                androidx.compose.animation.fadeIn(),
-            exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it / 3 }) +
-                androidx.compose.animation.fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding(),
-        ) {
-            NearbyCapsule(
-                board = nearbyBoard,
-                backdrop = backdrop,
-                onClick = { panel = Panel.Nearby },
-                modifier = Modifier
-                    .padding(horizontal = FluidTabBarDefaults.HorizontalMargin)
-                    .padding(bottom = FluidTabBarDefaults.ContentInset + 10.dp),
-            )
-        }
-
         // "Perche' questo numero", dichiarato qui e disegnato alla radice: si
         // apre SUL numero toccato, non al centro dello schermo.
         dev.antigravity.fluidtransit.ui.common.WhyThisNumberPortal(

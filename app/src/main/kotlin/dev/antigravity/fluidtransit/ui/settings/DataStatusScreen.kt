@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.antigravity.fluidengine.ui.fluid.FluidScreen
 import dev.antigravity.fluidengine.ui.theme.FluidListGroup
@@ -30,6 +31,17 @@ import kotlin.system.measureNanoTime
 fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
     val state by app.bundleManager.state.collectAsStateWithLifecycle()
     val ready = state as? BundleState.Ready
+
+    // Le spiegazioni lunghe si aprono, non stanno sempre aperte.
+    //
+    // Ogni riga di questa schermata portava sotto il titolo un paragrafo di
+    // tre o quattro righe: messe in fila facevano un muro di testo, e una
+    // schermata fatta di muri sembra un file di log anche quando dice cose
+    // giuste. Il paragrafo non e' sparito — serve, ed e' il motivo per cui
+    // questa schermata esiste — ma adesso lo si chiede toccando la riga.
+    var aperta by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf<String?>(null)
+    }
 
     FluidScreen(title = "Stato dei dati", onBack = onBack) {
         item { FluidSectionTitle(eyebrow = "Orari", title = "Il bundle") }
@@ -142,17 +154,23 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
                 )
                 FluidListRow(
                     title = "Eta' del dato",
-                    subtitle = "Quanto e' vecchia l'ultima posizione, rispetto all'origine. " +
-                        "L'origine si rigenera ogni ~2 minuti: sotto i cinque minuti e' normale",
-                    // Le eta' si scrivono in un posto solo: qui erano secondi
-                    // nudi, e un feed fermo da venti minuti diceva "1200s".
+                    subtitle = if (aperta == "Eta' del dato") {
+                        "Quanto e' vecchia l'ultima posizione, rispetto all'origine. L'origine si rigenera ogni ~2 minuti: sotto i cinque minuti e' normale."
+                    } else {
+                        "Quanto e' vecchia l'ultima posizione"
+                    },
                     meta = rtStatus.feedAgeSeconds?.let { Words.age(it) } ?: "—",
+                    onClick = { aperta = if (aperta == "Eta' del dato") null else "Eta' del dato" },
                 )
                 FluidListRow(
                     title = "Veicoli e ritardi",
-                    subtitle = "Quanti bus vivi e quante corse con un ritardo dichiarato " +
-                        "nell'ultimo aggiornamento. Si scaricano solo con la mappa aperta",
+                    subtitle = if (aperta == "Veicoli e ritardi") {
+                        "Quanti bus vivi e quante corse con un ritardo dichiarato nell'ultimo aggiornamento. Si scaricano solo con la mappa aperta."
+                    } else {
+                        "Bus vivi e ritardi dell'ultimo giro"
+                    },
                     meta = "${rtStatus.vehicleCount} · ${rtStatus.delayCount}",
+                    onClick = { aperta = if (aperta == "Veicoli e ritardi") null else "Veicoli e ritardi" },
                 )
                 // `liveVersion` non si legge per il suo valore: si legge perche'
                 // cambia a ogni giro di tempo reale assorbito, e senza di lui
@@ -169,7 +187,13 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
                 // del disegno e si rifa' ogni pochi giri di tempo reale.
                 val copertura by produceState<
                     dev.antigravity.fluidtransit.routing.Coverage.Stato?,
-                    >(null, ready, liveVersion / 4) {
+                    // Si rifa' a ogni giro di tempo reale, non ogni quattro:
+                    // aprendo questa schermata a processo appena nato il primo
+                    // conto cadeva prima che i ritardi fossero risolti, e la
+                    // riga restava a "0 di 1274" per due minuti — cioe' diceva
+                    // che il tempo reale non copre niente proprio mentre la
+                    // riga sopra contava duemila ritardi scaricati.
+                    >(null, ready, liveVersion) {
                     val r = ready?.reader
                     value = if (r == null) {
                         null
@@ -184,58 +208,66 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
                 }
                 FluidListRow(
                     title = "Copertura del tempo reale",
-                    subtitle = "Quante delle corse che gli ORARI dicono in strada in questo " +
-                        "momento hanno qualcosa dal vivo. E' la risposta alla domanda che " +
-                        "viene guardando un tabellone dove meta' delle righe dicono " +
-                        "\"orario da tabella\": non e' un aggancio fallito, sono corse di cui " +
-                        "il feed non parla",
+                    subtitle = if (aperta == "Copertura del tempo reale") {
+                        "Quante delle corse che gli ORARI dicono in strada in questo momento hanno qualcosa dal vivo. E' la risposta alla domanda che viene guardando un tabellone dove meta' delle righe dicono \"orario da tabella\": non e' un aggancio fallito, sono corse di cui il feed non parla."
+                    } else {
+                        "Quanta parte dei bus in strada e' seguita"
+                    },
                     meta = copertura?.let { c ->
                         c.percento?.let { "${c.seguite} di ${c.inViaggio} · $it%" }
                             ?: "niente in strada"
                     } ?: "—",
+                    onClick = { aperta = if (aperta == "Copertura del tempo reale") null else "Copertura del tempo reale" },
                 )
                 FluidListRow(
                     title = "Corse seguite adesso",
-                    subtitle = "Quante corse hanno un ritardo in memoria, e quante hanno un " +
-                        "mezzo vivo. E' da queste che escono i minuti veri nei tabelloni: se " +
-                        "la prima e' zero mentre i ritardi scaricati sono tanti, il feed e gli " +
-                        "orari non si stanno agganciando. Comprende le corse che devono ancora " +
-                        "partire, quindi puo' essere piu' grande del numero di corse in strada",
+                    subtitle = if (aperta == "Corse seguite adesso") {
+                        "Quante corse hanno un ritardo in memoria, e quante hanno un mezzo vivo. E' da queste che escono i minuti veri nei tabelloni: se la prima e' zero mentre i ritardi scaricati sono tanti, il feed e gli orari non si stanno agganciando. Comprende le corse che devono ancora partire, quindi puo' essere piu' grande del numero di corse in strada."
+                    } else {
+                        "Corse con un ritardo in memoria"
+                    },
                     meta = "$tracked · ${withVehicle.size} coi mezzi",
+                    onClick = { aperta = if (aperta == "Corse seguite adesso") null else "Corse seguite adesso" },
                 )
                 val predictions by app.realtime.predictions.collectAsStateWithLifecycle()
                 FluidListRow(
                     title = "Previsioni fermata per fermata",
-                    subtitle = "Quante corse arrivano col ritardo dichiarato a OGNI fermata, e " +
-                        "non con un numero solo da propagare a mano. E' quello che fa combaciare " +
-                        "i minuti con quelli ufficiali: dove non arrivano, i numeri restano " +
-                        "una nostra stima e l'app lo dice",
+                    subtitle = if (aperta == "Previsioni fermata per fermata") {
+                        "Quante corse arrivano col ritardo dichiarato a OGNI fermata, e non con un numero solo da propagare a mano. E' quello che fa combaciare i minuti con quelli ufficiali: dove non arrivano, i numeri restano una nostra stima e l'app lo dice."
+                    } else {
+                        "Corse col ritardo dichiarato a ogni fermata"
+                    },
                     meta = predictions?.let { set ->
                         val punti = set.byTripHash.values.sumOf { it.points.size }
                         Words.count(set.byTripHash.size, "corsa", "corse") + " · " +
                             Words.count(punti, "punto", "punti") +
                             if (set.truncated) " · ridotte" else ""
                     } ?: "—",
+                    onClick = { aperta = if (aperta == "Previsioni fermata per fermata") null else "Previsioni fermata per fermata" },
                 )
                 val agganciate by app.livePredictions.collectAsStateWithLifecycle()
                 FluidListRow(
                     title = "Previsioni agganciate",
-                    subtitle = "Una previsione serve solo se si sa a quale corsa e a quale " +
-                        "fermata appartiene: la corsa si riconosce dall'identificatore, la " +
-                        "fermata confrontando le due estremita' della sequenza con quelle " +
-                        "degli orari. Quelle che non si agganciano tornano a essere una " +
-                        "nostra stima, e finche' questo numero non c'era la cosa non si " +
-                        "vedeva da nessuna parte",
+                    subtitle = if (aperta == "Previsioni agganciate") {
+                        "Una previsione serve solo se si sa a quale corsa e a quale fermata appartiene: la corsa si riconosce dall'identificatore, la fermata confrontando le due estremita' della sequenza con quelle degli orari. Quelle che non si agganciano tornano a essere una nostra stima, e finche' questo numero non c'era la cosa non si vedeva da nessuna parte."
+                    } else {
+                        "Quante si attaccano alla corsa e alla fermata giuste"
+                    },
                     meta = agganciate?.let { p ->
                         val dal = predictions?.byTripHash?.size ?: p.risolte
                         "${p.agganciate} di $dal"
                     } ?: "—",
+                    onClick = { aperta = if (aperta == "Previsioni agganciate") null else "Previsioni agganciate" },
                 )
                 FluidListRow(
                     title = "Corse riconosciute",
-                    subtitle = "Quanti bus del feed live combaciano con gli orari del bundle. " +
-                        "Le due generazioni di dati non sono mai sincronizzate del tutto",
+                    subtitle = if (aperta == "Corse riconosciute") {
+                        "Quanti bus del feed live combaciano con gli orari del bundle. Le due generazioni di dati non sono mai sincronizzate del tutto."
+                    } else {
+                        "Bus del feed che combaciano con gli orari"
+                    },
                     meta = resolvedPct?.let { "$it%" } ?: "—",
+                    onClick = { aperta = if (aperta == "Corse riconosciute") null else "Corse riconosciute" },
                 )
             }
         }

@@ -215,7 +215,11 @@ class RealtimeClient(
                 val snapshotAge = fetched.snapshotAge
                 if (snapshotAge != null && snapshotAge <= SNAPSHOT_FRESH_SECONDS) {
                     staleStrikes = 0
-                    publish(Source.PROXY, age, "il feed della Regione e' fermo da ${age}s")
+                    publish(
+                        Source.PROXY, age,
+                        "il feed della Regione e' fermo da " +
+                            dev.antigravity.fluidtransit.routing.Words.age(age),
+                    )
                     return@withContext
                 }
                 // Lo snapshot stesso e' vecchio: il proxy non sta rileggendo

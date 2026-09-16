@@ -126,8 +126,10 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
                 FluidListRow(
                     title = "Eta' del dato",
                     subtitle = "Quanto e' vecchia l'ultima posizione, rispetto all'origine. " +
-                        "L'origine si rigenera ogni ~2 minuti: sotto i 300 s e' normale",
-                    meta = rtStatus.feedAgeSeconds?.let { "${it}s" } ?: "—",
+                        "L'origine si rigenera ogni ~2 minuti: sotto i cinque minuti e' normale",
+                    // Le eta' si scrivono in un posto solo: qui erano secondi
+                    // nudi, e un feed fermo da venti minuti diceva "1200s".
+                    meta = rtStatus.feedAgeSeconds?.let { Words.age(it) } ?: "—",
                 )
                 FluidListRow(
                     title = "Veicoli e ritardi",

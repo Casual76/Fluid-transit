@@ -40,4 +40,15 @@ object Words {
      */
     fun age(seconds: Int): String =
         if (seconds < 60) "${seconds.coerceAtLeast(0)}s" else Times.durationLabel(seconds)
+
+    /**
+     * La stessa eta', quando chi la porta la tiene in un `Long`.
+     *
+     * Le eta' dei feed si calcolano in millisecondi e viaggiano in `Long`:
+     * senza questa riga ogni chiamante scriveva `.toInt()` per conto suo, e
+     * un feed con la marca temporale a zero — che capita, ed e' un'eta' di
+     * cinquantasei anni — diventava un numero negativo. Qui si tosa prima.
+     */
+    fun age(seconds: Long): String =
+        age(seconds.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt())
 }

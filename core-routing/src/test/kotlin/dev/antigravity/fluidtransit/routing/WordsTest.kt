@@ -2,6 +2,7 @@ package dev.antigravity.fluidtransit.routing
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * Il singolare che ci si dimentica.
@@ -61,4 +62,20 @@ class WordsTest {
         assertEquals("1 h 12 min", Words.age(72 * 60))
     }
 
+
+    @Test
+    fun `un'eta' in Long si dice come quella in Int`() {
+        assertEquals(Words.age(42), Words.age(42L))
+        assertEquals(Words.age(3_600), Words.age(3_600L))
+    }
+
+    @Test
+    fun `una marca temporale a zero non diventa un'eta' negativa`() {
+        // Capita davvero: un feed senza `timestamp` da' un'eta' di decine di
+        // anni, che passata a 32 bit si ribalta. Meglio un numero grande e
+        // assurdo che uno negativo, che sembrerebbe un dato dal futuro.
+        val cinquantaseiAnni = 56L * 365 * 24 * 3600
+        assertTrue(Words.age(cinquantaseiAnni).first().isDigit())
+        assertEquals("0s", Words.age(-5L))
+    }
 }

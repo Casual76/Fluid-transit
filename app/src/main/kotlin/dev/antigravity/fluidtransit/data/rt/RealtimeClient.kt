@@ -133,6 +133,18 @@ class RealtimeClient(
     private val delaysLock = Mutex()
     private val predictionsLock = Mutex()
 
+    /**
+     * E gli avvisi, che hanno la stessa forma e lo stesso problema.
+     *
+     * Li chiedono due schermate diverse — la scheda Oggi e la schermata degli
+     * avvisi — e la loro cache in memoria e' un `var` con dentro una lista.
+     * Una lista pubblicata senza barriera puo' farsi vedere da un altro
+     * thread con la lunghezza giusta e l'array ancora nullo: non e' un caso
+     * frequente, ma e' lo stesso difetto che sulle sezioni del bundle si e'
+     * chiuso stanotte, e qui costa tre righe.
+     */
+    private val alertsLock = Mutex()
+
     private var proxyFailures = 0
     private var staleStrikes = 0
     private var directHoldUntilMs = 0L
@@ -306,7 +318,10 @@ class RealtimeClient(
      * Gli avvisi di servizio, dal proxy, con 5 minuti di cache: la scheda
      * Oggi li chiede a ogni apertura e gli avvisi non cambiano al minuto.
      */
-    suspend fun fetchAlerts(): List<GtfsRtLite.RtAlert> = withContext(Dispatchers.IO) {
+    suspend fun fetchAlerts(): List<GtfsRtLite.RtAlert> =
+        alertsLock.withLock { fetchAlertsLocked() }
+
+    private suspend fun fetchAlertsLocked(): List<GtfsRtLite.RtAlert> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         alertsCache?.let { if (now - alertsCacheAt < 5 * 60_000) return@withContext it }
         runCatching {

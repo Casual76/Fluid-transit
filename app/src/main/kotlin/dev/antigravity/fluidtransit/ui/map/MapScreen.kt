@@ -169,11 +169,57 @@ fun MapScreen(
     val controller = remember { TransitMapController(context) }
     val scope = rememberCoroutineScope()
 
+    // Il permesso negato per sempre non deve diventare un tasto morto.
+    //
+    // Toccando il mirino, se il permesso e' stato negato due volte, Android
+    // non mostra piu' nessuna finestra: la richiesta torna indietro negata
+    // all'istante e il tasto non faceva niente. Un tasto che non fa niente
+    // e' peggio di un tasto che manca, perche' insegna a non fidarsi anche
+    // degli altri — e questo e' il tasto con cui si chiede "dove sono".
+    //
+    // Dopo la finestra, negato piu' "non mostrare la spiegazione" vuol dire
+    // esattamente questo, ed e' l'unico momento in cui quella combinazione
+    // non e' ambigua: prima della prima richiesta e' falsa anche per chi non
+    // ha mai deciso niente.
+    val notifications = dev.antigravity.fluidengine.ui.fluid.LocalFluidNotificationHostState.current
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         locationGranted = granted
-        if (granted) follow = FollowMode.FOLLOW
+        if (granted) {
+            follow = FollowMode.FOLLOW
+        } else {
+            val activity = generateSequence(context) { (it as? android.content.ContextWrapper)?.baseContext }
+                .filterIsInstance<Activity>()
+                .firstOrNull()
+            val perSempre = activity != null &&
+                !androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(
+                    activity, Manifest.permission.ACCESS_FINE_LOCATION,
+                )
+            if (perSempre && activity != null) {
+                scope.launch {
+                    notifications?.show(
+                        dev.antigravity.fluidengine.ui.fluid.FluidNotification(
+                            id = "posizione-negata",
+                            title = "Il permesso di posizione e' negato",
+                            message = "Android non lo chiede piu'. Ti porto dov'e' " +
+                                "l'interruttore: senza, la mappa usa il centro di " +
+                                "quello che stai guardando.",
+                            tone = dev.antigravity.fluidengine.ui.fluid
+                                .FluidNotificationTone.Warning,
+                        ),
+                    )
+                }
+                runCatching {
+                    activity.startActivity(
+                        android.content.Intent(
+                            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            android.net.Uri.fromParts("package", context.packageName, null),
+                        ),
+                    )
+                }
+            }
+        }
     }
 
     val micLauncher = rememberLauncherForActivityResult(

@@ -224,6 +224,49 @@ class RtResolveTest {
     }
 
     @Test
+    fun `lo stesso mezzo due volte resta un mezzo solo`() {
+        // Capita al cambio di corsa di un blocco: il feed pubblica il
+        // veicolo due volte, una per la corsa che finisce e una per quella
+        // che comincia, con due posizioni diverse. La lista arriva ai marker,
+        // che sono indicizzati per chiave: due record con la stessa chiave
+        // davano al marker due rilevamenti in conflitto nello stesso istante,
+        // e a ogni giro rimbalzava fra i due punti.
+        bundle().use { r ->
+            val vecchio = veicolo(tripHash = tripMattina, fixAgeSec = 120, vehKey = 7)
+            val fresco = veicolo(tripHash = tripNotte, fixAgeSec = 5, vehKey = 7)
+            val out = resolveRt(r, snapshot(vecchio, fresco), null)
+            assertEquals(1, out.buses.size)
+            assertEquals("deve vincere il rilevamento piu' fresco", 5, out.buses.first().fixAgeSec)
+        }
+    }
+
+    @Test
+    fun `fra due doppioni l'ordine nel feed non decide`() {
+        bundle().use { r ->
+            val fresco = veicolo(tripHash = tripNotte, fixAgeSec = 5, vehKey = 7)
+            val vecchio = veicolo(tripHash = tripMattina, fixAgeSec = 120, vehKey = 7)
+            val out = resolveRt(r, snapshot(fresco, vecchio), null)
+            assertEquals(1, out.buses.size)
+            assertEquals(5, out.buses.first().fixAgeSec)
+            // E anche i dettagli del tap devono essere quelli del vincitore.
+            assertEquals(r.findTripByIdHash(tripNotte), out.busMetaByKey[7]!!.tripIndex)
+        }
+    }
+
+    @Test
+    fun `un doppione senza eta' perde contro uno con l'eta'`() {
+        // L'eta' ignota non e' "appena arrivato": e' "non lo so", e fra le
+        // due si sceglie quella che si puo' giudicare.
+        bundle().use { r ->
+            val ignoto = veicolo(tripHash = tripMattina, fixAgeSec = -1, vehKey = 7)
+            val noto = veicolo(tripHash = tripNotte, fixAgeSec = 200, vehKey = 7)
+            val out = resolveRt(r, snapshot(ignoto, noto), null)
+            assertEquals(1, out.buses.size)
+            assertTrue(out.buses.first().fixAgeSec >= 200)
+        }
+    }
+
+    @Test
     fun `un ritardo dichiarato arriva alla corsa giusta`() {
         bundle().use { r ->
             val trip = r.findTripByIdHash(tripMattina)

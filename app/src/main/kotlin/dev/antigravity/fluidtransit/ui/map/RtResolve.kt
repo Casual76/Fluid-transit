@@ -106,6 +106,21 @@ fun resolveRt(reader: BundleReader, vehicles: RtVehicles, delays: RtDelays?): Re
     val metaByKey = HashMap<Int, BusMeta>(vehicles.list.size * 2)
     val vehicleByTrip = HashMap<Int, Int>(vehicles.list.size * 2)
 
+    // Dove sta ogni chiave dentro `buses`, per accorgersi dei doppioni.
+    //
+    // Due record con lo STESSO mezzo capitano: al cambio di corsa di un
+    // blocco il feed puo' pubblicare il veicolo due volte, una per la corsa
+    // che finisce e una per quella che comincia, con due posizioni diverse.
+    // Piu' in giu' la lista arriva al livello dei marker, che e' indicizzato
+    // per chiave: il secondo record sovrascriveva il primo nello stesso
+    // istante, il marker riceveva due rilevamenti in conflitto e a ogni giro
+    // rimbalzava fra i due punti. E' uno dei modi in cui un bus "si
+    // teletrasporta", e non si vede mai in un fotogramma solo.
+    val whereByKey = HashMap<Int, Int>(vehicles.list.size * 2)
+
+    /** Quanto vale un rilevamento: piu' basso e' meglio, l'eta' ignota per ultima. */
+    fun freschezza(fixAge: Int) = if (fixAge < 0) Int.MAX_VALUE else fixAge
+
     for (v in vehicles.list) {
         // Igiene misurata sul feed vero: ~300 mezzi su 1100 non hanno ne'
         // corsa ne' linea (depositi, fuori servizio) e ~100 hanno un fix
@@ -138,21 +153,31 @@ fun resolveRt(reader: BundleReader, vehicles: RtVehicles, delays: RtDelays?): Re
         val rhHex = java.lang.Long.toHexString(
             if (routeIndex >= 0) reader.routeIdHash(routeIndex) else v.routeHash,
         )
-        buses.add(
-            BusRender(
-                vehKey = key,
-                lat = v.lat,
-                lon = v.lon,
-                bearingDeg = v.bearingDeg,
-                colorRgb = color,
-                cat = cat,
-                routeHashHex = rhHex,
-                tripHashHex = java.lang.Long.toHexString(v.tripHash),
-                patternIndex = patternIndex,
-                speedMs = v.speedMs,
-                fixAgeSec = fixAgeNow,
-            ),
+        // Fra due record dello stesso mezzo vince quello col rilevamento
+        // piu' fresco: e' l'unico criterio che non dipende dall'ordine in
+        // cui il feed li ha messi in fila.
+        val gia = whereByKey[key]
+        if (gia != null && freschezza(buses[gia].fixAgeSec) <= freschezza(fixAgeNow)) continue
+
+        val render = BusRender(
+            vehKey = key,
+            lat = v.lat,
+            lon = v.lon,
+            bearingDeg = v.bearingDeg,
+            colorRgb = color,
+            cat = cat,
+            routeHashHex = rhHex,
+            tripHashHex = java.lang.Long.toHexString(v.tripHash),
+            patternIndex = patternIndex,
+            speedMs = v.speedMs,
+            fixAgeSec = fixAgeNow,
         )
+        if (gia != null) {
+            buses[gia] = render
+        } else {
+            whereByKey[key] = buses.size
+            buses.add(render)
+        }
         metaByKey[key] = BusMeta(
             vehKey = key,
             tripHash = v.tripHash,

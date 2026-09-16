@@ -295,8 +295,14 @@ object DepartureText {
                         "Il feed non parla di questa corsa: nessuna previsione, " +
                             "nessun mezzo agganciato.",
                         tabella,
-                        "Succede per le linee che il tempo reale non copre, e la " +
-                            "notte quando i mezzi sono spenti.",
+                        // Non "per le linee": misurato il 16/09, la linea 6
+                        // aveva trentasei corse seguite e questa no, e dire
+                        // "linea" fa concludere che la 6 non sia seguita. La
+                        // copertura e' per CORSA — su 809 in strada il feed
+                        // ne seguiva 612 — ed e' quello che si vede.
+                        "Succede per le singole corse che il tempo reale non segue, " +
+                            "anche su una linea per il resto seguita, e la notte " +
+                            "quando i mezzi sono spenti.",
                     )
                 },
             )

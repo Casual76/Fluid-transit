@@ -7,6 +7,7 @@ import dev.antigravity.fluidtransit.routing.Ftb
 import dev.antigravity.fluidtransit.routing.Raptor
 import dev.antigravity.fluidtransit.routing.DepartureText
 import dev.antigravity.fluidtransit.routing.Times
+import dev.antigravity.fluidtransit.routing.Words
 import java.time.Instant
 import java.time.LocalTime
 import java.time.ZonedDateTime
@@ -94,8 +95,7 @@ internal object Resolve {
 
     fun distanceLabel(ctx: ToolContext, lat: Double, lon: Double): String? {
         val ref = ctx.reference ?: return null
-        val m = BundleReader.haversine(ref.first, ref.second, lat, lon)
-        return if (m < 1000) "${m.toInt()} m" else "%.1f km".format(m / 1000)
+        return Words.distance(BundleReader.haversine(ref.first, ref.second, lat, lon))
     }
 }
 

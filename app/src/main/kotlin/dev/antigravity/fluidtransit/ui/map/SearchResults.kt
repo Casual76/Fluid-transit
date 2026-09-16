@@ -61,7 +61,24 @@ internal fun rememberSearchResults(
                         key = reader?.let { java.lang.Long.toHexString(it.stopIdHash(hit.stopIndex)) }
                             ?: "",
                         title = hit.title,
-                        subtitle = "Fermata",
+                        // Quanto e' lontana, quando c'e' da dove misurare.
+                        //
+                        // Cercando "San Marco" uscivano due righe identiche,
+                        // "SAN MARCO · Fermata" e "SAN MARCO · Fermata": sono
+                        // due paesi diversi a settanta chilometri l'uno
+                        // dall'altro, e l'unico modo di sceglierne una era
+                        // provarla. I luoghi il loro contesto ce l'hanno gia'
+                        // ("Firenze"); le fermate no, e la distanza e' il
+                        // contesto che l'app puo' dare senza inventarsi
+                        // niente.
+                        subtitle = if (ref != null) {
+                            "Fermata · a " + dev.antigravity.fluidtransit.routing.Words.distance(
+                                dev.antigravity.fluidtransit.routing.BundleReader
+                                    .haversine(rLat, rLon, hit.lat, hit.lon),
+                            )
+                        } else {
+                            "Fermata"
+                        },
                         colorRgb = 0,
                         lat = hit.lat,
                         lon = hit.lon,

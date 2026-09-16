@@ -28,4 +28,25 @@ class WordsTest {
         // "0 fermata" non lo direbbe nessuno.
         assertEquals("0 corse", Words.count(0, "corsa", "corse"))
     }
+    @Test
+    fun `sotto il chilometro si dicono i metri`() {
+        assertEquals("0 m", Words.distance(0.0))
+        assertEquals("350 m", Words.distance(350.4))
+        assertEquals("999 m", Words.distance(999.9))
+    }
+
+    @Test
+    fun `sopra il chilometro si dicono i chilometri, con la virgola`() {
+        // "2437 m" e' un numero da convertire in testa, e il punto decimale
+        // in italiano si legge male.
+        assertEquals("1,0 km", Words.distance(1000.0))
+        assertEquals("2,4 km", Words.distance(2437.0))
+        assertEquals("78,2 km", Words.distance(78_240.0))
+    }
+
+    @Test
+    fun `una distanza che non si sa non si stampa`() {
+        assertEquals("", Words.distance(-1.0))
+    }
+
 }

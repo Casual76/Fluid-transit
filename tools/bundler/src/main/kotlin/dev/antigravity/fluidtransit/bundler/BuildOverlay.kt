@@ -218,6 +218,19 @@ fun main(args: Array<String>) {
             val tolerance =
                 if (matched != null || preMatched) TOLERANCE_MATCHED_M else TOLERANCE_M
             val simplified = simplify(la, lo, tolerance)
+            // Una linea lunga zero non e' una linea.
+            //
+            // Succede quando tutte le fermate di un pattern stanno sullo
+            // stesso punto — capita nel feed — e la semplificazione tiene
+            // primo e ultimo, che coincidono. MapLibre poi scrive nei log
+            // "Invalid geometry in line layer" e butta via la tratta: un
+            // avvertimento che nessuno legge per una tratta che non si
+            // sarebbe vista comunque. Meglio non scriverla.
+            if (simplified.size < 2 ||
+                simplified.all { la[it] == la[simplified[0]] && lo[it] == lo[simplified[0]] }
+            ) {
+                return@execute
+            }
             // Geometrie identiche (andata e ritorno sullo stesso asse, o
             // shape duplicate) si emettono una volta sola per linea.
             var gh = Ftb.FNV_OFFSET xor work.routeIdx.toLong()

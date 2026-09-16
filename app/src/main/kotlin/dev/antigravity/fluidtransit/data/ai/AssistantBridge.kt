@@ -210,11 +210,25 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
 
     override fun favouriteRouteNames(): List<String> = app.favorites.routes().map { it.shortName }
 
-    override suspend fun alerts(): List<String> = runCatching {
-        app.realtime.fetchAlerts().map { a ->
+    /**
+     * Gli avvisi di servizio, per l'assistente.
+     *
+     * Una lista vuota, letta da un modello, diventa "non ci sono avvisi": e'
+     * un'affermazione, e con la rete giu' e' falsa. Qui il fallimento
+     * diventa una riga che dice cosa e' successo, perche' e' l'unica forma
+     * che il contratto di questo strumento ammette — e una riga cosi' il
+     * modello la riferisce invece di inventarci sopra.
+     */
+    override suspend fun alerts(): List<String> {
+        val lista = runCatching { app.realtime.fetchAlertsOrNull() }.getOrNull()
+            ?: return listOf(
+                "Non e' stato possibile scaricare gli avvisi di servizio: " +
+                    "non sappiamo se ce ne siano.",
+            )
+        return lista.map { a ->
             listOf(a.header, a.description).filter { it.isNotBlank() }.joinToString(" — ")
         }
-    }.getOrDefault(emptyList())
+    }
 
     override fun realtimeStatus(): String {
         val status = app.realtime.status.value
@@ -223,7 +237,10 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
             dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.DIRECT -> "dal feed ufficiale"
             dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.SCHEDULE_ONLY -> "nessuno: solo orari di tabella"
         }
-        val age = status.feedAgeSeconds?.let { "aggiornati ${it}s fa" } ?: "mai aggiornati"
+        // L'eta' con le parole del resto dell'app: qui erano secondi nudi, e
+        // "aggiornati 1200s fa" letto ad alta voce e' un numero da dividere.
+        val age = status.feedAgeSeconds?.let { "aggiornati ${Words.age(it)} fa" }
+            ?: "mai aggiornati"
         val counts = Words.count(status.vehicleCount, "mezzo", "mezzi") + ", " +
             Words.count(status.delayCount, "ritardo", "ritardi")
         val error = status.lastError?.takeIf { it.isNotBlank() }?.let { " · ultimo errore: $it" } ?: ""

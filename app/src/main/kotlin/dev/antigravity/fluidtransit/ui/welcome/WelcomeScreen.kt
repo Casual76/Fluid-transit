@@ -72,6 +72,19 @@ fun WelcomeScreen(manager: BundleManager, state: BundleState) {
                             progress = { progress },
                             modifier = Modifier.fillMaxWidth(),
                         )
+                        // A che punto e', in cifre.
+                        //
+                        // Sono otto megabyte: su una linea lenta la barra si
+                        // muove cosi' piano che sembra ferma, e queste sono
+                        // le prime dieci parole che l'app dice di se'. Una
+                        // percentuale che cambia e' la differenza fra
+                        // "sta lavorando" e "si e' piantata".
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = "${(progress * 100).toInt()}%",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     } else {
                         FluidSpinner()
                     }

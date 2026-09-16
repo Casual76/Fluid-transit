@@ -3,6 +3,7 @@ package dev.antigravity.fluidtransit.ui.map
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -54,6 +55,71 @@ import androidx.compose.runtime.setValue
  * toccare niente per leggerla: la prossima partenza si vede, e toccandola si
  * aprono tutte.
  */
+/**
+ * L'invito ad accendere la posizione, al primo avvio.
+ *
+ * La prima cosa che l'app mostrava a chi la installa era la Toscana intera a
+ * zoom 7,6: nessuna fermata (sono sotto la soglia di zoom), nessun passaggio,
+ * nessuna riga che dica cosa fare. Una mappa vuota con una barra di ricerca
+ * sopra e' esattamente il momento in cui un'app sembra non finita — e il
+ * permesso della posizione, che e' quello che trasforma quella mappa in
+ * "cosa passa qui sotto casa", non veniva mai chiesto: bisognava trovare da
+ * soli il tasto tondo in basso a destra.
+ *
+ * Sta nello stesso posto della capsula "qui intorno" e sparisce da se'
+ * appena c'e' qualcosa di meglio da dire: o si accende la posizione, o si
+ * arriva a uno zoom in cui "qui intorno" ha un senso.
+ */
+@Composable
+fun LocationInviteCapsule(
+    backdrop: GlassBackdropState,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .glassSurface(
+                state = backdrop,
+                tint = GlassDefaults.floatingTint(),
+                shape = ContinuousCornerShape(FluidRadius.Card),
+                edge = GlassEdge.None,
+            )
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                role = Role.Button,
+                onClickLabel = "Attiva la posizione",
+                onClick = onClick,
+            )
+            .padding(horizontal = 14.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.NearMe,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Vedi cosa passa qui intorno",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = "Tocca per attivare la posizione",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
 @Composable
 fun NearbyCapsule(
     board: DepartureBoard,

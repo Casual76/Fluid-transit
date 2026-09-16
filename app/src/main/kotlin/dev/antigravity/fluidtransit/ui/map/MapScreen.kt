@@ -1818,6 +1818,26 @@ fun MapScreen(
                     )
                 }
             }
+            // Il primo avvio: la posizione spenta e la mappa su tutta la
+            // regione. Finche' non si e' abbastanza vicini perche' "qui
+            // intorno" voglia dire qualcosa, l'unica cosa utile da dire e'
+            // come farglielo sapere.
+            androidx.compose.animation.AnimatedVisibility(
+                visible = comandiVisibili && !locationGranted &&
+                    cameraZoom < MapCatalog.NEARBY_MIN_ZOOM,
+                enter = androidx.compose.animation.fadeIn(),
+                exit = androidx.compose.animation.fadeOut(),
+            ) {
+                LocationInviteCapsule(
+                    backdrop = backdrop,
+                    onClick = {
+                        permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                    },
+                    modifier = Modifier
+                        .padding(top = 10.dp)
+                        .padding(horizontal = FluidTabBarDefaults.HorizontalMargin),
+                )
+            }
             // Cosa passa qui intorno, dove la tab bar lascia spazio: si legge
             // senza toccare niente, e toccandola si apre tutto.
             androidx.compose.animation.AnimatedVisibility(

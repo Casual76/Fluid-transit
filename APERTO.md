@@ -90,7 +90,22 @@ Cloud, e può farlo solo il proprietario del progetto. — aperto
 Fluid Transit dichiarano entrambe il permesso
 `dev.antigravity.fluidengine.permission.AI_TOOLS`, e l'installazione della
 seconda fallisce con `INSTALL_FAILED_DUPLICATE_PERMISSION`. Sull'emulatore si
-risolve disinstallando; in distribuzione no. — visto il 15/09/2026
+risolve disinstallando; in distribuzione no.
+
+Il difetto sta nell'engine, non qui: `engine-ai-bridge` dichiara il
+`<permission>` in ogni app che include il modulo, e il suo commento dice
+"la prima installata lo definisce per le altre: stesso nome, stesso livello,
+nessun conflitto". **Quell'assunzione non vale su Android moderno**: un
+secondo pacchetto che dichiara un permesso gia' definito viene rifiutato se
+non e' firmato con lo stesso certificato del primo — ed e' esattamente quello
+che succede fra una build di debug e una firmata con la chiave di release, o
+fra due macchine diverse.
+
+Le strade sono due, e sono tutt'e due dell'engine: dichiarare il permesso in
+UNA sola app della famiglia e lasciare alle altre il solo `<uses-permission>`,
+oppure dare a ogni app un nome di permesso suo. Va deciso li' e committato
+nel repo dell'engine: il codice dentro `engine/` non e' codice di quest'app.
+— diagnosticato il 16/09/2026
 
 ## Deciso di non fare
 

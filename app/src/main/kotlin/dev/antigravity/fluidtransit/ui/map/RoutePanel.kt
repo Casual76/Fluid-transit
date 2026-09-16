@@ -20,12 +20,14 @@ import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.antigravity.fluidengine.ui.fluid.ContinuousCornerShape
 import dev.antigravity.fluidengine.ui.fluid.FluidHairline
 import dev.antigravity.fluidengine.ui.fluid.FluidRadius
@@ -331,6 +333,18 @@ fun RouteFullContent(
 ) {
     val dir = info.directions.getOrNull(direction) ?: info.directions.firstOrNull() ?: return
 
+    // Il battito dell'app, uno solo.
+    //
+    // Gli orari delle fermate qui sotto sono colorati da quanto ci si puo'
+    // fidare, e quel giudizio guarda l'ora: una fermata che il mezzo ha gia'
+    // passato non si colora come una che deve ancora venire. La scheda
+    // leggeva l'orologio dentro la propria composizione, quindi il colore
+    // restava quello del momento in cui si era aperta finche' qualcos'altro
+    // non la faceva ricomporre. La scheda della corsa sta sul battito
+    // condiviso da settimane; questa era rimasta fuori.
+    val nowSec by dev.antigravity.fluidtransit.data.time.UiClock.ticks()
+        .collectAsStateWithLifecycle(initialValue = System.currentTimeMillis() / 1000)
+
     Column(modifier = Modifier.fillMaxWidth()) {
         // --- testata -----------------------------------------------------
         Row(
@@ -505,7 +519,7 @@ fun RouteFullContent(
                             delaySeconds = (stop.timeEpoch - stop.scheduledEpoch)
                                 .toInt().takeIf { stop.certainty != null },
                             certainty = stop.certainty,
-                            nowEpoch = java.time.Instant.now().epochSecond,
+                            nowEpoch = nowSec,
                         ).tone
                         Text(
                             text = dev.antigravity.fluidtransit.routing.Times.hhmm(stop.timeEpoch),

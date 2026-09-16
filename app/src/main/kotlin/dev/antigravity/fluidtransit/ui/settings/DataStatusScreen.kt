@@ -45,16 +45,26 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
                         )
                         val daysLeft = java.time.temporal.ChronoUnit.DAYS
                             .between(today, r.feedEnd)
+                        // Le date a parole: qui c'era `LocalDate.toString()`,
+                        // cioe' "Validi dal 2026-09-15 al 2026-10-05". Si
+                        // capisce, ma e' la data di un file di log, e per
+                        // sapere se scadono presto bisogna contare sulle dita.
+                        // Dentro "dal … al …" i nomi dei giorni vicini non
+                        // stanno: "Validi dal ieri al 5 ottobre".
+                        val dal = dev.antigravity.fluidtransit.routing.Times
+                            .dateLabel(r.feedStart, today, relative = false)
+                        val al = dev.antigravity.fluidtransit.routing.Times
+                            .dateLabel(r.feedEnd, today, relative = false)
                         FluidListRow(
                             title = "Orari caricati",
                             subtitle = when {
                                 daysLeft < 0 ->
-                                    "SCADUTI il ${r.feedEnd}. Gli orari non coprono piu' oggi: " +
+                                    "SCADUTI il $al. Gli orari non coprono piu' oggi: " +
                                         "finche' non arriva un bundle nuovo, molte ricerche " +
                                         "non troveranno passaggi."
                                 daysLeft <= 3 ->
-                                    "Validi dal ${r.feedStart} al ${r.feedEnd} — in scadenza"
-                                else -> "Validi dal ${r.feedStart} al ${r.feedEnd}"
+                                    "Validi dal $dal al $al — in scadenza"
+                                else -> "Validi dal $dal al $al"
                             },
                             meta = when {
                                 daysLeft < 0 -> "scaduti"
@@ -193,13 +203,18 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
         item { FluidSectionTitle(eyebrow = "Fonte", title = "I numeri, confrontati") }
         item {
             val nowEpoch = remember { System.currentTimeMillis() / 1000 }
-            val verdetto by produceState<dev.antigravity.fluidtransit.routing.FidelityText.Verdict?>(
+            val esito by produceState<dev.antigravity.fluidtransit.data.fidelity.FidelityCheck.Esito?>(
                 initialValue = null,
             ) {
                 value = dev.antigravity.fluidtransit.data.fidelity.FidelityCheck.fetch()
             }
-            val parole = dev.antigravity.fluidtransit.routing.FidelityText
-                .words(verdetto, nowEpoch)
+            // Finche' non e' arrivata risposta la riga dice "sto chiedendo",
+            // non "non ancora": erano due stati raccontati come uno.
+            val parole = dev.antigravity.fluidtransit.routing.FidelityText.words(
+                esito?.verdict,
+                nowEpoch,
+                reachable = esito?.reachable ?: true,
+            )
             FluidListGroup {
                 FluidListRow(
                     title = parole.title,

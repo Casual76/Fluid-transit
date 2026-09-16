@@ -38,7 +38,20 @@ object FidelityText {
      */
     const val STALE_SECONDS = 2 * 24 * 3600L
 
-    fun words(v: Verdict?, nowEpoch: Long): Words {
+    /**
+     * @param reachable false se l'esito non si e' potuto scaricare.
+     *   Senza questa distinzione, un telefono senza rete leggeva "Non
+     *   ancora: il primo esito non e' ancora arrivato quaggiu'", che e'
+     *   un'affermazione sul mondo e non su di noi — e per giunta falsa.
+     */
+    fun words(v: Verdict?, nowEpoch: Long, reachable: Boolean = true): Words {
+        if (v == null && !reachable) {
+            return Words(
+                "Non siamo riusciti a chiederlo",
+                "L'esito del confronto si scarica al volo quando apri questa " +
+                    "schermata. Senza rete non sappiamo com'e' andato l'ultimo giro.",
+            )
+        }
         if (v == null) {
             return Words(
                 "Non ancora",

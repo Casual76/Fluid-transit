@@ -74,6 +74,16 @@ class FidelityTextTest {
     }
 
     @Test
+    fun `senza rete non si dice che l'esito non e' ancora arrivato`() {
+        // "Non ancora" e' un'affermazione sul mondo: dice che il banco non ha
+        // ancora prodotto niente. Con la rete giu' e' falsa, e nasconde che
+        // il problema e' qui.
+        val w = FidelityText.words(null, now, reachable = false)
+        assertEquals("Non siamo riusciti a chiederlo", w.title)
+        assertTrue("Senza rete" in w.detail, w.detail)
+    }
+
+    @Test
     fun `un verdetto di tre giorni fa non descrive l'oggi`() {
         // Il banco gira due volte al giorno: se l'ultimo che si trova e' di
         // tre giorni fa, si e' fermato qualcosa, e mostrare quel numero come

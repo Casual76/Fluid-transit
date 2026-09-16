@@ -28,7 +28,18 @@ object FidelityCheck {
     const val URL =
         "https://github.com/Casual76/Fluid-transit/releases/download/dati/fedelta.json"
 
-    suspend fun fetch(): FidelityText.Verdict? = withContext(Dispatchers.IO) {
+    /**
+     * Cosa si e' potuto sapere.
+     *
+     * Tre esiti e non due: c'e' un verdetto, non c'e' ancora nessun
+     * verdetto pubblicato, oppure non siamo riusciti a chiederlo. Gli ultimi
+     * due finivano tutt'e due in "null", e la schermata li raccontava come
+     * il secondo — cioe' faceva un'affermazione sul mondo mentre il problema
+     * era la nostra rete.
+     */
+    class Esito(val verdict: FidelityText.Verdict?, val reachable: Boolean)
+
+    suspend fun fetch(): Esito = withContext(Dispatchers.IO) {
         runCatching {
             val conn = (URL(URL).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 8_000
@@ -43,7 +54,13 @@ object FidelityCheck {
                 punti = o.optInt("punti"),
                 diversi = o.optInt("diversi"),
             )
-        }.getOrNull()
+        }.fold(
+            onSuccess = { Esito(it, reachable = true) },
+            // Un 404 e' "non ancora pubblicato" e non un guasto di rete, ma
+            // da qui i due non si distinguono senza guardare il codice: si
+            // sceglie la lettura che non promette niente.
+            onFailure = { Esito(null, reachable = it is java.io.FileNotFoundException) },
+        )
     }
 
     private inline fun <T> HttpURLConnection.use(block: (HttpURLConnection) -> T): T = try {

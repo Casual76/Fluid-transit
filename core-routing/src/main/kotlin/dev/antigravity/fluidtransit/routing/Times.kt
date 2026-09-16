@@ -106,4 +106,39 @@ object Times {
         val orologio = "%02d:%02d".format(h % 24, m)
         return if (h >= 24) "$orologio di notte" else orologio
     }
+
+    /**
+     * Un giorno come lo direbbe una persona: "oggi", "domani", "5 ottobre".
+     *
+     * La schermata dello stato dei dati scriveva "Validi dal 2026-09-15 al
+     * 2026-10-05", cioe' `LocalDate.toString()`. Si capisce, ma e' la data
+     * di un file di log: nessuno dice a voce "duemilaventisei zero nove
+     * quindici", e per sapere se gli orari scadono presto bisogna contare
+     * sulle dita.
+     *
+     * L'anno compare solo quando non e' quello corrente, per la stessa
+     * ragione per cui non lo dice nemmeno una persona: "5 ottobre" letto a
+     * settembre e' quello che viene, e scriverlo per esteso aggiunge rumore
+     * a ogni riga per il caso raro.
+     */
+    /**
+     * @param relative false per un giorno che sta dentro una frase gia'
+     *   costruita. "Validi dal ieri al 5 ottobre" non si dice, e il difetto
+     *   si e' visto su un telefono: i nomi dei giorni vicini funzionano da
+     *   soli, non dopo una preposizione articolata.
+     */
+    fun dateLabel(
+        date: java.time.LocalDate,
+        today: java.time.LocalDate,
+        relative: Boolean = true,
+    ): String = when {
+        relative && date == today -> "oggi"
+        relative && date == today.plusDays(1) -> "domani"
+        relative && date == today.minusDays(1) -> "ieri"
+        date.year != today.year -> "${date.dayOfMonth} ${nomeMese(date)} ${date.year}"
+        else -> "${date.dayOfMonth} ${nomeMese(date)}"
+    }
+
+    private fun nomeMese(date: java.time.LocalDate): String =
+        date.month.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.ITALIAN)
 }

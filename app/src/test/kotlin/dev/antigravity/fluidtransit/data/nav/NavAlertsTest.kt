@@ -143,6 +143,78 @@ class NavAlertsTest {
         assertNull(a.next(attesa(5, canceled = true), t0 + 60))
     }
 
+    /** Si cammina verso la fermata della 23, che non si prende piu'. */
+    private fun cammino(missed: Boolean = false, canceled: Boolean = false) = NavState(
+        kind = "journey",
+        destName = "TORRE GALLI",
+        phase = "walk",
+        headline = if (canceled) "La 23 e' stata cancellata" else "La 23 e' gia' passata",
+        detail = "la prossima alle 14:15",
+        stopsRemaining = 6,
+        totalStops = 6,
+        etaEpoch = 0,
+        legIndex = 0,
+        lineName = "23",
+        alightName = "TORRE GALLI",
+        canceled = canceled,
+        missed = missed,
+    )
+
+    @Test
+    fun `il bus gia' passato si dice mentre si cammina, e una volta sola`() {
+        // Visto il 30/09: alle 13:58 il mezzo della 20 era un chilometro
+        // oltre la fermata, e la card diceva ancora "Cammina verso". Il
+        // telefono deve dirlo a chi cammina con lo schermo in tasca.
+        val a = NavAlerts()
+        assertNull("il primo giro conferma e basta", a.next(cammino(missed = true), t0))
+        val avviso = atteso(a.next(cammino(missed = true), t0 + 15))
+        assertEquals(NavAlerts.MISSED, avviso.id)
+        assertEquals("La prossima alle 14:15", avviso.testo)
+        assertEquals(true, avviso.forte)
+        assertNull(a.next(cammino(missed = true), t0 + 30))
+
+        // Arrivati alla fermata la tappa cambia, e la notizia e' la stessa:
+        // riarmata col cambio di tappa vibrava una seconda volta.
+        val arrivato = NavState(
+            kind = "journey",
+            destName = "TORRE GALLI",
+            phase = "wait",
+            headline = "La 23 e' gia' passata",
+            detail = "la prossima alle 14:15",
+            stopsRemaining = 6,
+            totalStops = 6,
+            etaEpoch = 0,
+            legIndex = 1,
+            lineName = "23",
+            alightName = "TORRE GALLI",
+            missed = true,
+        )
+        assertNull(a.next(arrivato, t0 + 120))
+        assertNull(a.next(arrivato, t0 + 135))
+    }
+
+    @Test
+    fun `una corsa cancellata si dice gia' mentre si cammina, e non si ripete alla fermata`() {
+        val a = NavAlerts()
+        val avviso = atteso(a.next(cammino(canceled = true), t0))
+        assertEquals(NavAlerts.CANCELED, avviso.id)
+        val allaFermata = NavState(
+            kind = "journey",
+            destName = "TORRE GALLI",
+            phase = "wait",
+            headline = "La 23 e' stata cancellata",
+            detail = "la prossima alle 14:15",
+            stopsRemaining = 6,
+            totalStops = 6,
+            etaEpoch = 0,
+            legIndex = 1,
+            lineName = "23",
+            alightName = "TORRE GALLI",
+            canceled = true,
+        )
+        assertNull(a.next(allaFermata, t0 + 120))
+    }
+
     @Test
     fun `senza sapere dov'e' il bus non si avvisa niente`() {
         val a = NavAlerts()

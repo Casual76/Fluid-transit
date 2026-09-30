@@ -13,7 +13,9 @@ package dev.antigravity.fluidtransit.data.nav
  * 1. **Un colpo per evento e per tappa.** Con un viaggio a due tratte i
  *    segni si riazzerano al cambio di tappa: prima stavano su due booleani
  *    riazzerati solo alla partenza, quindi il secondo "il tuo bus sta
- *    arrivando" non sarebbe arrivato mai.
+ *    arrivando" non sarebbe arrivato mai. Le notizie su una corsa —
+ *    cancellata, gia' passata — sono per corsa e non per tappa: si
+ *    scoprono camminando e restano vere alla fermata.
  * 2. **Due giri consecutivi** prima di annunciare un bus in arrivo. Il
  *    conto delle fermate non e' monotono: un singhiozzo del feed lo fa
  *    andare 2 -> 4 -> 1, e col poll a quindici secondi del modo Preciso
@@ -37,6 +39,13 @@ class NavAlerts(private val alightRadiusM: Int = 300) {
 
     private var tappa = Int.MIN_VALUE
     private val fatti = HashSet<String>()
+
+    /**
+     * Le notizie su una CORSA, che non si riarmano al cambio di tappa: la
+     * 20 cancellata si scopre mentre si cammina e resta cancellata quando si
+     * arriva alla fermata, e dirlo due volte e' vibrare per niente.
+     */
+    private val perViaggio = HashSet<String>()
     private var atteso: String? = null
     private var conferme = 0
     private var ultimo = 0L
@@ -50,19 +59,22 @@ class NavAlerts(private val alightRadiusM: Int = 300) {
             conferme = 0
         }
         val c = candidato(s)
-        if (c == null || fatti.contains(c.avviso.id)) {
+        val chiave = c?.let {
+            if (it.perCorsa) "${it.avviso.id}|${s.lineName}|${s.alightName}" else it.avviso.id
+        }
+        if (c == null || chiave == null || fatti.contains(chiave) || perViaggio.contains(chiave)) {
             atteso = null
             conferme = 0
             return null
         }
-        if (c.avviso.id != atteso) {
-            atteso = c.avviso.id
+        if (chiave != atteso) {
+            atteso = chiave
             conferme = 0
         }
         conferme++
         if (c.aspettaConferma && conferme < 2) return null
         if (!c.finale && ultimo != 0L && nowEpoch - ultimo < QUIET_SECONDS) return null
-        fatti.add(c.avviso.id)
+        if (c.perCorsa) perViaggio.add(chiave) else fatti.add(chiave)
         ultimo = nowEpoch
         return c.avviso
     }
@@ -72,6 +84,8 @@ class NavAlerts(private val alightRadiusM: Int = 300) {
         val aspettaConferma: Boolean,
         /** Dopo questo il servizio si ferma: non si rimanda. */
         val finale: Boolean = false,
+        /** Parla della corsa, non della fase: vedi [perViaggio]. */
+        val perCorsa: Boolean = false,
     )
 
     /** Il piu' urgente fra quelli veri adesso. L'ordine e' la priorita'. */
@@ -137,21 +151,39 @@ class NavAlerts(private val alightRadiusM: Int = 300) {
             }
             return null
         }
-        if (s.phase == "wait") {
+        if (s.phase == "walk" || s.phase == "wait") {
             // Una corsa cancellata non arriva. Aspettarla in silenzio e' la
             // cosa peggiore che l'app possa fare, e fino a ieri era proprio
-            // quello che faceva: la riconosceva e non avvisava nessuno.
+            // quello che faceva: la riconosceva e non avvisava nessuno. Vale
+            // gia' mentre si cammina: e' li' che serve saperlo.
             if (s.canceled) {
                 return Candidato(
                     Avviso(
                         CANCELED,
                         dev.antigravity.fluidtransit.routing.DepartureText.canceledLine(s.lineName),
-                        "Cerca un altro percorso",
+                        s.detail.replaceFirstChar { it.uppercase() },
                         forte = true,
                     ),
                     aspettaConferma = false,
+                    perCorsa = true,
                 )
             }
+            // Gia' passato: con due giri di conferma, come il bus in arrivo,
+            // perche' e' la stessa posizione del feed che puo' singhiozzare.
+            if (s.missed) {
+                return Candidato(
+                    Avviso(
+                        MISSED,
+                        s.headline,
+                        s.detail.replaceFirstChar { it.uppercase() },
+                        forte = true,
+                    ),
+                    aspettaConferma = true,
+                    perCorsa = true,
+                )
+            }
+        }
+        if (s.phase == "wait") {
             if (s.busStopsAway in 0..1) {
                 return Candidato(
                     Avviso(
@@ -171,6 +203,7 @@ class NavAlerts(private val alightRadiusM: Int = 300) {
     companion object {
         const val ARRIVING = "bus-in-arrivo"
         const val CANCELED = "cancellata"
+        const val MISSED = "gia-passata"
         const val PREPARE = "preparati"
         const val ALIGHT = "scendi-alla-prossima"
         const val ARRIVED = "scendi-qui"

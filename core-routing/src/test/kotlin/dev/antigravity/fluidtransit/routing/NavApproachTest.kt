@@ -86,6 +86,58 @@ class NavApproachTest {
         assertEquals(0, s.stopsAway)
         assertTrue(s.stops.isNotEmpty(), "la mia fermata resta nella lista")
         assertEquals(3, s.stops.last().position)
+        // Ma zero da solo si legge "e' alla tua fermata": chi aspetta deve
+        // sapere che se n'e' andato, non che sta arrivando.
+        assertTrue(s.passed, "il feed lo da' oltre la mia fermata")
+    }
+
+    @Test
+    fun `un mezzo che deve ancora arrivare non e' passato`() {
+        val now = dayStart + 12 * 60
+        assertFalse(quante(feed(servite = 3), toPosition = 7, now = now).passed)
+        // Alla fermata, appena ripartito: la tolleranza di TripProgress lo
+        // tiene "qui" per un minuto, che e' il minuto in cui si sale.
+        assertFalse(quante(feed(servite = 3), toPosition = 3, now = now).passed)
+    }
+
+    @Test
+    fun `gia' passato lo dice solo il feed, mai l'orologio`() {
+        // Alle 08:40 l'orologio direbbe che il bus delle 08:15 e' andato; ma
+        // senza un feed che segue la corsa puo' essere in ritardo di mezz'ora
+        // e ancora da arrivare. "E' gia' passata" su un bus in ritardo fa
+        // andare via la gente dalla fermata.
+        val now = dayStart + 40 * 60
+        assertFalse(NavApproach.passed(null, 0, stopCount, 3, now))
+        assertFalse(NavApproach.passed(feed(servite = 9, seguita = false), 0, stopCount, 3, now))
+        assertTrue(NavApproach.passed(feed(servite = 9), 0, stopCount, 3, now))
+        assertFalse(NavApproach.passed(feed(servite = 2), 0, stopCount, 3, dayStart))
+    }
+
+    @Test
+    fun `una corsa seguita senza previsione alla mia fermata non e' passata`() {
+        // Il caso che l'orologio sbagliava: il feed segue la corsa ma di
+        // questa fermata non dice niente, e l'orario di tabella e' alle
+        // spalle da sei minuti. Il bus puo' essere in ritardo di otto: chi
+        // cammina per prenderlo non deve sentirsi dire che e' andato.
+        val muto = object : LiveTimes {
+            override fun at(tripIndex: Int, position: Int, stopCount: Int, nowEpoch: Long): LiveTimes.At? = null
+            override fun monitored(tripIndex: Int, nowEpoch: Long): Boolean = true
+        }
+        val now = orario(3) + 6 * 60
+        assertFalse(NavApproach.passed(muto, 0, stopCount, 3, now))
+        assertFalse(quante(muto, toPosition = 3, now = now).passed)
+        // E una previsione dichiarata, in ritardo, non e' "servita" anche se
+        // l'orario di tabella e' passato.
+        assertFalse(NavApproach.passed(feed(servite = 2, delay = 480), 0, stopCount, 3, now))
+    }
+
+    @Test
+    fun `una corsa seguita e finita e' passata anche dalla mia fermata`() {
+        val now = dayStart + 3 * 3600
+        val s = quante(feed(servite = 10), toPosition = 7, now = now)
+        assertEquals(-1, s.stopsAway)
+        assertTrue(s.passed)
+        assertTrue(NavApproach.passed(feed(servite = 10), 0, stopCount, 7, now))
     }
 
     @Test

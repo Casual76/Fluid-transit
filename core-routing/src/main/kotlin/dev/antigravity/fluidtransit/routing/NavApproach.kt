@@ -37,11 +37,42 @@ object NavApproach {
         val certainty: Certainty?,
         /** Quante fermate la lista ha dovuto nascondere per stare nel tetto. */
         val hidden: Int = 0,
+        /**
+         * Il feed segue la corsa e dice che il mezzo ha gia' lasciato il
+         * riferimento. [stopsAway] resta zero, ma zero vuol dire "alla tua
+         * fermata": chi aspetta non deve leggere quella frase, ne' sentire
+         * "il tuo bus sta arrivando", per un bus che se n'e' andato.
+         */
+        val passed: Boolean = false,
     ) {
         val known: Boolean get() = stopsAway >= 0
     }
 
     val UNKNOWN = State(-1, emptyList(), 0L, null)
+
+    /**
+     * Il mezzo di [trip] ha gia' lasciato [position]? E' la risposta di
+     * [State.passed], anche per chi non deve disegnare le fermate: chi
+     * cammina verso la fermata vuole sapere solo questo.
+     *
+     * Solo quando il feed dichiara SERVITA quella fermata, e non con la
+     * regola di [TripProgress], che quando il feed tace chiede all'orologio.
+     * Qui l'orologio mentirebbe nel modo peggiore: una corsa seguita di cui
+     * si e' persa la previsione ricade sull'orario di tabella, e un bus con
+     * otto minuti di ritardo risulterebbe "gia' passato" sei minuti dopo
+     * l'orario — mentre chi lo aspetta e' ancora in strada per prenderlo.
+     */
+    fun passed(
+        live: LiveTimes?,
+        trip: Int,
+        stopCount: Int,
+        position: Int,
+        nowEpoch: Long,
+    ): Boolean {
+        if (live == null || trip < 0 || position < 0 || position >= stopCount) return false
+        if (!live.monitored(trip, nowEpoch)) return false
+        return live.at(trip, position, stopCount, nowEpoch)?.certainty == Certainty.SERVED
+    }
 
     /**
      * Quante fermate mancano al mezzo della corsa [trip] per arrivare in
@@ -87,8 +118,9 @@ object NavApproach {
             fallbackDelaySeconds,
             scheduledAt,
         )
+        val passato = passed(live, trip, stopCount, toPosition, nowEpoch)
         // Corsa finita: non c'e' piu' niente da aspettare.
-        if (next < 0) return UNKNOWN
+        if (next < 0) return if (passato) State(-1, emptyList(), 0L, null, passed = true) else UNKNOWN
 
         val target = live?.at(trip, toPosition, stopCount, nowEpoch)
         val arrival = scheduledAt(toPosition) + (target?.delaySeconds ?: fallbackDelaySeconds)
@@ -111,7 +143,7 @@ object NavApproach {
         }
 
         if (tutte.size <= maxDots) {
-            return State(away, tutte, arrival, target?.certainty)
+            return State(away, tutte, arrival, target?.certainty, passed = passato)
         }
         // Si tiene dov'e' il bus adesso e le ultime prima di me: il buco in
         // mezzo lo racconta un numero. Le fermate lontane non le guarda
@@ -119,6 +151,13 @@ object NavApproach {
         val mostrate = ArrayList<Stop>(maxDots)
         mostrate.add(tutte.first())
         mostrate.addAll(tutte.subList(tutte.size - (maxDots - 1), tutte.size))
-        return State(away, mostrate, arrival, target?.certainty, hidden = tutte.size - maxDots)
+        return State(
+            away,
+            mostrate,
+            arrival,
+            target?.certainty,
+            hidden = tutte.size - maxDots,
+            passed = passato,
+        )
     }
 }

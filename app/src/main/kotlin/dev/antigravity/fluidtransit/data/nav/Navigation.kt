@@ -241,6 +241,12 @@ class NavState(
      */
     val canceled: Boolean = false,
     /**
+     * Il feed dice che il mezzo che dovevo prendere ha gia' lasciato la mia
+     * fermata. Come [canceled], e' una corsa che non si prende piu': la card
+     * mostra le linee che vanno bene lo stesso anche mentre si cammina.
+     */
+    val missed: Boolean = false,
+    /**
      * Arrivato a piedi, dopo l'ultima camminata. L'avviso dell'arrivo non
      * dice "Scendi qui" a chi e' gia' sceso da un pezzo.
      */

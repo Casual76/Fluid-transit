@@ -427,6 +427,99 @@ class NavigationService : Service() {
         return -1
     }
 
+    /** Perche' una corsa non si prende piu', gia' in parole. */
+    private class Persa(val headline: String, val detail: String, val canceled: Boolean)
+
+    /**
+     * Il feed parla delle corse che viaggiano oggi, per indice. Un viaggio
+     * pianificato per domani ha lo stesso indice di una corsa di oggi, e
+     * leggerne il feed voleva dire "La 20 e' gia' passata" alle 08:10 per il
+     * bus di domattina alle 07:40, o cancellata domani perche' oggi c'e'
+     * sciopero.
+     */
+    private fun stessoGiorno(
+        reader: dev.antigravity.fluidtransit.routing.BundleReader,
+        leg: NavLeg.Ride,
+        now: Long,
+    ): Boolean = leg.dayStartEpoch ==
+        dev.antigravity.fluidtransit.routing.TripProgress.serviceDayStart(reader, leg.trip, now)
+
+    /**
+     * La corsa [leg] si prende ancora? Null se si'. Cancellata o gia'
+     * passata, secondo il feed: senza feed non si sa, e si tace.
+     *
+     * @param earliest da quando si puo' prendere la prossima: l'arrivo alla
+     *   fermata per chi ci sta camminando.
+     */
+    private fun corsaPersa(
+        app: FluidTransitApp,
+        reader: dev.antigravity.fluidtransit.routing.BundleReader,
+        leg: NavLeg.Ride,
+        now: Long,
+        earliest: Long,
+        canceled: Set<Int>,
+    ): Persa? {
+        if (!stessoGiorno(reader, leg, now)) return null
+        val live = app.departureBoards.live()
+        val cancellata = canceled.contains(leg.trip)
+        val passata = !cancellata && dev.antigravity.fluidtransit.routing.NavApproach.passed(
+            live = live,
+            trip = leg.trip,
+            stopCount = reader.patternStopCount(leg.pattern),
+            position = leg.boardPosition,
+            nowEpoch = now,
+        )
+        if (!cancellata && !passata) return null
+        return Persa(
+            headline = if (cancellata) {
+                dev.antigravity.fluidtransit.routing.DepartureText.canceledLine(leg.lineName)
+            } else {
+                dev.antigravity.fluidtransit.routing.DepartureText.passedLine(leg.lineName)
+            },
+            detail = dev.antigravity.fluidtransit.routing.DepartureText
+                .afterMissed(prossimaUguale(reader, leg, live, now, earliest)),
+            canceled = cancellata,
+        )
+    }
+
+    /**
+     * Quando passa davvero la prossima corsa uguale a [leg], dalla stessa
+     * fermata, non prima di [earliest]. Null se nelle prossime due ore non
+     * ce n'e'.
+     *
+     * Il tabellone si chiede intero, senza tetto: il filtro sulla corsa
+     * uguale viene dopo, e con un tetto di quaranta righe a una fermata del
+     * centro la 20 di fra mezz'ora cadeva fuori — e "non e' nelle prime
+     * quaranta" diventava "cerca un altro percorso".
+     *
+     * Lo stesso pattern e la stessa posizione, non solo la stessa linea: una
+     * corsa limitata, o quella del verso opposto, non porta alla mia
+     * discesa. E dal tabellone, cioe' con gli stessi minuti che la fermata
+     * mostra: una seconda regola per "quando passa" sarebbe un secondo orario
+     * per lo stesso bus.
+     */
+    private fun prossimaUguale(
+        reader: dev.antigravity.fluidtransit.routing.BundleReader,
+        leg: NavLeg.Ride,
+        live: dev.antigravity.fluidtransit.routing.LiveTimes,
+        now: Long,
+        earliest: Long,
+    ): Long? {
+        val stop = reader.patternStop(leg.pattern, leg.boardPosition)
+        val board = dev.antigravity.fluidtransit.routing.Departures.build(
+            reader,
+            stop,
+            Instant.ofEpochSecond(now),
+            limit = Int.MAX_VALUE,
+            live = live,
+        )
+        return board.rows.asSequence()
+            .filter { it.tripIndex != leg.trip && it.patternIndex == leg.pattern }
+            .filter { it.positionInPattern == leg.boardPosition }
+            .filter { !it.canceled && !it.skipped && it.effectiveEpoch >= maxOf(now, earliest) }
+            .minOfOrNull { it.effectiveEpoch }
+    }
+
     /** Il bundle, se c'e' adesso. Durante lo scambio notturno non c'e'. */
     private fun readerOrNull(app: FluidTransitApp): dev.antigravity.fluidtransit.routing.BundleReader? =
         (
@@ -498,6 +591,44 @@ class NavigationService : Service() {
                             ""
                         }
                         val tappa = stopsOf(corsa)
+
+                        // Il bus che si va a prendere si puo' perdere mentre
+                        // si cammina: cancellato, o passato in anticipo.
+                        // Visto sull'emulatore il 30/09: alle 13:58 il mezzo
+                        // della 20 delle 14:00 era un chilometro oltre Piazza
+                        // Dalmazia, la scia grigia lo mostrava, e la card
+                        // diceva ancora "Cammina verso PIAZZA DALMAZIA".
+                        // L'attesa se ne accorgeva; la camminata non guardava.
+                        if (corsa != null && !corsa.orphaned && r != null) {
+                            // La prossima uguale deve essere una che si fa in
+                            // tempo a prendere: da quando si arriva alla
+                            // fermata, non da adesso.
+                            val arrivo = leg.startEpoch + leg.seconds
+                            val persa = corsaPersa(app, r, corsa, now, arrivo, canceled)
+                            if (persa != null) {
+                                return NavState(
+                                    kind = p.kind,
+                                    destName = p.destName,
+                                    phase = "walk",
+                                    headline = persa.headline,
+                                    // La fermata resta dove andare, se la
+                                    // prossima e' uguale: quanto manca serve.
+                                    detail = quanto + persa.detail,
+                                    stopsRemaining = tappa,
+                                    totalStops = tappa,
+                                    etaEpoch = 0,
+                                    journeyDone = primaDi[legIndex],
+                                    journeyStops = journeyStops,
+                                    metersToGo = meters,
+                                    legIndex = legIndex,
+                                    lineName = corsa.lineName,
+                                    lineColorRgb = coloreCorsa,
+                                    alightName = corsa.alightName,
+                                    canceled = persa.canceled,
+                                    missed = !persa.canceled,
+                                )
+                            }
+                        }
 
                         // Camminare adesso e camminare fra tre ore sono due
                         // cose diverse, e si dicevano con le stesse parole.
@@ -626,18 +757,22 @@ class NavigationService : Service() {
                         reader.profileOffset(leg.profile, leg.alightPosition) + alightDelay
                     val colore = reader.routeDisplayColor(leg.route) and 0xFFFFFF
                     if (now < boardTime) {
+                        // Il feed parla della corsa di oggi: per un viaggio
+                        // di domani, lo stesso indice oggi e' un altro bus.
+                        val oggi = stessoGiorno(reader, leg, now)
                         // Una corsa cancellata non arriva: aspettarla in
                         // silenzio e' la cosa peggiore che l'app possa fare.
                         // `canceledTrips` era gia' calcolato e non lo leggeva
                         // nessuno.
-                        if (canceled.contains(leg.trip)) {
+                        if (oggi && canceled.contains(leg.trip)) {
                             return NavState(
                                 kind = p.kind,
                                 destName = p.destName,
                                 phase = "wait",
                                 headline = dev.antigravity.fluidtransit.routing.DepartureText
                                     .canceledLine(leg.lineName),
-                                detail = "cerca un altro percorso",
+                                detail = dev.antigravity.fluidtransit.routing.DepartureText
+                                    .afterMissed(prossimaUguale(reader, leg, live, now, now)),
                                 stopsRemaining = tappa,
                                 totalStops = tappa,
                                 etaEpoch = 0,
@@ -660,7 +795,7 @@ class NavigationService : Service() {
                         // partito.
                         val avvicinamento = dev.antigravity.fluidtransit.routing.NavApproach
                             .between(
-                                live = live,
+                                live = if (oggi) live else null,
                                 trip = leg.trip,
                                 stopCount = stops,
                                 toPosition = leg.boardPosition,
@@ -673,6 +808,32 @@ class NavigationService : Service() {
                                         reader.profileOffset(leg.profile, pos)
                                 },
                             )
+                        // Il feed dice che se n'e' gia' andato: in anticipo, o
+                        // assegnato male, ma da qui non passa piu'. Il conto
+                        // delle fermate qui dava zero, cioe' "e' alla tua
+                        // fermata", e l'avviso "il tuo bus sta arrivando" per
+                        // un bus che era gia' oltre.
+                        if (avvicinamento.passed) {
+                            return NavState(
+                                kind = p.kind,
+                                destName = p.destName,
+                                phase = "wait",
+                                headline = dev.antigravity.fluidtransit.routing.DepartureText
+                                    .passedLine(leg.lineName),
+                                detail = dev.antigravity.fluidtransit.routing.DepartureText
+                                    .afterMissed(prossimaUguale(reader, leg, live, now, now)),
+                                stopsRemaining = tappa,
+                                totalStops = tappa,
+                                etaEpoch = 0,
+                                journeyDone = primaDi[legIndex],
+                                journeyStops = journeyStops,
+                                legIndex = legIndex,
+                                lineName = leg.lineName,
+                                lineColorRgb = colore,
+                                alightName = leg.alightName,
+                                missed = true,
+                            )
+                        }
                         // Le parole del tabellone anche qui: "ritardo live"
                         // non voleva dire niente altrove.
                         val fonte = dev.antigravity.fluidtransit.routing.DepartureText

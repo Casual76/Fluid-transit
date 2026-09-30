@@ -196,10 +196,13 @@ private fun Testata(state: NavState, onToggle: () -> Unit, onStop: () -> Unit) {
  */
 @Composable
 private fun Alternative(state: NavState, focus: NavFocus?) {
-    if (state.phase != "wait") return
+    // Anche mentre si cammina, quando la corsa non si prende piu': e'
+    // proprio li' che serve sapere cos'altro passa dalla stessa fermata.
+    val persa = state.canceled || state.missed
+    if (state.phase != "wait" && !persa) return
     val utili = focus?.useful?.take(3).orEmpty()
     if (utili.isEmpty()) return
-    val cancellata = state.canceled
+    val cancellata = persa
     Row(
         modifier = Modifier.fillMaxWidth().padding(top = 12.dp, end = 12.dp),
         verticalAlignment = Alignment.CenterVertically,

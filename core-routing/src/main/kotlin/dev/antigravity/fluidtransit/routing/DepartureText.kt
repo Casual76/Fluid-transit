@@ -507,6 +507,26 @@ object DepartureText {
     fun canceledLine(line: String): String = "La $line e' stata cancellata"
 
     /**
+     * Il bus che volevo prendere ha gia' lasciato la fermata: lo dice il feed.
+     *
+     * Mentre si camminava verso Piazza Dalmazia per la 20 delle 14:00, alle
+     * 13:58 il mezzo di quella corsa era gia' un chilometro oltre, e la card
+     * diceva ancora "Cammina verso PIAZZA DALMAZIA" (visto il 30/09/2026).
+     */
+    fun passedLine(line: String): String = "La $line e' gia' passata"
+
+    /**
+     * Cosa resta da fare quando il mio bus non si prende piu' — cancellato,
+     * o gia' passato: la prossima corsa uguale dalla stessa fermata, se ce
+     * n'e' una, perche' e' la sola risposta che non chiede di rifare il
+     * viaggio. Altrimenti si dice di cercare un'altra strada.
+     */
+    fun afterMissed(nextEpoch: Long?): String =
+        if (nextEpoch != null) "la prossima alle ${Times.hhmm(nextEpoch)}" else FIND_ANOTHER
+
+    const val FIND_ANOTHER = "cerca un altro percorso"
+
+    /**
      * La provenienza di un tabellone intero, per un titolo.
      *
      * "Prossimi passaggi · dal bus" ha senso solo se almeno una riga viene dal

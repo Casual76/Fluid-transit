@@ -13,6 +13,15 @@ import kotlin.test.assertTrue
  */
 class DepartureTextTest {
 
+    @Test
+    fun `dopo una corsa persa si dice la prossima uguale, o di cercare un'altra strada`() {
+        // 14:15 a Roma, cioe' 12:15 UTC d'estate.
+        val alle1415 = java.time.ZonedDateTime.of(2026, 9, 30, 14, 15, 0, 0, Ftb.ROME).toEpochSecond()
+        assertEquals("la prossima alle 14:15", DepartureText.afterMissed(alle1415))
+        assertEquals("cerca un altro percorso", DepartureText.afterMissed(null))
+        assertEquals("La 20 e' gia' passata", DepartureText.passedLine("20"))
+    }
+
     private val now = 1_700_000_000L
 
     private fun row(

@@ -80,13 +80,15 @@ velatura un po' piu' coprente per i pannelli con righe di testo, o le
 etichette della basemap attenuate quando un pannello e' aperto. Scelta
 d'aspetto, quindi da decidere. — 30/09/2026
 
-**Mentre si cammina verso la fermata il bus puo' essere gia' passato, e la
-card non lo dice.** Visto sull'emulatore il 30/09: camminando verso Piazza
-Dalmazia per la 20 delle 14:00, alle 13:58 il mezzo assegnato a quella corsa
-era gia' un chilometro oltre la fermata (la scia grigia lo mostrava), e la
-card diceva ancora "Cammina verso PIAZZA DALMAZIA". Nella fase di attesa
-`NavApproach` se ne accorge; in quella a piedi nessuno guarda. Non e' chiaro
-se fosse un anticipo vero o un'assegnazione sbagliata del feed. — visto il
+**Passata l'ora di salita, la navigazione ti crede a bordo.** Adesso il bus
+gia' passato si dice mentre si cammina e mentre si aspetta ("La 20 e' gia'
+passata", la prossima uguale dalla stessa fermata, le linee che vanno bene lo
+stesso, una vibrazione sola); ma solo finche' l'orario di salita non e'
+arrivato. Dopo, la fase "a bordo" parte da sola, e a chi il bus l'ha perso
+conta le fermate di un mezzo su cui non e'. Distinguerlo vuol dire guardare
+la posizione — chi e' a bordo si allontana dalla fermata insieme al mezzo —
+che c'e' solo nel modo Preciso. Resta anche il dubbio del 30/09: il feed puo'
+aver assegnato male il mezzo, e "gia' passata" e' quello che dice lui. —
 30/09/2026
 
 **I colori delle linee cambiavano a ogni notte, e adesso no.** Il 16/09, con

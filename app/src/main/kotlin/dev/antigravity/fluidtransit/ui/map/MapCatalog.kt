@@ -264,6 +264,17 @@ object MapCatalog {
      */
     const val WALK_ZOOM = 16.0
 
+    /**
+     * Lo zoom sotto cui "seguimi" avvicina la camera, e quello a cui la porta.
+     *
+     * All'avvio, col permesso, la mappa parte in FOLLOW: si centrava su di te
+     * ma restava allo zoom della Toscana intera (7,6), cioe' col puntino blu
+     * in mezzo a una regione — visto su un telefono vero alla prima apertura.
+     * Seguire da cento chilometri non si vede.
+     */
+    const val FOLLOW_MIN_ZOOM = 12.0
+    const val FOLLOW_ZOOM = 15.2
+
     /** Inquadratura di partenza: la Toscana intera. */
     const val HOME_LAT = 43.35
     const val HOME_LON = 11.0

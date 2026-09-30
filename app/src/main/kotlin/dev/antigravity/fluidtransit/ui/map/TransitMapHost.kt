@@ -250,6 +250,7 @@ class TransitMapController(private val context: Context) {
                 ?: Style.Builder().fromJson(MapCatalog.styleJson(mode))
             m.setStyle(builder) { style ->
                 hideBasemapTransitPois(style)
+                localizeLabels(style)
                 enableBuildings3d(style, mode)
                 addOverlay(style)
                 ensureBusLayer(style)
@@ -279,6 +280,33 @@ class TransitMapController(private val context: Context) {
                 applyRouteMode(style)
                 enableLocationIfAllowed(style)
                 applyFollow(follow)
+            }
+        }
+    }
+
+    /**
+     * I nomi della basemap in italiano.
+     *
+     * Gli stili di OpenFreeMap scrivono `coalesce(name_en, name)`: preferiscono
+     * l'inglese. Su un telefono in Toscana la mappa diceva "Florence",
+     * "TUSCANY" ed "EMILIA-ROMAGNA", accanto a "Reggio nell'Emilia" e a
+     * tutto il resto dell'app in italiano. Il nome italiano c'e' nelle tile
+     * (`name:it`); dove manca vale il nome locale in caratteri latini, poi
+     * quello e basta. Si tocca solo chi leggeva `name_en`: i nostri layer, e
+     * i numeri civici o le sigle delle strade, restano come sono.
+     */
+    private fun localizeLabels(style: Style) {
+        val italiano = Expression.coalesce(
+            Expression.get("name:it"),
+            Expression.get("name:latin"),
+            Expression.get("name"),
+        )
+        for (layer in style.layers) {
+            if (layer !is SymbolLayer) continue
+            runCatching {
+                val attuale = layer.textField.expression ?: return@runCatching
+                if (!attuale.toString().contains("name_en")) return@runCatching
+                layer.setProperties(PropertyFactory.textField(italiano))
             }
         }
     }
@@ -1189,24 +1217,57 @@ class TransitMapController(private val context: Context) {
         // tracking, passano dalle API dedicate del LocationComponent.
         when (follow) {
             FollowMode.FREE -> component.cameraMode = CameraMode.NONE
-            FollowMode.FOLLOW -> {
-                // Vista dall'alto, nord in alto, che segue la posizione.
-                component.cameraMode = CameraMode.TRACKING_GPS_NORTH
-                component.tiltWhileTracking(0.0)
-            }
-            FollowMode.COMPASS -> {
-                // Heading-up con inclinazione fissa e zoom ravvicinato.
-                component.cameraMode = CameraMode.TRACKING_COMPASS
-                component.tiltWhileTracking(MapCatalog.NAV_TILT)
-                component.zoomWhileTracking(maxOf(m.cameraPosition.zoom, MapCatalog.NAV_ZOOM))
-            }
-            FollowMode.NAV_CAMMINO -> {
-                // Heading-up come la bussola, ma piatta e piu' larga: chi
-                // cammina deve vedere dove sta andando, non il marciapiede.
-                component.cameraMode = CameraMode.TRACKING_COMPASS
-                component.tiltWhileTracking(0.0)
-                component.zoomWhileTracking(MapCatalog.WALK_ZOOM)
-            }
+            // Vista dall'alto, nord in alto, che segue la posizione; e da
+            // lontano si avvicina (vedi FOLLOW_MIN_ZOOM).
+            FollowMode.FOLLOW -> track(
+                component,
+                CameraMode.TRACKING_GPS_NORTH,
+                zoom = MapCatalog.FOLLOW_ZOOM.takeIf { m.cameraPosition.zoom < MapCatalog.FOLLOW_MIN_ZOOM },
+                tilt = 0.0,
+            )
+            // Heading-up con inclinazione fissa e zoom ravvicinato.
+            FollowMode.COMPASS -> track(
+                component,
+                CameraMode.TRACKING_COMPASS,
+                zoom = maxOf(m.cameraPosition.zoom, MapCatalog.NAV_ZOOM),
+                tilt = MapCatalog.NAV_TILT,
+            )
+            // Heading-up come la bussola, ma piatta e piu' larga: chi
+            // cammina deve vedere dove sta andando, non il marciapiede.
+            FollowMode.NAV_CAMMINO -> track(
+                component,
+                CameraMode.TRACKING_COMPASS,
+                zoom = MapCatalog.WALK_ZOOM,
+                tilt = 0.0,
+            )
+        }
+    }
+
+    /**
+     * Entra in un modo di tracking con zoom e inclinazione, o li aggiorna.
+     *
+     * `zoomWhileTracking` e `tiltWhileTracking` subito dopo aver cambiato
+     * `cameraMode` non fanno niente: MapLibre li ignora finche' la camera
+     * sta ancora andando verso la posizione ("ignored because the camera
+     * mode is transitioning"), e passare da libero a tracking e' proprio
+     * quella transizione. Visto su un telefono vero: all'avvio la mappa si
+     * centrava su di te e restava allo zoom della Toscana intera. Quando il
+     * modo cambia, zoom e inclinazione vanno DENTRO la transizione; quando
+     * resta lo stesso, non c'e' transizione e le API "while tracking"
+     * funzionano.
+     */
+    @SuppressLint("MissingPermission")
+    private fun track(
+        component: org.maplibre.android.location.LocationComponent,
+        mode: Int,
+        zoom: Double?,
+        tilt: Double,
+    ) {
+        if (component.cameraMode == mode) {
+            component.tiltWhileTracking(tilt)
+            zoom?.let { component.zoomWhileTracking(it) }
+        } else {
+            component.setCameraMode(mode, TRACK_TRANSITION_MS, zoom, null, tilt, null)
         }
     }
 
@@ -1515,3 +1576,6 @@ fun TransitMap(
         }
     }
 }
+
+/** La durata della transizione verso la posizione: quella di MapLibre di serie. */
+private const val TRACK_TRANSITION_MS = 750L

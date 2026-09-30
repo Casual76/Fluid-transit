@@ -62,7 +62,8 @@ object RoutineScheduler {
         for (offset in 0..7) {
             val day = now.toLocalDate().plusDays(offset.toLong())
             if (day.dayOfWeek.value !in r.days) continue
-            val anchor = day.atStartOfDay(zone).plusMinutes(r.anchorMinutes.toLong())
+            val anchor = java.time.Instant
+                .ofEpochSecond(Routines.anchorEpoch(day, r.anchorMinutes)).atZone(zone)
             val computeAt = anchor.minusMinutes(COMPUTE_LEAD_MINUTES)
             val at = when {
                 offset == 0 && now.isAfter(anchor) -> continue // oggi e' andata
@@ -174,8 +175,8 @@ object RoutineScheduler {
         }
 
         val zone = Ftb.ROME
-        val anchor = LocalDate.now(zone).atStartOfDay(zone)
-            .plusMinutes(r.anchorMinutes.toLong()).toInstant()
+        val anchor = java.time.Instant
+            .ofEpochSecond(Routines.anchorEpoch(LocalDate.now(zone), r.anchorMinutes))
         val from = Raptor.Place(r.fromLat, r.fromLon)
         val to = Raptor.Place(r.toLat, r.toLon)
 

@@ -110,6 +110,21 @@ class Routines(private val file: File) {
         const val GRAZIA_CONSIGLIO_S = 5 * 60L
 
         /**
+         * L'ora di una routine in un giorno dato, come la segna l'orologio.
+         *
+         * Si faceva in tre modi — mezzanotte piu' i minuti in secondi, e
+         * `ZonedDateTime.plusMinutes` in due posti — e tutti e tre contano il
+         * tempo trascorso, non l'ora scritta: nei due giorni del cambio
+         * d'ora una routine delle 08:00 cadeva alle 07:00 o alle 09:00, e il
+         * widget diceva "Per oggi e' andata" un'ora prima. `LocalDateTime`
+         * somma sull'orologio, e con 1440 minuti (un arrivo arrotondato alla
+         * mezzanotte) passa al giorno dopo invece di lanciare un'eccezione.
+         */
+        fun anchorEpoch(date: java.time.LocalDate, anchorMinutes: Int): Long =
+            date.atStartOfDay().plusMinutes(anchorMinutes.toLong())
+                .atZone(dev.antigravity.fluidtransit.routing.Ftb.ROME).toEpochSecond()
+
+        /**
          * Il consiglio di oggi vale ancora?
          *
          * `lastAdviceEpoch` e' l'ora a cui USCIRE, non l'ora in cui il
@@ -133,17 +148,16 @@ class Routines(private val file: File) {
          * quello di chi guarda: prima un consiglio ancora buono, poi la
          * prossima di oggi, e solo se sono passate tutte l'ultima.
          *
-         * @param today giorno della settimana, lunedi' = 1.
-         * @param dayStartEpoch la mezzanotte di oggi, nel fuso di Roma.
+         * @param date oggi, nel fuso di Roma.
          */
         fun relevantToday(
             routines: List<Routine>,
-            today: Int,
-            dayStartEpoch: Long,
+            date: java.time.LocalDate,
             nowEpoch: Long,
         ): Routine? {
+            val today = date.dayOfWeek.value
             val diOggi = routines.filter { it.enabled && today in it.days }
-            fun ancora(r: Routine) = dayStartEpoch + r.anchorMinutes * 60L
+            fun ancora(r: Routine) = anchorEpoch(date, r.anchorMinutes)
             return diOggi.filter { adviceStillGood(it, nowEpoch) }.minByOrNull(::ancora)
                 ?: diOggi.filter { nowEpoch < ancora(it) }.minByOrNull(::ancora)
                 ?: diOggi.maxByOrNull(::ancora)

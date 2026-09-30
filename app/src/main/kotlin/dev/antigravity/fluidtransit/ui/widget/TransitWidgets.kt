@@ -490,13 +490,11 @@ class RoutineWidget : GlanceAppWidget() {
         val palette = engineWidgetPalette(context, settings, TransitBrand)
 
         val oggi = LocalDate.now(Ftb.ROME)
-        val today = oggi.dayOfWeek.value
         val routines = dev.antigravity.fluidtransit.data.routines.Routines(context).list()
         val adesso = Instant.now().epochSecond
         val todayRoutine = dev.antigravity.fluidtransit.data.routines.Routines.relevantToday(
             routines,
-            today,
-            oggi.atStartOfDay(Ftb.ROME).toEpochSecond(),
+            oggi,
             adesso,
         )
 
@@ -519,8 +517,8 @@ class RoutineWidget : GlanceAppWidget() {
         // ancora arrivare" da "per oggi e' andata", che prima erano la stessa
         // frase.
         val ancoraOggi = todayRoutine != null &&
-            adesso < oggi.atStartOfDay(Ftb.ROME)
-                .plusMinutes(todayRoutine.anchorMinutes.toLong()).toEpochSecond()
+            adesso < dev.antigravity.fluidtransit.data.routines.Routines
+                .anchorEpoch(oggi, todayRoutine.anchorMinutes)
 
         provideContent {
             val layout = resolveEngineWidgetLayout(LocalSize.current, hasFooter = false)

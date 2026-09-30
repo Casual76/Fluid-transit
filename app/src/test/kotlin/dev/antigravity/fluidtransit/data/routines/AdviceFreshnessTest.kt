@@ -26,14 +26,26 @@ class AdviceFreshnessTest {
 
     private val uscita = 1_789_500_000L
 
-    private fun alle(ora: Int, id: Long, advice: Long = 0, text: String = "") = Routines.Routine(
+    private fun alle(
+        ora: Int,
+        id: Long,
+        advice: Long = 0,
+        text: String = "",
+        days: Set<Int> = setOf(3),
+    ) = Routines.Routine(
         id = id, label = "r$id", fromLat = 43.0, fromLon = 11.0,
-        toLat = 43.1, toLon = 11.1, toName = "x", days = setOf(3),
+        toLat = 43.1, toLon = 11.1, toName = "x", days = days,
         anchor = "depart", anchorMinutes = ora * 60, enabled = true,
         lastAdviceEpoch = advice, lastAdviceText = text,
     )
 
     private val mezzanotte = 1_790_719_200L // 30/09/2026 00:00 a Roma, mercoledi'
+    private val OGGI = java.time.LocalDate.of(2026, 9, 30)
+
+    private fun domenica(ora: Int, id: Long) = alle(ora, id, days = setOf(7))
+
+    private fun romaAlle(giorno: java.time.LocalDate, ora: Int, minuti: Int) =
+        giorno.atTime(ora, minuti).atZone(dev.antigravity.fluidtransit.routing.Ftb.ROME).toEpochSecond()
 
     @Test
     fun `passata la routine della mattina, conta quella della sera`() {
@@ -42,15 +54,51 @@ class AdviceFreshnessTest {
         val mattina = alle(8, id = 1)
         val sera = alle(18, id = 2)
         val adesso = mezzanotte + 10 * 3600
-        assertEquals(2L, Routines.relevantToday(listOf(mattina, sera), 3, mezzanotte, adesso)?.id)
+        assertEquals(2L, Routines.relevantToday(listOf(mattina, sera), OGGI, adesso)?.id)
     }
 
     @Test
     fun `un consiglio ancora buono passa davanti`() {
-        val sera = alle(18, id = 2, advice = mezzanotte + 17 * 3600 + 30 * 60, text = "Esci alle 17:30")
-        val tardi = alle(21, id = 3)
-        val adesso = mezzanotte + 17 * 3600
-        assertEquals(2L, Routines.relevantToday(listOf(tardi, sera), 3, mezzanotte, adesso)?.id)
+        // L'ora della mattina e' passata da tre minuti, ma il consiglio e'
+        // nei cinque di grazia: deve restare lui, non saltare alla sera. Con
+        // la mattina ancora da venire il test non distinguerebbe il primo
+        // ramo dal secondo, che sceglierebbe la stessa routine.
+        val mattina = alle(8, id = 1, advice = mezzanotte + 8 * 3600, text = "Esci alle 08:00")
+        val sera = alle(18, id = 2)
+        val adesso = mezzanotte + 8 * 3600 + 3 * 60
+        assertEquals(1L, Routines.relevantToday(listOf(sera, mattina), OGGI, adesso)?.id)
+    }
+
+    @Test
+    fun `il giorno da 25 ore, la routine delle 8 e' ancora da venire alle 7 e mezza`() {
+        // 25/10/2026, ritorno all'ora solare. Contando i minuti da mezzanotte
+        // l'ancora cadeva alle 07:00, e alle 07:30 il widget passava alla sera.
+        val giorno = java.time.LocalDate.of(2026, 10, 25)
+        val adesso = romaAlle(giorno, 7, 30)
+        assertEquals(
+            1L,
+            Routines.relevantToday(listOf(domenica(8, 1), domenica(18, 2)), giorno, adesso)?.id,
+        )
+    }
+
+    @Test
+    fun `il giorno da 23 ore, alle 8 e mezza quella delle 8 e' passata`() {
+        // 29/03/2026, ora legale: l'ancora cadeva alle 09:00.
+        val giorno = java.time.LocalDate.of(2026, 3, 29)
+        val adesso = romaAlle(giorno, 8, 30)
+        assertEquals(
+            2L,
+            Routines.relevantToday(listOf(domenica(8, 1), domenica(18, 2)), giorno, adesso)?.id,
+        )
+    }
+
+    @Test
+    fun `un'ancora a mezzanotte passa al giorno dopo, senza eccezioni`() {
+        // Un arrivo alle 23:57 arrotondato ai cinque minuti fa 1440.
+        assertEquals(
+            romaAlle(OGGI.plusDays(1), 0, 0),
+            Routines.anchorEpoch(OGGI, 1440),
+        )
     }
 
     @Test
@@ -58,8 +106,8 @@ class AdviceFreshnessTest {
         val mattina = alle(8, id = 1)
         val sera = alle(18, id = 2)
         val notte = mezzanotte + 23 * 3600
-        assertEquals(2L, Routines.relevantToday(listOf(mattina, sera), 3, mezzanotte, notte)?.id)
-        assertNull(Routines.relevantToday(listOf(mattina, sera), 4, mezzanotte, notte))
+        assertEquals(2L, Routines.relevantToday(listOf(mattina, sera), OGGI, notte)?.id)
+        assertNull(Routines.relevantToday(listOf(mattina, sera), OGGI.plusDays(1), notte))
     }
 
     @Test

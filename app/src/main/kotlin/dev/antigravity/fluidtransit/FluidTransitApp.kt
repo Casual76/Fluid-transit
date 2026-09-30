@@ -494,9 +494,16 @@ class FluidTransitApp : Application() {
                 stopGroups.value = if (reader == null) {
                     null
                 } else {
+                    searchIndexFailed.value = false
                     runCatching {
                         dev.antigravity.fluidtransit.routing.StopGroups.build(reader)
-                    }.getOrNull()
+                    }.getOrNull().also { gruppi ->
+                        // Senza gruppi l'indice di ricerca non si costruisce,
+                        // e chi lo aspetta deve saperlo: prima restava null
+                        // col fallimento spento, e la barra diceva "Sto
+                        // preparando la ricerca" per tutta la sessione.
+                        if (gruppi == null) searchIndexFailed.value = true
+                    }
                 }
             }
         }
@@ -509,7 +516,9 @@ class FluidTransitApp : Application() {
                     (bundleManager.state.value as? BundleManager.BundleState.Ready)?.reader
                 if (reader == null || groups == null) {
                     searchIndex.value = null
-                    searchIndexFailed.value = false
+                    // Il fallimento dei gruppi lo segna chi li costruisce;
+                    // qui si spegne solo quando gli orari non ci sono.
+                    if (reader == null) searchIndexFailed.value = false
                 } else {
                     val built = kotlinx.coroutines.withContext(Dispatchers.Default) {
                         runCatching {

@@ -89,7 +89,7 @@ class StopLinesTool : AiTool {
 
   override suspend fun run(args: JsonObject, ctx: ToolContext): String {
     val reader = ctx.transit.reader ?: return NO_DATA
-    val stop = Resolve.stopIndex(ctx, args.str("fermata")) ?: return "non trovo la fermata"
+    val stop = Resolve.stopIndex(ctx, args.str("fermata")) ?: return Resolve.stopNotFound(ctx, args.str("fermata"), "non trovo la fermata")
     val patterns = reader.patternsAtStop(stop)
     if (patterns.isEmpty()) return "da ${reader.stopName(stop)} non risulta passare nessuna linea"
     val byRoute = patterns.groupBy { reader.patternRoute(it) }
@@ -120,7 +120,7 @@ class RoutePathTool : AiTool {
   override suspend fun run(args: JsonObject, ctx: ToolContext): String {
     val reader = ctx.transit.reader ?: return NO_DATA
     val query = args.str("linea") ?: return "errore: manca la linea"
-    val route = ctx.transit.findRoutes(query, 1).firstOrNull() ?: return "non trovo una linea che si chiami \"$query\""
+    val route = ctx.transit.findRoutes(query, 1).firstOrNull() ?: return Resolve.notFound(ctx, "non trovo una linea che si chiami \"$query\"")
     val patterns = reader.patternsOfRoute(route.routeIndex)
     if (patterns.isEmpty()) return "la linea ${route.shortName} non ha percorsi nell'orario scaricato"
     val wanted = args.str("verso")?.lowercase()
@@ -155,7 +155,7 @@ class StopDayScheduleTool : AiTool {
 
   override suspend fun run(args: JsonObject, ctx: ToolContext): String {
     val reader = ctx.transit.reader ?: return NO_DATA
-    val stop = Resolve.stopIndex(ctx, args.str("fermata")) ?: return "non trovo la fermata"
+    val stop = Resolve.stopIndex(ctx, args.str("fermata")) ?: return Resolve.stopNotFound(ctx, args.str("fermata"), "non trovo la fermata")
     val today = Instant.ofEpochMilli(ctx.nowMillis).atZone(ctx.zone).toLocalDate()
     val date = when (val raw = args.str("giorno")?.lowercase()?.trim()) {
       null, "oggi" -> today
@@ -210,7 +210,7 @@ class NextBusForTool : AiTool {
 
   override suspend fun run(args: JsonObject, ctx: ToolContext): String {
     val reader = ctx.transit.reader ?: return NO_DATA
-    val stop = Resolve.stopIndex(ctx, args.str("fermata")) ?: return "non trovo la fermata di partenza"
+    val stop = Resolve.stopIndex(ctx, args.str("fermata")) ?: return Resolve.stopNotFound(ctx, args.str("fermata"), "non trovo la fermata di partenza")
     val wanted = args.str("verso")?.lowercase()?.trim() ?: return "errore: manca la destinazione"
     val target = ctx.transit.findStops(wanted, 1).firstOrNull()
     // Lo stesso tabellone delle schermate. Qui si diceva "orario previsto" e
@@ -272,7 +272,7 @@ class WhenToLeaveTool : AiTool {
   )
 
   override suspend fun run(args: JsonObject, ctx: ToolContext): String {
-    val to = args.str("a")?.let { Resolve.target(ctx, it)?.point } ?: return "non trovo la destinazione"
+    val to = args.str("a")?.let { Resolve.target(ctx, it)?.point } ?: return Resolve.notFound(ctx, "non trovo la destinazione")
     val from = args.str("da")?.let { Resolve.target(ctx, it)?.point }
       ?: ctx.reference?.let { NamedPoint("qui", "", it.first, it.second) }
       ?: return "errore: non so da dove parti"

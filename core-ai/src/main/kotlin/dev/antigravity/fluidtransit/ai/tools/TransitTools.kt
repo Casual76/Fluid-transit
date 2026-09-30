@@ -32,6 +32,24 @@ internal object Resolve {
      * L'indice della fermata di cui parla il modello: quella nominata, o la piu' vicina a dove si
      * trova. E' la prima riga di meta' degli strumenti degli orari.
      */
+    /** Da dire quando la ricerca per nome non c'e': vedi [TransitBridge.searchAvailable]. */
+    const val SEARCH_UNAVAILABLE =
+        "errore: la ricerca per nome non e' disponibile adesso (l'indice di fermate e linee " +
+            "non si e' preparato), quindi non so se esiste; si puo' cercare dalla posizione"
+
+    /**
+     * "Non trovo", ma solo quando abbiamo davvero cercato.
+     *
+     * Senza l'indice ogni ricerca torna vuota, e il modello riferiva che la
+     * fermata non esiste. Tutti gli strumenti passano da qui per dirlo.
+     */
+    fun notFound(ctx: ToolContext, message: String): String =
+        if (ctx.transit.searchAvailable) message else SEARCH_UNAVAILABLE
+
+    /** Come [notFound], per [stopIndex]: senza un nome la ricerca non c'entra. */
+    fun stopNotFound(ctx: ToolContext, query: String?, message: String): String =
+        if (query == null) message else notFound(ctx, message)
+
     fun stopIndex(ctx: ToolContext, query: String?): Int? {
         val reader = ctx.transit.reader ?: return null
         if (query != null) return ctx.transit.findStops(query, 1).firstOrNull()?.stopIndex
@@ -137,7 +155,7 @@ class SearchTool : AiTool {
             if (saved.isEmpty() && places.isEmpty() &&
                 bridge.findStops(q, 1).isEmpty() && bridge.findRoutes(q, 1).isEmpty()
             ) {
-                line("nessun risultato per \"$q\"")
+                line(Resolve.notFound(ctx, "nessun risultato per \"$q\""))
             }
         }
     }
@@ -181,7 +199,7 @@ class NextDeparturesTool : AiTool {
                 ?: return "nessuna fermata entro seicento metri"
         } else {
             ctx.transit.findStops(query, 1).firstOrNull()?.stopIndex
-                ?: return "non trovo una fermata che si chiami \"$query\""
+                ?: return Resolve.notFound(ctx, "non trovo una fermata che si chiami \"$query\"")
         }
 
         // Lo stesso tabellone delle schermate, non un calcolo parallelo:
@@ -221,7 +239,7 @@ class RouteScheduleTool : AiTool {
         val reader = ctx.transit.reader ?: return "errore: gli orari non sono ancora scaricati"
         val q = args.str("linea") ?: return "errore: manca la linea"
         val hit = ctx.transit.findRoutes(q, 1).firstOrNull()
-            ?: return "non trovo una linea che si chiami \"$q\""
+            ?: return Resolve.notFound(ctx, "non trovo una linea che si chiami \"$q\"")
         val now = Instant.ofEpochMilli(ctx.nowMillis)
         val today = now.atZone(ctx.zone).toLocalDate()
         val dayIndex = java.time.temporal.ChronoUnit.DAYS.between(reader.feedStart, today).toInt()
@@ -284,7 +302,7 @@ class LiveBusesTool : AiTool {
     override suspend fun run(args: JsonObject, ctx: ToolContext): String {
         val q = args.str("linea") ?: return "errore: manca la linea"
         val hit = ctx.transit.findRoutes(q, 1).firstOrNull()
-            ?: return "non trovo una linea che si chiami \"$q\""
+            ?: return Resolve.notFound(ctx, "non trovo una linea che si chiami \"$q\"")
         val buses = ctx.transit.vehiclesOfRoute(hit.routeIndex)
         if (buses.isEmpty()) {
             // Mai dire "cancellata": l'assenza dal feed non e' prova
@@ -348,10 +366,16 @@ class JourneyTool : AiTool {
     override suspend fun run(args: JsonObject, ctx: ToolContext): String {
         val toText = args.str("a") ?: return "errore: manca la destinazione"
         val to = Resolve.target(ctx, toText)
-            ?: return "non trovo un posto che si chiami \"$toText\""
+            ?: return Resolve.notFound(ctx, "non trovo un posto che si chiami \"$toText\"")
         val fromArg = args.str("da")
         val from = Resolve.target(ctx, fromArg)
-            ?: return "non trovo il punto di partenza \"${fromArg ?: ""}\""
+            ?: return if (fromArg == null) {
+                // Senza un nome la partenza e' la posizione: qui la ricerca
+                // non c'entra.
+                "non trovo il punto di partenza \"\""
+            } else {
+                Resolve.notFound(ctx, "non trovo il punto di partenza \"$fromArg\"")
+            }
 
         val departAt = Resolve.timeToday(ctx, args.str("parti_alle"))
         val arriveBy = Resolve.timeToday(ctx, args.str("arriva_entro"))

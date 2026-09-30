@@ -104,6 +104,25 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
                             }
                             nanos / 1000 + (result * 0) // il risultato tiene viva la query
                         }
+                        // La ricerca per nome ha un indice suo, costruito dopo
+                        // gli orari: la barra, quando non c'e', rimanda qui, e
+                        // qui non c'era niente che ne parlasse.
+                        val indice by app.searchIndex.collectAsStateWithLifecycle()
+                        val indiceFallito by app.searchIndexFailed.collectAsStateWithLifecycle()
+                        FluidListRow(
+                            title = "Ricerca di fermate e linee",
+                            subtitle = when {
+                                indice != null -> "Trova fermate e linee per nome"
+                                indiceFallito -> "Non siamo riusciti a prepararla: riapri l'app. " +
+                                    "Gli orari e la mappa funzionano lo stesso"
+                                else -> "Si prepara dopo gli orari, in qualche secondo"
+                            },
+                            meta = when {
+                                indice != null -> "pronta"
+                                indiceFallito -> "non riuscita"
+                                else -> "in preparazione"
+                            },
+                        )
                         FluidListRow(
                             title = "Velocita' di ricerca",
                             subtitle = "Quanto ci ha messo l'ultima ricerca di passaggi",

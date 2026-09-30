@@ -46,6 +46,11 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
     /** L'indice di fermate e linee, dall'Application: non dipende da nessuna schermata. */
     private val searchIndex: SearchIndex? get() = app.searchIndex.value
 
+    // Senza indice — ancora in costruzione dopo l'attesa, o fallito — la
+    // ricerca per nome non c'e', e gli strumenti devono dirlo invece di
+    // rispondere "non trovo".
+    override val searchAvailable: Boolean get() = app.searchIndex.value != null
+
     /**
      * L'ultimo snapshot realtime risolto.
      *
@@ -260,14 +265,23 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
      * modello la riferisce invece di inventarci sopra.
      */
     override suspend fun alerts(): List<String> {
-        val lista = runCatching { app.realtime.fetchAlertsOrNull() }.getOrNull()
+        val lista = app.realtime.fetchAlertsOrNull()
             ?: return listOf(
                 "Non e' stato possibile scaricare gli avvisi di servizio: " +
                     "non sappiamo se ce ne siano.",
             )
-        return lista.map { a ->
+        val righe = lista.map { a ->
             listOf(a.header, a.description).filter { it.isNotBlank() }.joinToString(" — ")
         }
+        // Vecchi: lo dice prima, cosi' il modello non li racconta come la
+        // situazione di adesso.
+        val vecchiDa = app.realtime.alertsStaleSinceEpoch() ?: return righe
+        return listOf(
+            dev.antigravity.fluidtransit.routing.AlertText.stale(
+                vecchiDa,
+                java.time.Instant.now().epochSecond,
+            ) + ".",
+        ) + righe
     }
 
     override fun realtimeStatus(): String {

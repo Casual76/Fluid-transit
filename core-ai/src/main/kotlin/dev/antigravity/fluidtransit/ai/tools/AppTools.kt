@@ -24,7 +24,7 @@ class ShowTool : AiTool {
 
     override suspend fun run(args: JsonObject, ctx: ToolContext): String {
         val q = args.str("cosa") ?: return "errore: manca cosa mostrare"
-        val t = Resolve.target(ctx, q) ?: return "non trovo \"$q\""
+        val t = Resolve.target(ctx, q) ?: return Resolve.notFound(ctx, "non trovo \"$q\"")
         val action = when {
             t.stop != null -> AssistantAction.ShowStop(t.stop.idHashHex, t.stop.name)
             t.route != null -> AssistantAction.ShowRoute(t.route.routeIndex, t.route.shortName)
@@ -46,7 +46,7 @@ class StartNavigationTool : AiTool {
 
     override suspend fun run(args: JsonObject, ctx: ToolContext): String {
         val q = args.str("a") ?: return "errore: manca la destinazione"
-        val t = Resolve.target(ctx, q) ?: return "non trovo \"$q\""
+        val t = Resolve.target(ctx, q) ?: return Resolve.notFound(ctx, "non trovo \"$q\"")
         return outcomeText(
             ctx.actions.perform(AssistantAction.StartNavigation(t.point)),
             "navigazione avviata verso ${t.point.name}",
@@ -70,7 +70,7 @@ class SavePlaceTool : AiTool {
     override suspend fun run(args: JsonObject, ctx: ToolContext): String {
         val label = args.str("nome") ?: return "errore: manca l'etichetta"
         val q = args.str("dove") ?: return "errore: manca il posto"
-        val t = Resolve.target(ctx, q) ?: return "non trovo \"$q\""
+        val t = Resolve.target(ctx, q) ?: return Resolve.notFound(ctx, "non trovo \"$q\"")
         return outcomeText(
             ctx.actions.perform(AssistantAction.SavePlace(label, t.point)),
             "salvato come \"$label\"",
@@ -91,7 +91,7 @@ class StarTool : AiTool {
 
     override suspend fun run(args: JsonObject, ctx: ToolContext): String {
         val q = args.str("cosa") ?: return "errore: manca cosa stellare"
-        val t = Resolve.target(ctx, q) ?: return "non trovo \"$q\""
+        val t = Resolve.target(ctx, q) ?: return Resolve.notFound(ctx, "non trovo \"$q\"")
         val action = when {
             t.stop != null -> AssistantAction.StarStop(t.stop.idHashHex, t.stop.name)
             t.route != null -> AssistantAction.StarRoute(t.route.routeIndex, t.route.shortName)
@@ -122,7 +122,7 @@ class CreateRoutineTool : AiTool {
 
     override suspend fun run(args: JsonObject, ctx: ToolContext): String {
         val toText = args.str("a") ?: return "errore: manca la destinazione"
-        val to = Resolve.target(ctx, toText) ?: return "non trovo \"$toText\""
+        val to = Resolve.target(ctx, toText) ?: return Resolve.notFound(ctx, "non trovo \"$toText\"")
         val from = args.str("da")?.let { Resolve.target(ctx, it) }
         val days = parseDays(args.str("giorni"))
         if (days.isEmpty()) return "non ho capito in che giorni: dimmi \"feriali\", \"tutti\" o l'elenco"

@@ -154,6 +154,14 @@ interface TransitBridge {
 
     fun findRoutes(query: String, limit: Int = 5): List<RouteHit>
 
+    /**
+     * Se la ricerca per nome c'e'. Quando l'indice non si e' costruito,
+     * [findStops] e [findRoutes] tornano vuote, e una lista vuota letta da un
+     * modello diventava "non trovo una fermata che si chiami cosi'" — cioe'
+     * un'affermazione sul mondo mentre il guasto era nostro.
+     */
+    val searchAvailable: Boolean get() = true
+
     /** I mezzi vivi di una linea, gia' risolti contro il bundle. */
     fun vehiclesOfRoute(routeIndex: Int): List<LiveVehicle>
 

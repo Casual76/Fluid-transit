@@ -109,9 +109,14 @@ class TransitToolHostProvider : AiToolHostProvider<ToolContext>() {
    * solo su una chiamata arrivata mentre l'app si stava svegliando.
    */
   private suspend fun ensureSearchIndex() {
-    if (app.searchIndex.value != null) return
+    if (app.searchIndex.value != null || app.searchIndexFailed.value) return
+    // Si aspetta anche il fallimento, non solo l'indice: prima un indice
+    // fallito costava otto secondi di attesa a ogni chiamata, perche' da null
+    // a null il flusso non emette e l'attesa non si svegliava mai.
     kotlinx.coroutines.withTimeoutOrNull(INDEX_WAIT_MS) {
-      app.searchIndex.first { it != null }
+      kotlinx.coroutines.flow.combine(app.searchIndex, app.searchIndexFailed) { indice, fallito ->
+        indice != null || fallito
+      }.first { it }
     }
   }
 

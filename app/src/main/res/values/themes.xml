@@ -1,7 +1,13 @@
 <resources>
     <!-- Il tema vero e' FluidTheme, in Compose. Questo serve solo alla
-         finestra prima del primo frame: barre trasparenti, niente action bar. -->
-    <style name="Theme.FluidTransit" parent="android:Theme.DeviceDefault.NoActionBar">
+         finestra prima del primo frame: barre trasparenti, niente action bar.
+
+         Chiaro qui e scuro in values-night, come il telefono: il padre era
+         sempre lo scuro, e chi ha il telefono chiaro (il caso normale, con
+         Tema=Sistema) vedeva la finestra nera prima che Compose disegnasse
+         qualcosa. MainActivity non compone niente finche' non ha letto le
+         impostazioni, e in quel lasso si vede questa finestra. -->
+    <style name="Theme.FluidTransit" parent="android:Theme.DeviceDefault.Light.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>

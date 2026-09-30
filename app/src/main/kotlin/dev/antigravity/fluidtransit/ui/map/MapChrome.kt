@@ -2,15 +2,19 @@ package dev.antigravity.fluidtransit.ui.map
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Download
@@ -30,9 +34,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.antigravity.fluidengine.ui.fluid.FluidCapsuleShape
 import dev.antigravity.fluidengine.ui.fluid.FluidGlassIconButton
@@ -65,15 +72,67 @@ private val Chips = listOf(
     ChipSpec(CategoryFilter.EXTRA, "Extraurbani", Icons.Rounded.Landscape, 1.42f),
 )
 
+/** Come si dispone la fila dei filtri: a quote, o scorrevole. */
+internal enum class ChipMode {
+    /** Tre chip che si dividono la larghezza per quote: com'e' sempre stato. */
+    WEIGHTED,
+
+    /** Ogni chip larga quanto la sua etichetta, e la fila scorre. */
+    SCROLLING,
+}
+
+internal class ChipLayout(
+    val mode: ChipMode,
+    val showIcon: Boolean,
+    val horizontalPaddingDp: Int,
+)
+
+/** Lo schermo su cui sono misurate le soglie di [chipLayout]. */
+private const val REFERENCE_WIDTH_DP = 360f
+
+/**
+ * La disposizione dei chip per una scala del carattere.
+ *
+ * Le quote di larghezza sono tarate a scala 1,0, dove "Tutti" ci sta di un
+ * soffio (33 dp per 31 di testo, a 360 dp di schermo). Con il carattere
+ * ingrandito — a 1,3 o a 2,0, cioe' proprio per chi fa fatica a leggere — le
+ * tre etichette non stavano piu' nella loro quota, e siccome la riga e' a una
+ * riga sola e senza puntini si leggeva "Tutt", "Urba", "Extraur": due filtri
+ * che non si distinguevano piu' nemmeno dall'icona.
+ *
+ * Fino a 1,05 resta il disegno di sempre, con l'icona: oltre, "Tutti" non ci
+ * sta piu'. Fra 1,05 e 1,5 si toglie l'icona (18 dp piu' 6 di spazio) e si
+ * stringe il margine interno, e le tre etichette rientrano nelle loro quote
+ * anche a 1,5; oltre non ci starebbero comunque, e si passa alla fila che
+ * scorre, dove ogni etichetta ha tutto lo spazio che le serve.
+ *
+ * Le soglie valgono per uno schermo da 360 dp; su uno piu' stretto le quote
+ * sono piu' piccole, quindi la scala si carica in proporzione: un telefono da
+ * 320 dp a 1,3 sta stretto quanto uno da 360 a 1,46.
+ */
+internal fun chipLayout(fontScale: Float, screenWidthDp: Float = REFERENCE_WIDTH_DP): ChipLayout {
+    val pressione = fontScale * REFERENCE_WIDTH_DP / screenWidthDp.coerceAtLeast(1f)
+    return when {
+        pressione <= 1.05f -> ChipLayout(ChipMode.WEIGHTED, showIcon = true, horizontalPaddingDp = 10)
+        pressione <= 1.5f -> ChipLayout(ChipMode.WEIGHTED, showIcon = false, horizontalPaddingDp = 6)
+        else -> ChipLayout(ChipMode.SCROLLING, showIcon = true, horizontalPaddingDp = 14)
+    }
+}
+
 /**
  * I filtri per categoria sotto la barra.
  *
  * La regola, arrivata guardando la prima build: **la fila non e' mai piu'
- * corta dello schermo**. Ogni chip prende una quota uguale della larghezza
- * (peso, non misura fissa) senza crescere in altezza ne' in corpo del testo,
- * cosi' su qualunque schermo la fila arriva esattamente al margine.
- * Quando i chip diventeranno troppi per starci (Tram, Treni), scatteranno
- * scorrimento e degradazione delle etichette come da spec.
+ * corta dello schermo**. Ogni chip prende una quota della larghezza (peso,
+ * non misura fissa) senza crescere in corpo del testo, cosi' su qualunque
+ * schermo la fila arriva esattamente al margine.
+ *
+ * Vale finche' le etichette ci stanno: con il carattere ingrandito la fila
+ * perde prima l'icona e poi, oltre 1,5, le quote — diventa una fila che
+ * scorre con ogni chip larga quanto il suo testo (vedi [chipLayout]). Meglio
+ * una fila piu' lunga dello schermo che etichette tagliate a meta' parola.
+ * Quando i chip diventeranno troppi per starci (Tram, Treni) scorrera' anche
+ * a scala 1,0, con la degradazione delle etichette come da spec.
  */
 @Composable
 fun CategoryChipsRow(
@@ -82,19 +141,40 @@ fun CategoryChipsRow(
     onSelect: (CategoryFilter) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val layout = chipLayout(
+        fontScale = LocalDensity.current.fontScale,
+        screenWidthDp = LocalConfiguration.current.screenWidthDp.toFloat(),
+    )
+    val scrolling = layout.mode == ChipMode.SCROLLING
+    val scroll = rememberScrollState()
     Row(
         // Un gruppo di scelte esclusive, detto come tale: con un lettore di
         // schermo i tre chip erano tre pulsanti uguali, e quale fosse acceso
         // lo diceva solo il colore.
-        modifier = modifier.fillMaxWidth().selectableGroup(),
+        modifier = modifier
+            .fillMaxWidth()
+            .then(if (scrolling) Modifier.horizontalScroll(scroll) else Modifier)
+            .selectableGroup(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         for (chip in Chips) {
             val isSelected = chip.filter == selected
             Row(
                 modifier = Modifier
-                    .weight(chip.weight)
-                    .height(40.dp)
+                    // Nella fila che scorre le quote non hanno senso (la
+                    // larghezza a disposizione e' infinita): ognuna prende
+                    // quanto le serve, con un minimo per restare toccabile.
+                    .then(
+                        if (scrolling) {
+                            Modifier.widthIn(min = 48.dp)
+                        } else {
+                            Modifier.weight(chip.weight)
+                        },
+                    )
+                    // Minimo, non fisso: a carattere grande la riga di testo
+                    // da sola e' alta quanto i 40 dp, e un'altezza fissa la
+                    // tagliava in alto e in basso.
+                    .heightIn(min = 40.dp)
                     .glassSurface(
                         state = backdrop,
                         tint = GlassDefaults.floatingTint(),
@@ -108,25 +188,31 @@ fun CategoryChipsRow(
                         role = Role.RadioButton,
                         onClick = { onSelect(chip.filter) },
                     )
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = layout.horizontalPaddingDp.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
             ) {
-                Icon(
-                    imageVector = chip.icon,
-                    contentDescription = null,
-                    tint = if (isSelected) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    modifier = Modifier.size(18.dp),
-                )
+                if (layout.showIcon) {
+                    Icon(
+                        imageVector = chip.icon,
+                        contentDescription = null,
+                        tint = if (isSelected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
                 Text(
                     text = chip.label,
                     style = MaterialTheme.typography.labelLarge,
                     maxLines = 1,
                     softWrap = false,
+                    // Solo una rete di sicurezza: a tagliare per bene ci
+                    // pensa la disposizione, qui si evita che il taglio
+                    // sia muto se un giorno un'etichetta diventa piu' lunga.
+                    overflow = TextOverflow.Ellipsis,
                     color = if (isSelected) {
                         MaterialTheme.colorScheme.primary
                     } else {

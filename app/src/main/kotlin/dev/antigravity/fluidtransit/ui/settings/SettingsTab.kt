@@ -4,6 +4,8 @@ import android.os.Build
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -68,12 +70,21 @@ fun SettingsTab(app: FluidTransitApp, onOpenDataStatus: () -> Unit = {}) {
                         .padding(bottom = 12.dp),
                 )
                 if (Build.VERSION.SDK_INT >= 31) {
+                    val titolo = "Colori dal telefono"
                     FluidListRow(
-                        title = "Colori dal telefono",
+                        title = titolo,
                         subtitle = "Usa i colori del tuo sfondo al posto dell'ametista",
                         badge = {
                             FluidSwitch(
                                 checked = settings.accentMode == AccentMode.DYNAMIC,
+                                // Il nome sta sul tasto stesso, e non solo
+                                // sulla riga: l'interruttore e' un nodo a
+                                // se' — Material non fonde un figlio che e'
+                                // gia' un toggle — e con TalkBack la riga
+                                // veniva letta senza poterla toccare, e il
+                                // tasto dopo diceva solo "Interruttore,
+                                // attivo", senza dire di cosa.
+                                modifier = Modifier.semantics { contentDescription = titolo },
                                 onCheckedChange = { enabled ->
                                     scope.launch {
                                         app.settingsStore.setAccentMode(

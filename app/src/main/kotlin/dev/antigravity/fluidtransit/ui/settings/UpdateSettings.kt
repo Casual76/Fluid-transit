@@ -5,6 +5,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.antigravity.fluidengine.foundation.AppUpdateInstallState
 import dev.antigravity.fluidengine.ui.fluid.FluidSwitch
@@ -78,8 +81,12 @@ fun UpdateSettingsGroup(app: FluidTransitApp) {
             )
         }
 
+        // Il nome sta anche sull'interruttore: per TalkBack e' un nodo a se'
+        // e senza nome leggeva solo "Interruttore, attivo" (vedi "Colori dal
+        // telefono" in SettingsTab).
+        val titoloBeta = "Versioni di prova"
         FluidListRow(
-            title = "Versioni di prova",
+            title = titoloBeta,
             subtitle = "Ricevi anche le beta: escono prima e si rompono piu' spesso",
             badge = {
                 FluidSwitch(
@@ -88,6 +95,7 @@ fun UpdateSettingsGroup(app: FluidTransitApp) {
                         beta = it
                         updates.beta = it
                     },
+                    modifier = Modifier.semantics { contentDescription = titoloBeta },
                 )
             },
         )

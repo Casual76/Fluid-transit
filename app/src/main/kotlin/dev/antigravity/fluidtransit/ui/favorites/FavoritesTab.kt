@@ -29,6 +29,7 @@ import dev.antigravity.fluidengine.ui.theme.FluidSectionTitle
 import dev.antigravity.fluidtransit.FluidTransitApp
 import dev.antigravity.fluidtransit.routing.DepartureText
 import dev.antigravity.fluidtransit.ui.map.MapIntent
+import dev.antigravity.fluidtransit.ui.map.routeColorToday
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
@@ -282,13 +283,25 @@ fun FavoritesTab(
                             val idx = h?.let { reader?.findRouteByIdHash(it) } ?: -1
                             if (idx >= 0) reader?.routeLongName(idx)?.ifEmpty { null } else null
                         }
+                        // Il colore di OGGI, non quello della stella.
+                        //
+                        // La stella si porta dietro la tinta della notte in cui
+                        // e' stata messa, e il bundler sposta ancora qualche
+                        // linea quando ne prende una vicina nuova: la pastiglia
+                        // qui restava di un colore e la stessa linea sulla
+                        // mappa, nel tabellone e nella scheda di un altro. Il
+                        // salvato serve solo se gli orari non ci sono ancora o
+                        // la linea non c'e' piu'.
+                        val colore = remember(r.idHashHex, r.colorRgb, reader) {
+                            routeColorToday(reader, r.idHashHex, r.colorRgb)
+                        }
                         FluidListRow(
                             title = nomeLungo ?: "Linea ${r.shortName}",
                             subtitle = "La tratta sulla mappa",
                             leading = {
                                 dev.antigravity.fluidtransit.ui.map.RoutePill(
                                     text = r.shortName,
-                                    colorRgb = r.colorRgb,
+                                    colorRgb = colore,
                                 )
                             },
                             onClick = { onOpenOnMap(MapIntent.Route(r.idHashHex)) },

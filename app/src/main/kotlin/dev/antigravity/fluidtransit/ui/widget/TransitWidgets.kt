@@ -287,6 +287,48 @@ private sealed interface StopBoard {
     class Ready(val board: DepartureBoard, val lineLinks: List<String>) : StopBoard
 }
 
+/**
+ * Sotto questa larghezza la testata non ha posto per l'ora del disegno.
+ *
+ * Un 2x2 (110 dp circa) toglierebbe al nome della fermata quasi tutto lo
+ * spazio per una scritta di dieci caratteri: fra un titolo tagliato a "SOD" e
+ * un'ora che manca, il nome vale di piu'. Un 4x2 (250 dp circa) invece ce la
+ * fa, e a un nome molto lungo toglie soltanto qualche lettera.
+ */
+private val LARGHEZZA_MINIMA_ORA_DISEGNO = 200.dp
+
+/**
+ * L'ora del disegno, per la testata del widget piccolo, o null.
+ *
+ * Nel widget grande la dice il sottotitolo ("Aggiornato alle 07:35"); in
+ * quello piccolo il kit lo nasconde, e i minuti — calcolati una volta sola,
+ * al momento del disegno — restavano senza un'ora accanto: chi guardava la
+ * home non poteva sapere se avevano trenta secondi o cinque minuti, e un
+ * ridisegno puo' tardare anche mezz'ora a freddo. Dove il sottotitolo c'e' o
+ * la testata e' troppo stretta si tace, senza inventare un'ora al suo posto.
+ *
+ * L'ora e' quella di [Times.hhmm], come nel sottotitolo: la stessa
+ * informazione con le stesse cifre, solo in forma breve. Il ritardo
+ * invece non si ripete: il colore e' la puntualita', e la sua parola sta
+ * nella riga solo dove c'e' spazio per una seconda riga.
+ */
+internal fun oraDelDisegno(computedAtEpoch: Long, compact: Boolean, larghezza: Dp): String? {
+    if (!compact) return null
+    if (larghezza < LARGHEZZA_MINIMA_ORA_DISEGNO) return null
+    // Lo zero non e' l'una di notte: e' "non calcolato", e non si scrive.
+    if (computedAtEpoch <= 0L) return null
+    return "alle " + Times.hhmm(computedAtEpoch)
+}
+
+@Composable
+private fun EtichettaOraDisegno(testo: String, palette: EngineWidgetPalette) {
+    Text(
+        text = testo,
+        style = engineWidgetTextStyle(color = palette.onSurfaceVariant, size = 12.sp),
+        maxLines = 1,
+    )
+}
+
 class StopWidget : GlanceAppWidget() {
 
     override val sizeMode: SizeMode = SizeMode.Exact
@@ -325,7 +367,12 @@ class StopWidget : GlanceAppWidget() {
         val nome = board?.stopName?.ifEmpty { null } ?: stopName
 
         provideContent {
-            val layout = resolveEngineWidgetLayout(LocalSize.current, hasFooter = false)
+            val misura = LocalSize.current
+            val layout = resolveEngineWidgetLayout(misura, hasFooter = false)
+            // L'ora del disegno, dove il sottotitolo non c'e'.
+            val oraDisegno = board?.let {
+                oraDelDisegno(it.computedAtEpoch, layout.compact, misura.width)
+            }
             EngineWidgetSurface(
                 palette = palette,
                 layout = layout,
@@ -363,6 +410,18 @@ class StopWidget : GlanceAppWidget() {
                         // mostrare le sette fino a quando il sistema decide
                         // di ridisegnarlo, e niente lo dice.
                         else -> "Aggiornato alle " + Times.hhmm(board.computedAtEpoch)
+                    },
+                    // Sul widget piccolo il kit nasconde il sottotitolo, e con
+                    // lui l'unica cosa che diceva di quando sono i numeri:
+                    // restavano minuti fermi all'istante del disegno — un "4
+                    // min" scritto alle 07:35 e ancora li' alle 07:40, con il
+                    // bus alla fermata — e un ritardo di dodici minuti che si
+                    // vedeva solo dal colore. Il kit lo lascia invece
+                    // disegnare a destra del titolo.
+                    trailing = if (oraDisegno != null) {
+                        { EtichettaOraDisegno(oraDisegno, palette) }
+                    } else {
+                        null
                     },
                 )
                 Spacer(GlanceModifier.height(if (layout.compact) 6.dp else 8.dp))

@@ -1433,6 +1433,18 @@ fun MapScreen(
     val recentStore = remember { RecentSearches(context) }
     var recentsVersion by remember { mutableStateOf(0) }
     val recents = remember(recentsVersion) { recentStore.load() }
+    // I recenti come suggerimenti, col colore delle linee di OGGI.
+    //
+    // La voce si porta dietro la tinta del giorno in cui e' stata cercata, e
+    // il bundler sposta ancora qualche linea quando ne prende una vicina
+    // nuova: la pastiglia fra i recenti restava di un colore e la stessa
+    // linea nel risultato di ricerca, sulla mappa e nella scheda di un altro.
+    // Si rifa' solo quando cambiano i recenti, il bundle o il riferimento —
+    // la ricerca di una linea per hash scandisce la tabella — e non a ogni
+    // ricomposizione.
+    val recentSuggestions = remember(recents, ready?.buildId, dovePerLaDistanza) {
+        recents.map { it.toSuggestion(dovePerLaDistanza, ready?.reader) }
+    }
     val nearby by produceState(initialValue = emptyList<Suggestion>(), searchOpen, ready?.buildId) {
         val reader = ready?.reader
         if (!searchOpen || reader == null) {
@@ -1767,11 +1779,9 @@ fun MapScreen(
                 // si salvavano regolarmente fra i recenti — non si vedevano
                 // MAI: cercare "via Bolognese 12" e ricercarla il giorno dopo
                 // erano due ricerche identiche e complete.
-                recents = recents.filter { it.kind != "route" }
-                    .map { it.toSuggestion(dovePerLaDistanza) },
+                recents = recentSuggestions.filter { it.kind != "route" },
                 nearby = nearby,
-                recentLines = recents.filter { it.kind == "route" }
-                    .map { it.toSuggestion(dovePerLaDistanza) },
+                recentLines = recentSuggestions.filter { it.kind == "route" },
                 onOpen = { searchOpen = true },
                 onClose = {
                     searchOpen = false
@@ -2756,7 +2766,10 @@ fun MapScreen(
  * cosa che un recente non puo' ricordare, perche' e' l'unica che dipende da
  * dove sei adesso.
  */
-private fun RecentSearches.Entry.toSuggestion(riferimento: Pair<Double, Double>?): Suggestion {
+private fun RecentSearches.Entry.toSuggestion(
+    riferimento: Pair<Double, Double>?,
+    reader: dev.antigravity.fluidtransit.routing.BundleReader?,
+): Suggestion {
     val sub = if (kind == "stop") {
         riferimento?.let { (la, lo) ->
             dev.antigravity.fluidtransit.routing.Words.distanceNear(
@@ -2766,7 +2779,10 @@ private fun RecentSearches.Entry.toSuggestion(riferimento: Pair<Double, Double>?
     } else {
         subtitle
     }
-    return Suggestion(kind, key, title, sub, colorRgb, lat, lon)
+    // Lo stesso vale per il colore, e per lo stesso motivo: il salvato e' un
+    // ripiego, il bundle di oggi e' la fonte.
+    val colore = if (kind == "route") routeColorToday(reader, key, colorRgb) else colorRgb
+    return Suggestion(kind, key, title, sub, colore, lat, lon)
 }
 
 private fun hhmm(epochSecond: Long): String {

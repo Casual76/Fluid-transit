@@ -14,6 +14,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.antigravity.fluidengine.ui.fluid.FluidSwitch
@@ -52,8 +54,12 @@ fun AssistantSettingsGroup(app: FluidTransitApp) {
     var lastError by remember { mutableStateOf<String?>(null) }
 
     FluidListGroup {
+        // Il titolo si dice due volte: sulla riga e sul tasto. L'interruttore
+        // e' un nodo a se' per TalkBack, e senza nome leggeva solo
+        // "Interruttore, attivo" (vedi "Colori dal telefono" in SettingsTab).
+        val titoloAttiva = "Attiva l'assistente"
         FluidListRow(
-            title = "Attiva l'assistente",
+            title = titoloAttiva,
             subtitle = if (states.values.any { it.verified }) {
                 "Chiedi a voce o scrivendo: cerca, calcola viaggi, dice dove sono i bus"
             } else {
@@ -63,6 +69,7 @@ fun AssistantSettingsGroup(app: FluidTransitApp) {
                 FluidSwitch(
                     checked = settings.enabled,
                     onCheckedChange = { on -> scope.launch { assistant.settings.setEnabled(on) } },
+                    modifier = Modifier.semantics { contentDescription = titoloAttiva },
                 )
             },
         )
@@ -90,8 +97,9 @@ fun AssistantSettingsGroup(app: FluidTransitApp) {
             )
         }
 
+        val titoloAzioni = "Azioni nell'app"
         FluidListRow(
-            title = "Azioni nell'app",
+            title = titoloAzioni,
             subtitle = "Lascia che l'assistente apra schede, salvi posti e crei routine. " +
                 "Le cose che scrivono chiedono comunque conferma",
             badge = {
@@ -100,6 +108,7 @@ fun AssistantSettingsGroup(app: FluidTransitApp) {
                     onCheckedChange = { on ->
                         scope.launch { assistant.settings.setActionsEnabled(on) }
                     },
+                    modifier = Modifier.semantics { contentDescription = titoloAzioni },
                 )
             },
         )

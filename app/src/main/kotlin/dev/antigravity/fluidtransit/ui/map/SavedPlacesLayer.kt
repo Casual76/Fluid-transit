@@ -6,7 +6,44 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import dev.antigravity.fluidtransit.routing.Relevance
+import kotlin.math.pow
 import org.maplibre.android.maps.Style
+
+/** Il segno chiaro sulla pastiglia: bianco. */
+internal val INK_LIGHT: Int = 0xFFFFFFFF.toInt()
+
+/** Il segno scuro, per le pastiglie chiare: quasi nero, non nero puro. */
+internal val INK_DARK: Int = 0xFF121214.toInt()
+
+/**
+ * Il colore del segno (casa, cartella, tocco, segnalibro) sulla pastiglia
+ * dell'accento `accentRgb`, come 0xAARRGGBB.
+ *
+ * Il segno era sempre bianco, e con "Colori dal telefono" acceso e il tema
+ * scuro l'accento e' un pastello (il tono 80 di Material, tipo `D0BCFF`):
+ * Casa, Lavoro e Scuola diventavano dischi pallidi con un segno bianco quasi
+ * invisibile, circa 1,7 a 1 — cioe' proprio la forma che dice cos'e' il posto
+ * spariva. Con l'accento del marchio (`9B6DD6`, 3,8 a 1) o col tema chiaro
+ * non succedeva, ed e' per questo che non si e' visto prima.
+ *
+ * Il bianco resta finche' e' leggibile (3 a 1, la soglia WCAG per i segni
+ * grafici); sotto, il segno diventa scuro. Non si sceglie "il migliore dei
+ * due" a ogni colore: cosi' il lilla di marchio resta bianco com'e' sempre
+ * stato e cambia solo il caso che era rotto. La luminanza si calcola sui
+ * canali sRGB a mano, senza `android.graphics.Color`, per poterla provare
+ * sulla JVM.
+ */
+internal fun inkFor(accentRgb: Int): Int {
+    fun canale(c: Int): Double {
+        val s = c / 255.0
+        return if (s <= 0.03928) s / 12.92 else ((s + 0.055) / 1.055).pow(2.4)
+    }
+    val luminanza = 0.2126 * canale((accentRgb shr 16) and 0xFF) +
+        0.7152 * canale((accentRgb shr 8) and 0xFF) +
+        0.0722 * canale(accentRgb and 0xFF)
+    val contrastoConBianco = 1.05 / (luminanza + 0.05)
+    return if (contrastoConBianco >= 3.0) INK_LIGHT else INK_DARK
+}
 
 /** Un posto salvato come lo vuole la mappa. */
 class SavedRender(
@@ -80,6 +117,9 @@ object SavedIcons {
             style = Paint.Style.FILL
             color = 0xFF000000.toInt() or (accentRgb and 0xFFFFFF)
         }
+        // L'anello resta bianco: sta a cavallo del bordo del disco e si legge
+        // contro la mappa, non contro l'accento. E' il segno dentro, che sta
+        // sul colore, a doversi adattare.
         val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = 2.5f * density
@@ -88,22 +128,23 @@ object SavedIcons {
         canvas.drawCircle(c, c, c - 2f * density, fill)
         canvas.drawCircle(c, c, c - 2f * density, ring)
 
-        val white = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        val ink = inkFor(accentRgb)
+        val segno = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.FILL
-            color = 0xFFFFFFFF.toInt()
+            color = ink
         }
-        val whiteStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        val segnoTratto = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = 1.6f * density
             strokeJoin = Paint.Join.ROUND
-            color = 0xFFFFFFFF.toInt()
+            color = ink
         }
         when (glyph) {
-            HOME -> canvas.drawPath(house(w), white)
+            HOME -> canvas.drawPath(house(w), segno)
             WORK -> {
                 canvas.drawRoundRect(
                     RectF(w * 0.24f, w * 0.42f, w * 0.76f, w * 0.74f),
-                    w * 0.05f, w * 0.05f, white,
+                    w * 0.05f, w * 0.05f, segno,
                 )
                 // Il manico, disegnato a filo: cosi' la cartella si legge
                 // anche quando l'icona e' alta venti pixel.
@@ -114,7 +155,7 @@ object SavedIcons {
                         lineTo(w * 0.60f, w * 0.32f)
                         lineTo(w * 0.60f, w * 0.42f)
                     },
-                    whiteStroke,
+                    segnoTratto,
                 )
             }
 
@@ -128,18 +169,18 @@ object SavedIcons {
                         lineTo(w * 0.16f, w * 0.46f)
                         close()
                     },
-                    white,
+                    segno,
                 )
                 canvas.drawPath(
                     Path().apply {
                         moveTo(w * 0.74f, w * 0.51f)
                         lineTo(w * 0.74f, w * 0.70f)
                     },
-                    whiteStroke,
+                    segnoTratto,
                 )
             }
 
-            else -> canvas.drawPath(bookmark(w), white)
+            else -> canvas.drawPath(bookmark(w), segno)
         }
         return bmp
     }

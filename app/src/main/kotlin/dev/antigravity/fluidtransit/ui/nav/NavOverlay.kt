@@ -90,6 +90,8 @@ fun BoxScope.NavOverlay(
                 // Trascinare giu' riduce, non termina. Il viaggio finisce
                 // solo con la X.
                 onDragDismiss = { onEsteso(false) },
+                // Per il lettore di schermo: la navigazione comincia, e lo dice.
+                paneTitle = "Navigazione",
                 modifier = Modifier
                     .widthIn(max = PanelMaxWidth)
                     .padding(horizontal = FluidTabBarDefaults.HorizontalMargin)

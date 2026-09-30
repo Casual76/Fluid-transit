@@ -2193,6 +2193,16 @@ fun MapScreen(
                 val isMini = p is Panel.RouteMini || p is Panel.TripMini
                 BottomGlassPanel(
                     backdrop = backdrop,
+                    paneTitle = when (val p = panel) {
+                        is Panel.Stop -> "Fermata ${p.tap.name}"
+                        is Panel.RouteMini, is Panel.RouteFull -> "Linea"
+                        is Panel.TripMini, is Panel.TripFull -> "Corsa"
+                        is Panel.Place -> p.ref.name.ifEmpty { "Luogo" }
+                        Panel.Nearby -> "Qui intorno"
+                        is Panel.Journeys -> "Come arrivare a ${p.to.name}"
+                        is Panel.JourneyDetail -> "Il viaggio per ${p.to.name}"
+                        null -> null
+                    },
                     shape = if (isMini) {
                         dev.antigravity.fluidengine.ui.fluid.FluidCapsuleShape
                     } else {

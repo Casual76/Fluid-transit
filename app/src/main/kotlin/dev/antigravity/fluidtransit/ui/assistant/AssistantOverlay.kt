@@ -1,5 +1,9 @@
 package dev.antigravity.fluidtransit.ui.assistant
 
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -99,10 +103,24 @@ fun AssistantOverlay(
         }
     }
 
+    // Per chi usa un lettore di schermo: il riquadro si annuncia quando si
+    // apre, lo stato ("Sto ascoltando", "Confermi?") quando cambia, e la
+    // risposta una volta, finita. Prima nessuna delle tre cose si sentiva:
+    // si parlava all'assistente e non si sapeva ne' che ascoltava, ne' cosa
+    // avesse risposto, ne' che chiedeva una conferma.
+    val vista = androidx.compose.ui.platform.LocalView.current
+    val risposta = answerText(state)
+    LaunchedEffect(state is AssistantState.Done, risposta) {
+        if (state is AssistantState.Done && risposta.isNotBlank()) {
+            @Suppress("DEPRECATION")
+            vista.announceForAccessibility(risposta.take(600))
+        }
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .imePadding()
+            .semantics { paneTitle = "Assistente" }
             .glassSurface(
                 state = backdrop,
                 tint = GlassDefaults.floatingTint(),
@@ -125,7 +143,9 @@ fun AssistantOverlay(
                 text = if (pending != null) "Confermi?" else statusText(state),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite },
             )
             Icon(
                 imageVector = Icons.Rounded.Close,

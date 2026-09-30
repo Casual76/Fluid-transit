@@ -1,5 +1,7 @@
 package dev.antigravity.fluidtransit.ui.map
 
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -229,6 +231,12 @@ fun BottomGlassPanel(
     showGrabber: Boolean = true,
     transformOnDismiss: Boolean = false,
     onDragExpand: (() -> Unit)? = null,
+    /**
+     * Come si chiama il pannello per un lettore di schermo. Un pannello che
+     * sale dal basso senza titolo compariva in silenzio: chi usa TalkBack
+     * toccava una fermata e non sapeva che si era aperto qualcosa, ne' dove.
+     */
+    paneTitle: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val offsetY = remember { Animatable(0f) }
@@ -313,6 +321,13 @@ fun BottomGlassPanel(
                 sampleOnce = resting,
             )
             .then(if (wholeSurfaceDrag) Modifier.panelDrag() else Modifier)
+            .then(
+                if (paneTitle != null) {
+                    Modifier.semantics { this.paneTitle = paneTitle }
+                } else {
+                    Modifier
+                },
+            )
             .animateContentSize(
                 animationSpec = spring(
                     dampingRatio = Spring.DampingRatioLowBouncy,

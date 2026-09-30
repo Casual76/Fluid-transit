@@ -1513,6 +1513,18 @@ fun TransitMap(
     val lifecycleOwner = LocalLifecycleOwner.current
     val currentController = rememberUpdatedState(controller)
     val holder = remember { arrayOfNulls<MapView>(1) }
+    // Il colore che la mappa mostra finche' lo stile non e' arrivato. Quello
+    // di MapLibre e' un crema chiaro (#F0E9E1), e col tema scuro l'app si
+    // apriva con un lampo chiaro a tutto schermo — di notte, a letto, con lo
+    // stile che a rete lenta ci mette qualche secondo. Si prende lo sfondo
+    // del tema: il vuoto prima della mappa e' del colore dell'app.
+    val sfondo = androidx.compose.material3.MaterialTheme.colorScheme.background
+    val sfondoArgb = android.graphics.Color.argb(
+        255,
+        (sfondo.red * 255).toInt(),
+        (sfondo.green * 255).toInt(),
+        (sfondo.blue * 255).toInt(),
+    )
 
     AndroidView(
         modifier = modifier,
@@ -1520,6 +1532,7 @@ fun TransitMap(
             val start = initialCamera?.takeIf { it.size >= 5 }
             val options = MapLibreMapOptions.createFromAttributes(context)
                 .textureMode(true)
+                .foregroundLoadColor(sfondoArgb)
                 .camera(
                     CameraPosition.Builder()
                         .target(

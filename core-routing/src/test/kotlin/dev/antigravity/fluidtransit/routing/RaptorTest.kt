@@ -283,6 +283,31 @@ class RaptorTest {
             assertEquals(day + 8 * 3600 + 1200, bus.arrival.epochSecond - bus.legs.last().let { (it as Raptor.Leg.Walk).seconds })
         }
     }
+    @Test
+    fun `arriva entro non propone bus gia' partiti`() {
+        BundleReader(writeBundle()).use { r ->
+            val raptor = Raptor(r)
+            // Alle 08:05 l'unico viaggio per D entro le 09:00 (R1 delle 08:00)
+            // e' gia' partito: proporlo vuol dire dire di prendere un bus andato.
+            val journeys = raptor.planArriveBy(
+                nearA, nearD, epochAt(feedStart, 9, 0),
+                notBefore = epochAt(feedStart, 8, 5),
+            )
+            assertTrue(journeys.none { !it.isWalkOnly }, "propone un bus gia' partito: $journeys")
+        }
+    }
+
+    @Test
+    fun `arriva entro a piedi arriva alla scadenza, non tre ore prima`() {
+        BundleReader(writeBundle()).use { r ->
+            val raptor = Raptor(r)
+            val scadenza = epochAt(feedStart, 9, 0)
+            val a = raptor.planArriveBy(nearA, nearB, scadenza).firstOrNull { it.isWalkOnly }
+            assertTrue(a != null, "manca la soluzione a piedi")
+            assertEquals(scadenza.epochSecond, a.arrival.epochSecond)
+        }
+    }
+
     // --- le previsioni fermata per fermata -----------------------------
 
     /**

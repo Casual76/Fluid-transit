@@ -1116,6 +1116,8 @@ fun MapScreen(
                 // cioe' la lista si riempirebbe dalla parte sbagliata.
                 "arrive" -> raptor.planArriveBy(
                     fromPlace, toPlace, Instant.ofEpochSecond(journeyTimeEpoch), liveData,
+                    // Mai un bus gia' partito.
+                    notBefore = Instant.now(),
                 )
 
                 "depart" -> raptor.plan(

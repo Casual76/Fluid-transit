@@ -201,7 +201,7 @@ object RoutineScheduler {
             if (r.anchor == "depart") {
                 raptor.plan(from, to, anchor, live).firstOrNull { !it.isWalkOnly }
             } else {
-                raptor.planArriveBy(from, to, anchor, live)
+                raptor.planArriveBy(from, to, anchor, live, notBefore = Instant.now())
                     .filter { !it.isWalkOnly }
                     .maxByOrNull { it.departure }
             }

@@ -256,7 +256,26 @@ class Raptor(private val reader: BundleReader) {
 
     /**
      * "Arriva entro": le soluzioni con l'arrivo entro [arriveBy], preferendo
-     * chi parte piu' tardi. Una scansione all'indietro sulla finestra.
+     * chi parte piu' tardi.
+     *
+     * Era un solo [plan] in avanti dall'inizio della finestra, tre ore prima,
+     * e aveva tre difetti trovati guardando l'app come chi la usa:
+     *
+     * - [plan] fa al massimo una ventina di scansioni, e su una linea
+     *   frequente finivano ben prima della scadenza: le partenze piu' tardi,
+     *   cioe' proprio quelle che "arriva entro" deve trovare, non venivano
+     *   mai guardate, e l'app diceva di uscire con un'ora di anticipo;
+     * - la finestra non si fermava ad adesso, e a un'ora dalla scadenza
+     *   proponeva bus partiti due ore fa;
+     * - il viaggio a piedi partiva all'inizio della finestra, cioe' tre ore
+     *   prima della scadenza.
+     *
+     * Adesso si cerca a finestre di un'ora all'indietro dalla scadenza, finche'
+     * non ci sono abbastanza viaggi o non si arriva a [notBefore]; e il
+     * viaggio a piedi parte in modo da arrivare alla scadenza.
+     *
+     * @param notBefore la partenza piu' presto che ha senso proporre: di
+     *   solito adesso. Null per nessun limite (i test, i calcoli nel futuro).
      */
     fun planArriveBy(
         from: Place,
@@ -265,20 +284,73 @@ class Raptor(private val reader: BundleReader) {
         realtime: Realtime = Realtime.NONE,
         windowSeconds: Int = 3 * 3600,
         maxJourneys: Int = 5,
+        notBefore: Instant? = null,
     ): List<Journey> {
-        val all = plan(
-            from, to,
-            departAt = arriveBy.minusSeconds(windowSeconds.toLong()),
-            realtime = realtime,
-            windowSeconds = windowSeconds,
-            maxJourneys = maxJourneys * 3,
-        ).filter { it.arrival <= arriveBy }
+        val scadenza = arriveBy.epochSecond
+        val pavimento = maxOf(
+            scadenza - windowSeconds,
+            notBefore?.epochSecond ?: Long.MIN_VALUE,
+        )
+        if (pavimento >= scadenza) return emptyList()
+
+        val trovati = LinkedHashMap<Long, Journey>()
+        var aPiedi: Journey? = null
+        var fine = scadenza
+        while (fine > pavimento && trovati.size < maxJourneys) {
+            val inizio = maxOf(pavimento, fine - ARRIVE_BY_STEP_SECONDS)
+            val parte = plan(
+                from, to,
+                departAt = Instant.ofEpochSecond(inizio),
+                realtime = realtime,
+                windowSeconds = (fine - inizio).toInt(),
+                maxJourneys = maxJourneys * 3,
+            )
+            for (j in parte) {
+                if (j.isWalkOnly) {
+                    aPiedi = j
+                    continue
+                }
+                if (j.arrival.epochSecond > scadenza) continue
+                if (j.departure.epochSecond < pavimento) continue
+                val key = j.departure.epochSecond * 1_000_003 + j.arrival.epochSecond * 31 + j.transfers
+                trovati.putIfAbsent(key, j)
+            }
+            fine = inizio
+        }
+
+        // A piedi si parte per arrivare alla scadenza, non tre ore prima.
+        val camminata = aPiedi?.let { w ->
+            val partenza = scadenza - w.walkSeconds
+            if (partenza < pavimento) {
+                null
+            } else {
+                val leg = w.legs.single() as Leg.Walk
+                Journey(
+                    legs = listOf(
+                        Leg.Walk(
+                            leg.fromStop, leg.toStop, leg.fromLat, leg.fromLon,
+                            leg.toLat, leg.toLon, leg.seconds, Instant.ofEpochSecond(partenza),
+                        ),
+                    ),
+                    transfers = 0,
+                    walkSeconds = w.walkSeconds,
+                )
+            }
+        }
+
         // Chi parte piu' tardi vince; a parita', meno cambi.
-        return all
+        return (trovati.values + listOfNotNull(camminata))
             .sortedWith(compareByDescending<Journey> { it.departure }.thenBy { it.transfers })
             .take(maxJourneys)
             .sortedBy { it.departure }
     }
+
+    /**
+     * Quanto e' larga ognuna delle finestre all'indietro di [planArriveBy].
+     * Un'ora: una linea ogni cinque minuti ne fa dodici, e [plan] ne scandisce
+     * fino a diciotto, quindi ogni finestra si guarda tutta.
+     */
+    private val ARRIVE_BY_STEP_SECONDS = 3600L
 
     // -------------------------------------------------------------- il core
 

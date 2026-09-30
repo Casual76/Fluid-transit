@@ -150,7 +150,10 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
             val to = Raptor.Place(toLat, toLon)
             when {
                 arriveByEpoch != null ->
-                    raptor.planArriveBy(from, to, Instant.ofEpochSecond(arriveByEpoch), live)
+                    raptor.planArriveBy(
+                        from, to, Instant.ofEpochSecond(arriveByEpoch), live,
+                        notBefore = Instant.now(),
+                    )
 
                 else -> raptor.plan(
                     from, to,

@@ -250,9 +250,10 @@ class FluidTransitApp : Application() {
                     "non disponibili: solo orari programmati"
                 else -> "disponibili"
             },
-            // L'eta' di ADESSO: quella dello stato e' del momento dell'ultimo poll, e con l'app
-            // in secondo piano restava "40 secondi" per ore.
-            feedAgeSeconds = assistantBridge.feedAgeNow(rt)?.toInt(),
+            // L'eta' di ADESSO, non quella dell'ultimo giro: chi scarica e' la
+            // mappa, e con la mappa chiusa il numero grezzo resta fermo a
+            // "40 s" mentre lo snapshot invecchia.
+            feedAgeSeconds = rt.ageAt(java.time.Instant.now())?.toInt(),
         )
     }
 
@@ -457,7 +458,6 @@ class FluidTransitApp : Application() {
                 val id = (s as? BundleManager.BundleState.Ready)?.buildId ?: return@collect
                 val prev = lastBuild
                 if (prev != null && prev != id) {
-                    delayModel.clear()
                     // Non basta azzerare il modello dei ritardi. Le cancellate,
                     // i mezzi vivi e le previsioni risolte hanno dentro indici
                     // di corsa del bundle di ieri, e si ricostruivano solo
@@ -469,12 +469,24 @@ class FluidTransitApp : Application() {
                     // un bus sano. Si svuota subito (nessuna informazione
                     // batte quella sbagliata) e si risolve di nuovo contro il
                     // lettore nuovo con gli ultimi snapshot che si hanno.
-                    canceledTrips.value = emptySet()
-                    tripsWithVehicle.value = emptySet()
-                    livePredictions.value = null
-                    resolveDelays(realtime.delays.value)
-                    resolveVehicles(realtime.vehicles.value)
-                    resolvePredictions(realtime.predictions.value)
+                    //
+                    // Sotto il lucchetto delle risoluzioni: un giro che stava
+                    // risolvendo col lettore di ieri su un altro thread (lo
+                    // scope e' Default) finisce PRIMA dello svuotamento, non
+                    // in mezzo, e uno che parte dopo trova gia' il lettore
+                    // nuovo. Ogni risoluzione e' in un runCatching: se una
+                    // lancia, il collettore deve restare vivo, altrimenti
+                    // da quel momento nessuno scambio svuoterebbe piu' niente
+                    // e tornerebbe la finestra degli indici vecchi.
+                    synchronized(risoluzioneLock) {
+                        delayModel.clear()
+                        canceledTrips.value = emptySet()
+                        tripsWithVehicle.value = emptySet()
+                        livePredictions.value = null
+                        runCatching { resolveDelays(realtime.delays.value) }
+                        runCatching { resolveVehicles(realtime.vehicles.value) }
+                        runCatching { resolvePredictions(realtime.predictions.value) }
+                    }
                     liveVersion.value += 1
                 }
                 lastBuild = id
@@ -599,7 +611,10 @@ class FluidTransitApp : Application() {
      * riceve gli snapshot e lo scambio del bundle, che deve ricostruire tutto
      * subito invece di aspettare il giro seguente.
      */
-    private fun resolveDelays(snapshot: dev.antigravity.fluidtransit.data.rt.RtDelays?) {
+    private fun resolveDelays(snapshot: dev.antigravity.fluidtransit.data.rt.RtDelays?) =
+        synchronized(risoluzioneLock) { resolveDelaysLocked(snapshot) }
+
+    private fun resolveDelaysLocked(snapshot: dev.antigravity.fluidtransit.data.rt.RtDelays?) {
         // Le cancellate viaggiano insieme ai ritardi: chi le vuole
         // (la navigazione) altrimenti doveva ricostruire l'intero
         // snapshot risolto — ottocento oggetti e tre mappe — solo per
@@ -617,6 +632,12 @@ class FluidTransitApp : Application() {
             ?: (System.currentTimeMillis() / 1000)
         for (d in snapshot.byTripHash.values) {
             if (d.canceled || d.noData) continue
+            // Lo scambio del bundle non prende il lucchetto mentre pubblica
+            // il lettore nuovo: se succede a meta' di questo ciclo (centinaia
+            // di risoluzioni), gli indici che restano sono di ieri e
+            // scriverli nel modello gia' svuotato li appiccicherebbe a corse
+            // sbagliate fino a forgetBefore, cioe' mezz'ora.
+            if (!ancoraCorrente(reader)) return
             val trip = reader.findTripByIdHash(d.tripHash).takeIf { it >= 0 }
                 ?: reader.findTripByRouteAndDeparture(
                     d.routeHash,
@@ -656,14 +677,20 @@ class FluidTransitApp : Application() {
     }
 
     /** Le previsioni per fermata, risolte contro il bundle di adesso. */
-    private fun resolvePredictions(set: dev.antigravity.fluidtransit.data.rt.RtPredictionSet?) {
+    private fun resolvePredictions(set: dev.antigravity.fluidtransit.data.rt.RtPredictionSet?) =
+        synchronized(risoluzioneLock) { resolvePredictionsLocked(set) }
+
+    private fun resolvePredictionsLocked(set: dev.antigravity.fluidtransit.data.rt.RtPredictionSet?) {
         val ready = bundleManager.state.value as? BundleManager.BundleState.Ready
         val reader = ready?.reader
         if (set == null || reader == null) {
             livePredictions.value = null
             return
         }
-        val risolte = dev.antigravity.fluidtransit.data.departures
+        // Come in DepartureBoards.risolvi: un feed anomalo non deve uccidere
+        // chi chiama. Senza previsioni risolte si ripiega sul modello.
+        val risolte = runCatching {
+            dev.antigravity.fluidtransit.data.departures
             .LiveFromPredictions.resolve(
                 reader = reader,
                 set = set,
@@ -676,11 +703,15 @@ class FluidTransitApp : Application() {
                 canceledTrips = canceledTrips.value,
                 withVehicle = tripsWithVehicle.value,
             )
+        }.getOrNull()
         if (ancoraCorrente(reader)) livePredictions.value = risolte
     }
 
     /** I mezzi vivi, risolti in indici di corsa contro il bundle di adesso. */
-    private fun resolveVehicles(snapshot: dev.antigravity.fluidtransit.data.rt.RtVehicles?) {
+    private fun resolveVehicles(snapshot: dev.antigravity.fluidtransit.data.rt.RtVehicles?) =
+        synchronized(risoluzioneLock) { resolveVehiclesLocked(snapshot) }
+
+    private fun resolveVehiclesLocked(snapshot: dev.antigravity.fluidtransit.data.rt.RtVehicles?) {
         val ready = bundleManager.state.value as? BundleManager.BundleState.Ready
         val reader = ready?.reader
         if (snapshot == null || reader == null) {
@@ -701,8 +732,16 @@ class FluidTransitApp : Application() {
             .let { if (ancoraCorrente(reader)) tripsWithVehicle.value = it }
     }
 
+    /**
+     * Serializza le risoluzioni contro il bundle (ritardi, mezzi, previsioni)
+     * e il blocco dello scambio che svuota tutto. Lo scope dell'Application e'
+     * Default, quindi i collettori girano in parallelo: senza, un giro iniziato
+     * col lettore di ieri poteva scrivere sopra lo svuotamento dello scambio.
+     */
+    internal val risoluzioneLock = Any()
+
     /** Il lettore con cui si e' risolto e' ancora quello in uso? */
-    private fun ancoraCorrente(reader: dev.antigravity.fluidtransit.routing.BundleReader): Boolean =
+    internal fun ancoraCorrente(reader: dev.antigravity.fluidtransit.routing.BundleReader): Boolean =
         (bundleManager.state.value as? BundleManager.BundleState.Ready)?.reader === reader
 
     companion object {

@@ -253,22 +253,29 @@ class DepartureBoards(private val app: FluidTransitApp) {
      * pubblica dove tutti lo leggono.
      */
     @Synchronized
-    private fun risolvi(grezzo: RtPredictionSet, base: LiveTimes): LiveTimes {
-        val reader = readerOrNull() ?: return base
-        val gia = app.livePredictions.value
-        if (gia != null && gia.valeAncora(grezzo, reader.buildId)) return gia
-        val risolte = runCatching {
-            LiveFromPredictions.resolve(
-                reader = reader,
-                set = grezzo,
-                fallback = base,
-                canceledTrips = app.canceledTrips.value,
-                withVehicle = app.tripsWithVehicle.value,
-            )
-        }.getOrNull() ?: return base
-        app.livePredictions.value = risolte
-        return risolte
-    }
+    private fun risolvi(grezzo: RtPredictionSet, base: LiveTimes): LiveTimes =
+        // Sotto lo stesso lucchetto dello scambio del bundle: le cancellate e
+        // i mezzi vivi si leggono qui dentro, non prima, e lo scambio non
+        // puo' svuotare tutto a meta' mentre si risolve col lettore di ieri.
+        synchronized(app.risoluzioneLock) {
+            val reader = readerOrNull() ?: return@synchronized base
+            val gia = app.livePredictions.value
+            if (gia != null && gia.valeAncora(grezzo, reader.buildId)) return@synchronized gia
+            val risolte = runCatching {
+                LiveFromPredictions.resolve(
+                    reader = reader,
+                    set = grezzo,
+                    fallback = base,
+                    canceledTrips = app.canceledTrips.value,
+                    withVehicle = app.tripsWithVehicle.value,
+                )
+            }.getOrNull() ?: return@synchronized base
+            // Se il bundle e' cambiato mentre si risolveva, gli indici sono
+            // di ieri: si serve il risultato a chi ha chiesto ma non lo si
+            // pubblica dove lo leggono tutti.
+            if (app.ancoraCorrente(reader)) app.livePredictions.value = risolte
+            risolte
+        }
 
     /**
      * Un tabellone non ancora calcolato: `computedAtEpoch` a zero.

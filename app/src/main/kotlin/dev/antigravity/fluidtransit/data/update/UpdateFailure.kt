@@ -21,6 +21,9 @@ import dev.antigravity.fluidtransit.data.bundle.BundleFailure
  */
 object UpdateFailure {
 
+    private val ERRORE_HTTP =
+        Regex("""(richiesta|download) non riuscit[oa] \([45]\d\d\)""")
+
     /**
      * @param message il messaggio dell'eccezione, o dell'errore
      *   dell'installazione.
@@ -68,8 +71,12 @@ object UpdateFailure {
                 )
 
             // Il manifest o l'APK non stanno dove dovrebbero: non e' colpa
-            // del telefono.
-            "http 4" in m || "http 5" in m ->
+            // del telefono. Le stringhe sono quelle VERE dell'engine
+            // (EngineHttp: "Richiesta non riuscita (404)." per il manifest,
+            // "Download non riuscito (404)." per l'APK): prima il ramo
+            // cercava "http 4", che scrivono solo i controlli del bundle, e
+            // un 404 sul manifest finiva nella frase generica.
+            ERRORE_HTTP.containsMatchIn(m) || "http 4" in m || "http 5" in m ->
                 BundleFailure.Words(
                     "Il server degli aggiornamenti non risponde come dovrebbe. " +
                         "Non e' un problema del telefono: riprova fra poco.",

@@ -95,11 +95,12 @@ class RealtimeClient(
          * tempo trascorso dall'ultimo giro; senza l'istante del giro (stato
          * mai pubblicato) si dice quello che si sa.
          */
-        fun ageAt(now: Instant): Long? {
-            val age = feedAgeSeconds ?: return null
-            val from = polledAt ?: return age
-            return age + (now.epochSecond - from.epochSecond).coerceAtLeast(0L)
-        }
+        fun ageAt(now: Instant): Long? =
+            dev.antigravity.fluidtransit.routing.LiveAge.feedNow(
+                feedAgeSeconds?.toLong(),
+                polledAt?.epochSecond,
+                now.epochSecond,
+            )
     }
 
     /**

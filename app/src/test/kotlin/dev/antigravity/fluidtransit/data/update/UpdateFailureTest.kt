@@ -32,6 +32,8 @@ class UpdateFailureTest {
             "failed to connect to raw.githubusercontent.com: Connection refused",
             "javax.net.ssl.SSLHandshakeException: Trust anchor for certification path not found",
             "HTTP 404 su manifest.json",
+            "Richiesta non riuscita (404).",
+            "Download non riuscito (503).",
             "java.lang.IllegalStateException: boom",
             "kotlinx.serialization.SerializationException: Unexpected JSON token",
         )
@@ -67,5 +69,19 @@ class UpdateFailureTest {
         val w = UpdateFailure.words("java.lang.IllegalStateException: boom")
         assertEquals("Non riusciamo a controllare gli aggiornamenti.", w.title)
         assertEquals("java.lang.IllegalStateException: boom", w.technical)
+    }
+
+    @Test
+    fun `i messaggi veri dell'engine per un 404 o un 503 dicono che e' il server`() {
+        // Sono le stringhe di EngineHttp, non quelle dei controlli del bundle.
+        for ((msg, installing) in listOf(
+            "Richiesta non riuscita (404)." to false,
+            "Richiesta non riuscita (503)." to false,
+            "Download non riuscito (404)." to true,
+        )) {
+            val w = UpdateFailure.words(msg, installing)
+            assertTrue(w.title, "server degli aggiornamenti" in w.title)
+            assertEquals(msg, w.technical)
+        }
     }
 }

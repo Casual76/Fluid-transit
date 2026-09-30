@@ -423,7 +423,10 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
         }
         // L'eta' con le parole del resto dell'app: qui erano secondi nudi, e
         // "aggiornati 1200s fa" letto ad alta voce e' un numero da dividere.
-        val age = feedAgeNow(status)?.let { "aggiornati ${Words.age(it)} fa" }
+        // L'eta' di adesso (ageAt), non quella dell'ultimo giro: aperto
+        // dieci minuti dopo aver lasciato la mappa, il numero grezzo diceva
+        // ancora "40 s fa".
+        val age = status.ageAt(java.time.Instant.now())?.let { "aggiornati ${Words.age(it)} fa" }
             ?: "mai aggiornati"
         val counts = Words.count(status.vehicleCount, "mezzo", "mezzi") + ", " +
             Words.count(status.delayCount, "ritardo", "ritardi")
@@ -641,14 +644,6 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
     }
 
     // ------------------------------------------------------------------ interni
-
-    /** L'eta' del feed ADESSO: quella dello stato e' del momento dell'ultimo poll. */
-    fun feedAgeNow(status: dev.antigravity.fluidtransit.data.rt.RealtimeClient.Status): Long? =
-        LiveAge.feedNow(
-            status.feedAgeSeconds,
-            status.lastSuccessAt?.epochSecond,
-            Instant.now().epochSecond,
-        )
 
     /** La stessa regola della ricerca, e adesso lo e' davvero: [Reference]. */
     private fun referencePoint(): Pair<Double, Double>? = Reference.point(here, looking)

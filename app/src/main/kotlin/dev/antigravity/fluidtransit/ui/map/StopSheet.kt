@@ -329,7 +329,12 @@ fun StopPanelContent(
                     .fadeVerticalEdges()
                     .padding(horizontal = 20.dp),
             ) {
-                items(board.rows.size) { i ->
+                // Le righe si riconoscono per corsa e passaggio: quando la
+                // prima se ne va le altre non si ridisegnano tutte da capo.
+                val chiavi = dev.antigravity.fluidtransit.ui.common.uniqueKeys(
+                    board.rows.map { "${it.tripIndex}-${it.stopIndex}-${it.positionInPattern}" },
+                )
+                items(board.rows.size, key = { chiavi[it] }) { i ->
                     val row = board.rows[i]
                     if (i > 0) FluidHairline()
                     // Il tocco sulle PAROLE della provenienza apre "perche'

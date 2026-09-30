@@ -203,6 +203,11 @@ fun SearchGlass(
                     ),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    // "Cerca" sulla tastiera apre il primo risultato, che e'
+                    // il piu' pertinente: prima non faceva niente.
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                        onSearch = { results.firstOrNull()?.let(onPick) },
+                    ),
                     decorationBox = { inner ->
                         if (query.isEmpty()) {
                             Text(
@@ -309,7 +314,12 @@ fun SearchGlass(
                             )
                         }
                     } else {
-                        items(results.size) { i -> SuggestionRow(results[i], onPick, divider = i > 0) }
+                        val chiavi = dev.antigravity.fluidtransit.ui.common.uniqueKeys(
+                            results.map { "${it.kind}:${it.key}" },
+                        )
+                        items(results.size, key = { chiavi[it] }) { i ->
+                            SuggestionRow(results[i], onPick, divider = i > 0)
+                        }
                     }
                 } else {
                     // L'ingresso al pianificatore, come deciso: qui e non

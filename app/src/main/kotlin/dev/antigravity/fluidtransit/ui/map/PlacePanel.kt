@@ -56,7 +56,14 @@ fun GlassActionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     emphasized: Boolean = false,
+    /**
+     * Spento quando toccarlo non farebbe niente. Prima il tocco finiva nel
+     * vuoto — "Salva" senza nome, "Crea la routine" senza giorni — e da
+     * fuori sembrava un pulsante rotto.
+     */
+    enabled: Boolean = true,
 ) {
+    val alfa = if (enabled) 1f else 0.38f
     Row(
         modifier = modifier
             .glassSurface(
@@ -68,6 +75,7 @@ fun GlassActionButton(
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
+                enabled = enabled,
                 role = Role.Button,
                 onClick = onClick,
             )
@@ -83,7 +91,7 @@ fun GlassActionButton(
                     MaterialTheme.colorScheme.primary
                 } else {
                     MaterialTheme.colorScheme.onSurface
-                },
+                }.copy(alpha = alfa),
                 modifier = Modifier.size(18.dp),
             )
         }
@@ -94,7 +102,7 @@ fun GlassActionButton(
                 MaterialTheme.colorScheme.primary
             } else {
                 MaterialTheme.colorScheme.onSurface
-            },
+            }.copy(alpha = alfa),
         )
     }
 }
@@ -275,7 +283,10 @@ fun PlacePanelContent(
                 icon = null,
                 backdrop = backdrop,
                 emphasized = true,
-                onClick = { if (customLabel.isNotBlank()) onSave(customLabel) },
+                // Senza un nome non c'e' niente da salvare: il campo accanto
+                // dice gia' cosa manca.
+                enabled = customLabel.isNotBlank(),
+                onClick = { onSave(customLabel) },
             )
         }
     }

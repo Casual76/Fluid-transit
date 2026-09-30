@@ -95,6 +95,9 @@ fun SettingsTab(app: FluidTransitApp, onOpenDataStatus: () -> Unit = {}) {
                 androidx.compose.runtime.mutableStateOf(app.travelMode.mode)
             }
             FluidListGroup {
+                // Tre scelte visibili, come il tema. Prima era una riga che a
+                // ogni tocco passava al modo dopo, senza niente che dicesse
+                // che si poteva toccare ne' quali fossero le altre due.
                 FluidListRow(
                     title = "Modo viaggio",
                     subtitle = when (mode) {
@@ -105,12 +108,19 @@ fun SettingsTab(app: FluidTransitApp, onOpenDataStatus: () -> Unit = {}) {
                         dev.antigravity.fluidtransit.data.nav.TravelMode.RISPARMIO ->
                             "Aggiornamenti radi: quasi zero batteria"
                     },
-                    meta = mode.label,
-                    onClick = {
-                        val all = dev.antigravity.fluidtransit.data.nav.TravelMode.entries
-                        mode = all[(all.indexOf(mode) + 1) % all.size]
-                        app.travelMode.mode = mode
+                )
+                FluidSegmentedControl(
+                    options = dev.antigravity.fluidtransit.data.nav.TravelMode.entries.toList(),
+                    selected = mode,
+                    onSelect = {
+                        mode = it
+                        app.travelMode.mode = it
                     },
+                    label = { it.label },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .padding(bottom = 12.dp),
                 )
             }
         }

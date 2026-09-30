@@ -130,12 +130,31 @@ fun AssistantSettingsGroup(app: FluidTransitApp) {
                     Spacer(Modifier.padding(top = 10.dp))
                     Text(hintFor(target))
                     Spacer(Modifier.padding(top = 10.dp))
+                    // Una chiave e' una password: non si mostra, e la tastiera
+                    // non la impara.
                     OutlinedTextField(
                         value = draft,
                         onValueChange = { draft = it },
                         singleLine = true,
                         placeholder = { Text(placeholderFor(target)) },
+                        visualTransformation =
+                        androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
+                            autoCorrectEnabled = false,
+                        ),
                     )
+                    // Togliere la chiave e' un'azione sua, lontana dai due
+                    // pulsanti in basso. Prima prendeva il posto di "Annulla":
+                    // chi apriva il dialogo solo per guardare, e voleva
+                    // chiuderlo, la cancellava.
+                    if (present) {
+                        Spacer(Modifier.padding(top = 6.dp))
+                        TextButton(onClick = {
+                            editing = null
+                            scope.launch { assistant.keys.set(target, null) }
+                        }) { Text("Rimuovi la chiave salvata") }
+                    }
                 }
             },
             confirmButton = {
@@ -165,14 +184,7 @@ fun AssistantSettingsGroup(app: FluidTransitApp) {
                 }) { Text("Salva e prova") }
             },
             dismissButton = {
-                if (present) {
-                    TextButton(onClick = {
-                        editing = null
-                        scope.launch { assistant.keys.set(target, null) }
-                    }) { Text("Rimuovi") }
-                } else {
-                    TextButton(onClick = { editing = null }) { Text("Annulla") }
-                }
+                TextButton(onClick = { editing = null }) { Text("Annulla") }
             },
         )
     }

@@ -67,7 +67,19 @@ class StopWidgetConfigActivity : ComponentActivity() {
                             FluidEmptyState(
                                 title = "Nessuna fermata preferita",
                                 detail = "Stella una fermata nell'app: il widget " +
-                                    "mostra le partenze di una delle tue.",
+                                    "mostra le partenze di una delle tue. Resta sulla " +
+                                    "home, e quando l'hai stellata lo tocchi per sceglierla.",
+                            )
+                        }
+                        // Era un vicolo cieco: niente da scegliere e nessun modo
+                        // di andare a stellare. Il widget si mette lo stesso,
+                        // da configurare — toccarlo riapre questa scelta — e
+                        // l'app si apre sulla mappa.
+                        item {
+                            dev.antigravity.fluidengine.ui.fluid.FluidButton(
+                                text = "Apri l'app",
+                                onClick = { lasciaDaConfigurare(appWidgetId) },
+                                style = dev.antigravity.fluidengine.ui.fluid.FluidButtonStyle.Filled,
                             )
                         }
                     } else {
@@ -85,6 +97,24 @@ class StopWidgetConfigActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    private fun lasciaDaConfigurare(appWidgetId: Int) {
+        lifecycleScope.launch {
+            val manager = GlanceAppWidgetManager(this@StopWidgetConfigActivity)
+            runCatching {
+                StopWidget().update(this@StopWidgetConfigActivity, manager.getGlanceIdBy(appWidgetId))
+            }
+            setResult(
+                RESULT_OK,
+                Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId),
+            )
+            startActivity(
+                Intent(this@StopWidgetConfigActivity, dev.antigravity.fluidtransit.MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+            finish()
         }
     }
 

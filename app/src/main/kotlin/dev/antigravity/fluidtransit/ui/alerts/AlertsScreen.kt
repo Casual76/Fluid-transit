@@ -50,6 +50,21 @@ import kotlinx.coroutines.launch
 fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
     val bundleState by app.bundleManager.state.collectAsStateWithLifecycle()
     val reader = (bundleState as? BundleState.Ready)?.reader
+    // I nomi e i colori delle linee, per hash, una volta per bundle e fuori
+    // dal thread della UI. Ogni scheda li cercava per conto suo con una
+    // scansione lineare delle linee — 946 a settembre — per ogni hash di
+    // ogni avviso, dentro la composizione.
+    val linee by produceState(initialValue = emptyMap<Long, Pair<String, Int>>(), reader) {
+        val r = reader ?: return@produceState
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            runCatching {
+                (0 until r.routeCount).associate { i ->
+                    r.routeIdHash(i) to
+                        (r.routeShortName(i).ifEmpty { r.routeLongName(i) } to r.routeDisplayColor(i))
+                }
+            }.getOrDefault(emptyMap())
+        }
+    }
     val favVersion by app.favorites.version.collectAsStateWithLifecycle()
     // "Le tue linee" comprende quelle che passano dalle tue fermate: la
     // stella sulle linee quasi nessuno la mette, e senza questo la sezione
@@ -172,7 +187,7 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
 
         if (tuoi.isNotEmpty()) {
             item { FluidSectionTitle(eyebrow = "Avvisi", title = "Sulle tue linee") }
-            item { AlertGroup(tuoi, reader, now, mine) }
+            alertItems("tuoi", tuoi, linee, now, mine)
         }
         if (altri.isNotEmpty()) {
             item {
@@ -181,11 +196,11 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
                     title = if (tuoi.isEmpty()) "In corso" else "Sul resto della rete",
                 )
             }
-            item { AlertGroup(altri, reader, now, mine) }
+            alertItems("altri", altri, linee, now, mine)
         }
         if (futuri.isNotEmpty()) {
             item { FluidSectionTitle(eyebrow = "Avvisi", title = "Nei prossimi giorni") }
-            item { AlertGroup(futuri, reader, now, mine) }
+            alertItems("futuri", futuri, linee, now, mine)
         }
     }
 }
@@ -193,17 +208,35 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
 /** Quanto in la' si guarda per gli avvisi che devono ancora cominciare. */
 private const val PROSSIMI_GIORNI = 14
 
-@Composable
-private fun AlertGroup(
+/**
+ * Un avviso per elemento della lista, non tutti in uno.
+ *
+ * Stavano tutti dentro un solo elemento, cioe' la lista pigra non era pigra:
+ * aprendo la schermata si componevano insieme tutte le schede, un centinaio
+ * nei giorni di sciopero, prima di mostrare la prima. Il gruppo resta un
+ * gruppo solo a vederlo, perche' ogni pezzo arrotonda solo il suo lato
+ * ([FluidGroupSegment]).
+ */
+private fun androidx.compose.foundation.lazy.LazyListScope.alertItems(
+    section: String,
     alerts: List<GtfsRtLite.RtAlert>,
-    reader: dev.antigravity.fluidtransit.routing.BundleReader?,
+    linee: Map<Long, Pair<String, Int>>,
     nowEpoch: Long,
     mine: Set<Long>,
 ) {
-    FluidListGroup {
-        for ((i, a) in alerts.withIndex()) {
+    items(
+        count = alerts.size,
+        key = { i -> "$section-$i-${alerts[i].header.hashCode()}-${alerts[i].startEpoch}" },
+    ) { i ->
+        val segment = when {
+            alerts.size == 1 -> dev.antigravity.fluidengine.ui.theme.FluidGroupSegment.Whole
+            i == 0 -> dev.antigravity.fluidengine.ui.theme.FluidGroupSegment.First
+            i == alerts.lastIndex -> dev.antigravity.fluidengine.ui.theme.FluidGroupSegment.Last
+            else -> dev.antigravity.fluidengine.ui.theme.FluidGroupSegment.Middle
+        }
+        FluidListGroup(segment = segment) {
             if (i > 0) dev.antigravity.fluidengine.ui.theme.FluidListDivider()
-            AlertCard(a, reader, nowEpoch, mine)
+            AlertCard(alerts[i], linee, nowEpoch, mine)
         }
     }
 }
@@ -211,14 +244,14 @@ private fun AlertGroup(
 @Composable
 private fun AlertCard(
     alert: GtfsRtLite.RtAlert,
-    reader: dev.antigravity.fluidtransit.routing.BundleReader?,
+    /** hash della linea -> (nome, colore), costruita una volta fuori dalla UI. */
+    nomiLinee: Map<Long, Pair<String, Int>>,
     nowEpoch: Long,
     mine: Set<Long>,
 ) {
     // Le linee toccate, coi loro nomi e i loro colori: l'avviso arriva con
     // gli hash, che da soli non dicono niente a nessuno.
-    val linee = remember(alert, reader, mine) {
-        val r = reader ?: return@remember emptyList()
+    val linee = remember(alert, nomiLinee, mine) {
         alert.routeHashes
             // Le tue davanti.
             //
@@ -228,15 +261,8 @@ private fun AlertCard(
             // stellato. L'ordine non lo dice a parole, ma mette al primo
             // posto quella per cui la scheda si e' aperta.
             .sortedByDescending { it in mine }
-            .mapNotNull { h ->
-                val idx = r.findRouteByIdHash(h)
-                if (idx < 0) {
-                    null
-                } else {
-                    r.routeShortName(idx).ifEmpty { r.routeLongName(idx) } to
-                        r.routeDisplayColor(idx)
-                }
-            }.distinct()
+            .mapNotNull { h -> nomiLinee[h] }
+            .distinct()
     }
     val periodo = AlertText.period(alert.startEpoch, alert.endEpoch, nowEpoch)
 

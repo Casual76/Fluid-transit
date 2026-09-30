@@ -241,6 +241,16 @@ fun AssistantOverlay(
                 ),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                // Il tasto Invio della tastiera diceva "Invia" e non faceva
+                // niente: si doveva cercare il pulsante accanto al campo.
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                    onSend = {
+                        if (draft.isNotBlank() && state !is AssistantState.Listening) {
+                            session.askText(draft)
+                            draft = ""
+                        }
+                    },
+                ),
                 decorationBox = { inner ->
                     if (draft.isEmpty()) {
                         Text(

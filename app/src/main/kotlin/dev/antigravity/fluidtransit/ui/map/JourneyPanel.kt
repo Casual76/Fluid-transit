@@ -779,12 +779,21 @@ private fun RoutineForm(
             .padding(horizontal = 20.dp, vertical = 4.dp),
     )
 
+    if (days.isEmpty()) {
+        Text(
+            text = "Scegli almeno un giorno: la routine vale nei giorni accesi.",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 20.dp),
+        )
+    }
     Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
         GlassActionButton(
             text = "Crea la routine",
             icon = null,
             backdrop = backdrop,
             emphasized = true,
+            enabled = days.isNotEmpty(),
             onClick = {
                 if (days.isEmpty()) return@GlassActionButton
                 val time = if (anchor == "arrive") j.arrTime else j.depTime

@@ -527,6 +527,28 @@ object DepartureText {
     const val FIND_ANOTHER = "cerca un altro percorso"
 
     /**
+     * Il feed dichiara SALTATA una fermata della corsa: il bus c'e' ma da
+     * li' non si ferma. Si dice dove, perche' "La 20 non ferma" senza il nome
+     * farebbe pensare che la linea non passi proprio.
+     *
+     * Prima la navigazione non guardava `skipped`: a chi aspettava diceva
+     * "La 20 e' alla tua fermata" mentre il bus tirava dritto, e a chi era a
+     * bordo "Scendi a X" per una fermata dove non si scende.
+     */
+    fun skippedLine(line: String, stop: String): String = "La $line non ferma a $stop"
+
+    /**
+     * Cosa fare a bordo quando la fermata di discesa e' saltata: dove scendere
+     * invece. [before] dice se l'alternativa e' prima o dopo della fermata
+     * saltata; null se il feed le salta tutte.
+     */
+    fun afterSkippedAlight(alternative: String?, before: Boolean): String = when {
+        alternative == null -> "scendi alla fermata piu' vicina"
+        before -> "scendi prima, a $alternative"
+        else -> "scendi dopo, a $alternative"
+    }
+
+    /**
      * La provenienza di un tabellone intero, per un titolo.
      *
      * "Prossimi passaggi · dal bus" ha senso solo se almeno una riga viene dal

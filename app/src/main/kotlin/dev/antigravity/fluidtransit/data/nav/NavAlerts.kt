@@ -112,6 +112,23 @@ class NavAlerts(private val alightRadiusM: Int = 300) {
             return Candidato(avviso, aspettaConferma = false, finale = true)
         }
         if (s.phase == "ride") {
+            // La fermata di discesa e' saltata dal feed: "Scendi alla
+            // prossima", "Preparati" e "Stai per arrivare" parlerebbero tutti
+            // di una fermata dove il bus non si ferma. Un avviso solo, che
+            // dice dove scendere, e senza conferma: a bordo un giro di
+            // attesa puo' essere la fermata che serviva.
+            if (s.skipped) {
+                return Candidato(
+                    Avviso(
+                        SKIPPED_ALIGHT,
+                        s.headline,
+                        s.detail.replaceFirstChar { it.uppercase() },
+                        forte = true,
+                    ),
+                    aspettaConferma = false,
+                    perCorsa = true,
+                )
+            }
             if (s.stopsRemaining <= 1) {
                 return Candidato(
                     Avviso(ALIGHT, "Scendi alla prossima", s.headline, forte = true),
@@ -183,6 +200,24 @@ class NavAlerts(private val alightRadiusM: Int = 300) {
                 )
             }
         }
+        if (s.phase == "walk" || s.phase == "wait") {
+            // Il bus passa ma da questa fermata non carica: come il "gia'
+            // passata", con due giri di conferma per lo stesso singhiozzo
+            // del feed. Senza questo arrivava "Il tuo bus sta arrivando"
+            // forte per un mezzo che tirava dritto.
+            if (s.skipped) {
+                return Candidato(
+                    Avviso(
+                        SKIPPED,
+                        s.headline,
+                        s.detail.replaceFirstChar { it.uppercase() },
+                        forte = true,
+                    ),
+                    aspettaConferma = true,
+                    perCorsa = true,
+                )
+            }
+        }
         if (s.phase == "wait") {
             if (s.busStopsAway in 0..1) {
                 return Candidato(
@@ -204,6 +239,8 @@ class NavAlerts(private val alightRadiusM: Int = 300) {
         const val ARRIVING = "bus-in-arrivo"
         const val CANCELED = "cancellata"
         const val MISSED = "gia-passata"
+        const val SKIPPED = "non-ferma"
+        const val SKIPPED_ALIGHT = "non-ferma-alla-discesa"
         const val PREPARE = "preparati"
         const val ALIGHT = "scendi-alla-prossima"
         const val ARRIVED = "scendi-qui"

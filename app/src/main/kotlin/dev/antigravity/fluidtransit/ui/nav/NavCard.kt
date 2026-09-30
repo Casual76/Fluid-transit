@@ -10,16 +10,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.minimumInteractiveComponentSize
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
@@ -36,6 +35,7 @@ import dev.antigravity.fluidtransit.ui.map.LiveDot
 import dev.antigravity.fluidtransit.ui.map.RoutePill
 import dev.antigravity.fluidtransit.ui.map.liveGreen
 import dev.antigravity.fluidtransit.ui.map.panelListMax
+import kotlinx.coroutines.delay
 
 /**
  * La card del viaggio in corso: una riga quando si vuole guardare la mappa,
@@ -183,7 +183,7 @@ private fun Testata(state: NavState, onToggle: () -> Unit, onStop: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Chiudi(onStop)
+        Termina(onStop)
     }
 }
 
@@ -198,7 +198,7 @@ private fun Testata(state: NavState, onToggle: () -> Unit, onStop: () -> Unit) {
 private fun Alternative(state: NavState, focus: NavFocus?) {
     // Anche mentre si cammina, quando la corsa non si prende piu': e'
     // proprio li' che serve sapere cos'altro passa dalla stessa fermata.
-    val persa = state.canceled || state.missed
+    val persa = state.canceled || state.missed || state.skipped
     if (state.phase != "wait" && !persa) return
     val utili = focus?.useful?.take(3).orEmpty()
     if (utili.isEmpty()) return
@@ -262,7 +262,7 @@ private fun NavMini(state: NavState, onToggle: () -> Unit, onStop: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Chiudi(onStop)
+        Termina(onStop)
     }
 }
 
@@ -273,22 +273,47 @@ private fun NavMini(state: NavState, onToggle: () -> Unit, onStop: () -> Unit) {
  * basso riduce e basta. Una trascinata distratta che ferma il viaggio
  * mentre si e' sul bus e' il difetto peggiore che questa schermata possa
  * avere.
+ *
+ * Era una X, la stessa X che in ogni altro pannello dell'app vuol dire
+ * "Chiudi" e nasconde il pannello: chi voleva solo togliere di mezzo la card
+ * per guardare la mappa la toccava e il viaggio finiva all'istante — con il
+ * "scendi" e la scia sulla mappa, e per riprenderlo bisognava ricalcolare il
+ * percorso da capo. Il solo indizio era il contentDescription per TalkBack.
+ * Adesso dice la parola, e ci vogliono due tocchi: il primo arma ("Conferma",
+ * in rosso), il secondo termina, e se non arriva entro pochi secondi torna
+ * com'era. Non e' un dialogo: a bordo di un bus che balla non si deve
+ * dover centrare un pulsante piccolo in una finestra.
  */
 @Composable
-private fun Chiudi(onStop: () -> Unit) {
-    Icon(
-        imageVector = Icons.Rounded.Close,
-        contentDescription = "Termina la navigazione",
-        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+private fun Termina(onStop: () -> Unit) {
+    var armato by remember { mutableStateOf(false) }
+    LaunchedEffect(armato) {
+        if (armato) {
+            delay(ARM_MS)
+            armato = false
+        }
+    }
+    Text(
+        text = if (armato) "Conferma" else "Termina",
+        style = MaterialTheme.typography.labelLarge,
+        color = if (armato) {
+            MaterialTheme.colorScheme.error
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        maxLines = 1,
         modifier = Modifier
-            .minimumInteractiveComponentSize()
-            .size(40.dp)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 role = Role.Button,
-                onClick = onStop,
+                onClickLabel = if (armato) "Termina il viaggio adesso" else "Termina la navigazione",
+                onClick = { if (armato) onStop() else armato = true },
             )
-            .padding(8.dp),
+            .minimumInteractiveComponentSize()
+            .padding(horizontal = 8.dp),
     )
 }
+
+/** Quanto resta armato il tasto Termina prima di tornare com'era. */
+private const val ARM_MS = 4_000L

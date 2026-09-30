@@ -335,4 +335,57 @@ class NavAlertsTest {
         assertEquals(NavAlerts.ARRIVED, avviso.id)
         assertEquals("Sei arrivato", avviso.titolo)
     }
+
+    @Test
+    fun `una fermata di salita saltata non fa dire che il bus sta arrivando`() {
+        // Il feed dichiara SALTATA la fermata dove si sale: il mezzo e'
+        // alla tua fermata per il conto delle fermate, ma non si ferma.
+        val saltata = NavState(
+            kind = "journey",
+            destName = "TORRE GALLI",
+            phase = "wait",
+            headline = "La 23 non ferma a PIAZZA DALMAZIA",
+            detail = "la prossima alle 14:15",
+            stopsRemaining = 6,
+            totalStops = 6,
+            etaEpoch = 0,
+            legIndex = 0,
+            lineName = "23",
+            alightName = "TORRE GALLI",
+            busStopsAway = 0,
+            skipped = true,
+        )
+        val a = NavAlerts()
+        assertNull("il primo giro conferma e basta", a.next(saltata, t0))
+        val avviso = atteso(a.next(saltata, t0 + 15))
+        assertEquals(NavAlerts.SKIPPED, avviso.id)
+        assertEquals("La prossima alle 14:15", avviso.testo)
+        assertNull(a.next(saltata, t0 + 30))
+    }
+
+    @Test
+    fun `a bordo la discesa saltata dice dove scendere e zittisce scendi alla prossima`() {
+        val saltata = NavState(
+            kind = "journey",
+            destName = "TORRE GALLI",
+            phase = "ride",
+            headline = "La 23 non ferma a TORRE GALLI",
+            detail = "scendi prima, a PONTE",
+            stopsRemaining = 1,
+            totalStops = 6,
+            etaEpoch = 0,
+            legIndex = 1,
+            lineName = "23",
+            alightName = "TORRE GALLI",
+            metersToGo = 200,
+            skipped = true,
+        )
+        val a = NavAlerts()
+        // Senza conferma: a bordo un giro d'attesa puo' essere la fermata
+        // che serviva. E non "Scendi alla prossima" ne' "Stai per arrivare".
+        val avviso = atteso(a.next(saltata, t0))
+        assertEquals(NavAlerts.SKIPPED_ALIGHT, avviso.id)
+        assertEquals("Scendi prima, a PONTE", avviso.testo)
+        assertNull(a.next(saltata, t0 + 15))
+    }
 }

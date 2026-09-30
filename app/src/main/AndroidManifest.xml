@@ -19,6 +19,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Il giro della navigazione tiene la CPU sveglia per la durata di un
+         giro, non del viaggio: a telefono in tasca "scendi" arrivava dopo
+         la fermata. La sveglia fra un giro e l'altro e' USE_EXACT_ALARM. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!--
         Il gesto Indietro "predittivo": mentre trascini, Android mostra dove

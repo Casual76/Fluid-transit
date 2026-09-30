@@ -1,5 +1,6 @@
 package dev.antigravity.fluidtransit.data.nav
 
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -9,18 +10,22 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import dev.antigravity.fluidtransit.FluidTransitApp
 import dev.antigravity.fluidtransit.MainActivity
 import dev.antigravity.fluidtransit.routing.Ftb
+import dev.antigravity.fluidtransit.routing.NavArrival
 import dev.antigravity.fluidtransit.routing.Times
 import java.time.Instant
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 
@@ -72,10 +77,22 @@ class NavigationService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            (application as FluidTransitApp).navigation.publish(null)
-            (application as FluidTransitApp).navigation.publishFocus(null)
-            (application as FluidTransitApp).navigation.publishPlan(null)
-            stopSelf()
+            terminate()
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_TICK) {
+            // La sveglia del giro (vedi [aspettaIlGiro]). Senza piano il
+            // processo e' rinato dopo essere stato ucciso e non c'e' piu'
+            // niente da seguire: il piano sta solo in memoria.
+            if (plan == null) {
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            // Il blocco va preso QUI, sul thread principale, prima che la
+            // sveglia rilasci il suo: il giro riparte su un altro thread, e
+            // in quel passaggio la CPU puo' riaddormentarsi.
+            acquireLap()
+            ticks.trySend(Unit)
             return START_NOT_STICKY
         }
         val app = application as FluidTransitApp
@@ -91,6 +108,8 @@ class NavigationService : Service() {
             // sopra quelli del nuovo.
             loopJob?.cancel()
             loopJob = null
+            cancelAlarm()
+            rideEnds.clear()
             plan = incoming
             app.navigation.pendingPlan = null
             alerts = NavAlerts(ALIGHT_RADIUS_M)
@@ -113,7 +132,41 @@ class NavigationService : Service() {
         startInForeground(mode)
         startLocation(mode)
         loop(app, mode)
-        return START_STICKY
+        // Non sticky: il piano sta solo in memoria. Un riavvio del sistema
+        // arrivava con intent nullo e senza piano, e l'unica cosa che poteva
+        // fare era fermarsi senza aver mai chiamato startForeground — il
+        // viaggio perso in silenzio, o una RemoteServiceException.
+        return START_NOT_STICKY
+    }
+
+    /** Fine del viaggio decisa da fuori: Termina, o il sistema. */
+    private fun terminate() {
+        val app = application as FluidTransitApp
+        loopJob?.cancel()
+        loopJob = null
+        cancelAlarm()
+        releaseLap()
+        app.navigation.publish(null)
+        app.navigation.publishFocus(null)
+        app.navigation.publishPlan(null)
+        stopSelf()
+    }
+
+    /**
+     * Android 15+ da' a un foreground service `dataSync` sei ore ogni
+     * ventiquattro, poi chiama questo e, se il servizio non si ferma da se',
+     * manda l'app in crash con ForegroundServiceDidNotStopInTimeException.
+     * Il servizio resta vivo a viaggio finito per scelta (si chiude con
+     * Termina), quindi chi scende e se ne dimentica lo trovava ancora li'
+     * sei ore dopo — in crash, in background, con Crashlytics e dialogo.
+     */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        terminate()
+    }
+
+    /** La stessa cosa, per il sistema che chiama la forma a un argomento. */
+    override fun onTimeout(startId: Int) {
+        terminate()
     }
 
     private fun startInForeground(mode: TravelMode) {
@@ -182,6 +235,13 @@ class NavigationService : Service() {
 
     private var locationListener: android.location.LocationListener? = null
 
+    /**
+     * Quando e' finita ogni corsa del piano, per tappa: il piu' tardo fra
+     * l'orario di discesa e il giro in cui ce ne siamo accorti. Da li'
+     * decorre la camminata che segue ([NavArrival.walkStart]).
+     */
+    private val rideEnds = ConcurrentHashMap<Int, Long>()
+
     @Synchronized
     private fun startLocation(mode: TravelMode) {
         if (!mode.usesGps || locationListener != null) return
@@ -232,13 +292,17 @@ class NavigationService : Service() {
      * Metri fra dove siamo e un punto, -1 se non si sa.
      *
      * Un fix vecchio non dice piu' dove sei: meglio non dire niente che dire
-     * una distanza presa da dove eri dieci minuti fa.
+     * una distanza presa da dove eri dieci minuti fa. E lo stesso vale per
+     * uno impreciso: con la sola posizione approssimativa il punto e' sfumato
+     * a qualche chilometro, e i metri che ne uscivano erano inventati — a
+     * bordo bastavano a far scattare "Stai per arrivare" a molte fermate
+     * dalla discesa. Vedi [NavFix].
      */
     private fun metersTo(lat: Double, lon: Double): Int {
         if (lat == 0.0 && lon == 0.0) return -1
         val p = here ?: return -1
         val ageNanos = android.os.SystemClock.elapsedRealtimeNanos() - p.elapsedRealtimeNanos
-        if (ageNanos > FIX_MAX_AGE_NANOS) return -1
+        if (!NavFix.usable(ageNanos, p.hasAccuracy(), p.accuracy)) return -1
         return dev.antigravity.fluidtransit.routing.BundleReader
             .haversine(p.latitude, p.longitude, lat, lon)
             .toInt()
@@ -248,6 +312,9 @@ class NavigationService : Service() {
         loopJob?.cancel()
         loopJob = scope.launch {
             while (true) {
+                // La CPU resta sveglia per la durata del giro, non fra un
+                // giro e l'altro: vedi [aspettaIlGiro].
+                acquireLap()
                 val p0 = plan ?: break
                 // Prima la rete, poi tutto il resto su UNA fotografia del
                 // bundle. Lo scambio degli orari puo' arrivare proprio mentre
@@ -276,6 +343,25 @@ class NavigationService : Service() {
                     try {
                         app.realtime.refreshVehicles()
                         app.realtime.refreshDelays()
+                        // Le previsioni per fermata, che il servizio deve
+                        // rinfrescare da se'. Il conto alla rovescia, "La 20 e'
+                        // a 2 fermate" e "scendi" vengono da
+                        // `departureBoards.live()`, dove le previsioni hanno la
+                        // precedenza sul modello dei ritardi fino a 45 minuti
+                        // di eta': se nessuno le rinfresca restano quelle
+                        // dell'ultima volta che una schermata le ha chieste.
+                        // E nessun altro lo fa qui: la pompa dei tabelloni si
+                        // ferma cinque secondi dopo l'ultimo tabellone
+                        // osservato, il giro della mappa gira solo con un
+                        // pannello aperto ("Avvia" lo chiude) e a telefono
+                        // bloccato il ciclo di vita ferma tutto. Con +1 min
+                        // alla partenza e +6 otto minuti dopo, la card
+                        // continuava a contare su +1: bus in arrivo dichiarato
+                        // con il mezzo lontano, "Scendi" in anticipo di tutto
+                        // il ritardo accumulato. E' condizionale (ETag, 304) e
+                        // non fa niente fuori dal proxy; sta sotto lo stesso
+                        // try e la stessa attesa dei ritardi.
+                        app.realtime.refreshPredictions()
                     } catch (e: CancellationException) {
                         throw e
                     } catch (_: Exception) {
@@ -325,9 +411,87 @@ class NavigationService : Service() {
                         break
                     }
                 }
-                delay(mode.pollSeconds * 1000L)
+                releaseLap()
+                aspettaIlGiro(mode.pollSeconds * 1000L)
+            }
+        }.also { job ->
+            // Il ciclo esce da piu' parti (arrivo, orari persi, nuovo piano,
+            // Termina): il blocco si libera in un punto solo.
+            job.invokeOnCompletion { releaseLap() }
+        }
+    }
+
+    // --- il telefono in tasca ---------------------------------------------
+    //
+    // Il ciclo aspettava con `delay`, che misura sul timer monotonico: a
+    // schermo spento la CPU si addormenta e quel timer si ferma con lei. Il
+    // foreground service tiene vivo il processo, non sveglia la CPU, e il
+    // manifest non aveva ne' WAKE_LOCK ne' sveglie per la navigazione. Nel
+    // modo Bilanciato (il default, niente GPS a svegliarla) trenta secondi di
+    // attesa potevano durare molti minuti veri: "Preparati a scendere" e
+    // "Scendi alla prossima" arrivavano dopo la fermata. Sull'emulatore, che
+    // non va mai in sospensione, non si vede.
+    //
+    // Fra le due strade — un wake lock parziale tenuto per tutto il viaggio, o
+    // una sveglia a ogni giro — si sceglie la sveglia: la CPU dorme fra un
+    // giro e l'altro e si alza per il tempo di un giro (un secondo o due di
+    // rete), invece di restare accesa per tutto il viaggio. Il blocco c'e'
+    // solo durante il giro, con un timeout che lo libera da solo. E' la stessa
+    // famiglia di sveglie delle routine (USE_EXACT_ALARM e' gia' dichiarato);
+    // dove l'esatta non si puo' (Android 12 senza il permesso) si ripiega
+    // sulla non esatta, meglio in ritardo di un minuto che fermi.
+
+    /** Le sveglie consegnate dal sistema, conflate: un giro basta. */
+    private val ticks = Channel<Unit>(Channel.CONFLATED)
+
+    private val wakeLock: PowerManager.WakeLock? by lazy {
+        getSystemService(PowerManager::class.java)
+            ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "fluidtransit:nav")
+            ?.apply { setReferenceCounted(false) }
+    }
+
+    private fun acquireLap() {
+        runCatching { wakeLock?.acquire(LAP_WAKE_MS) }
+    }
+
+    private fun releaseLap() {
+        runCatching { wakeLock?.takeIf { it.isHeld }?.release() }
+    }
+
+    private fun tickIntent(): PendingIntent = PendingIntent.getService(
+        this, 3,
+        Intent(this, NavigationService::class.java).setAction(ACTION_TICK),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
+    private fun armAlarm(afterMs: Long) {
+        val am = getSystemService(AlarmManager::class.java) ?: return
+        val at = SystemClock.elapsedRealtime() + afterMs
+        val pi = tickIntent()
+        runCatching {
+            am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pi)
+        }.onFailure {
+            runCatching {
+                am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pi)
             }
         }
+    }
+
+    private fun cancelAlarm() {
+        runCatching { getSystemService(AlarmManager::class.java)?.cancel(tickIntent()) }
+    }
+
+    /**
+     * Aspetta il giro dopo: il timer del coroutine a schermo acceso, la
+     * sveglia a telefono addormentato — quella dei due che arriva prima.
+     */
+    private suspend fun aspettaIlGiro(ms: Long) {
+        // Una sveglia scappata nella corsa fra il timer e cancelAlarm del giro
+        // prima non deve diventare un giro in piu'.
+        ticks.tryReceive()
+        armAlarm(ms)
+        kotlinx.coroutines.withTimeoutOrNull(ms) { ticks.receive() }
+        cancelAlarm()
     }
 
     /**
@@ -428,7 +592,13 @@ class NavigationService : Service() {
     }
 
     /** Perche' una corsa non si prende piu', gia' in parole. */
-    private class Persa(val headline: String, val detail: String, val canceled: Boolean)
+    private class Persa(
+        val headline: String,
+        val detail: String,
+        val canceled: Boolean,
+        /** Il bus passa ma da questa fermata non carica: vedi [NavState.skipped]. */
+        val skipped: Boolean = false,
+    )
 
     /**
      * Il feed parla delle corse che viaggiano oggi, per indice. Un viaggio
@@ -469,16 +639,27 @@ class NavigationService : Service() {
             position = leg.boardPosition,
             nowEpoch = now,
         )
-        if (!cancellata && !passata) return null
+        // Il feed dichiara SALTATA la fermata di salita: il bus passa, ma di
+        // li' non carica. Non guardarlo voleva dire camminare verso la fermata
+        // e sentirsi dire "e' alla tua fermata" per un mezzo che tirava dritto.
+        val saltata = !cancellata && !passata && live.skipped(leg.trip, leg.boardPosition)
+        if (!cancellata && !passata && !saltata) return null
         return Persa(
-            headline = if (cancellata) {
-                dev.antigravity.fluidtransit.routing.DepartureText.canceledLine(leg.lineName)
-            } else {
-                dev.antigravity.fluidtransit.routing.DepartureText.passedLine(leg.lineName)
+            headline = when {
+                cancellata ->
+                    dev.antigravity.fluidtransit.routing.DepartureText.canceledLine(leg.lineName)
+
+                saltata -> dev.antigravity.fluidtransit.routing.DepartureText.skippedLine(
+                    leg.lineName,
+                    reader.stopName(reader.patternStop(leg.pattern, leg.boardPosition)),
+                )
+
+                else -> dev.antigravity.fluidtransit.routing.DepartureText.passedLine(leg.lineName)
             },
             detail = dev.antigravity.fluidtransit.routing.DepartureText
                 .afterMissed(prossimaUguale(reader, leg, live, now, earliest)),
             canceled = cancellata,
+            skipped = saltata,
         )
     }
 
@@ -568,7 +749,22 @@ class NavigationService : Service() {
         for ((legIndex, leg) in p.legs.withIndex()) {
             when (leg) {
                 is NavLeg.Walk -> {
-                    if (now < leg.startEpoch + leg.seconds) {
+                    // La camminata dopo una corsa parte quando si e' SCESI, non
+                    // quando il piano faceva scendere: le epoche del piano sono
+                    // fisse, e con un bus in ritardo di quanto dura la camminata
+                    // questa risultava gia' finita nell'istante in cui si
+                    // scendeva ("Sei arrivato" con seicento metri da fare), o
+                    // la camminata fra due fermate saltava e si passava dritti
+                    // ad "Aspetta la 7" senza dire di camminare.
+                    val inizio = NavArrival.walkStart(
+                        leg.startEpoch,
+                        if (legIndex > 0 && p.legs[legIndex - 1] is NavLeg.Ride) {
+                            rideEnds[legIndex - 1] ?: 0L
+                        } else {
+                            0L
+                        },
+                    )
+                    if (now < inizio + leg.seconds) {
                         // Chi cammina verso la fermata vuole gia' vedere
                         // dove passa il bus: il fuoco punta alla prossima
                         // tappa in vettura, non a quella in corso.
@@ -603,7 +799,7 @@ class NavigationService : Service() {
                             // La prossima uguale deve essere una che si fa in
                             // tempo a prendere: da quando si arriva alla
                             // fermata, non da adesso.
-                            val arrivo = leg.startEpoch + leg.seconds
+                            val arrivo = inizio + leg.seconds
                             val persa = corsaPersa(app, r, corsa, now, arrivo, canceled)
                             if (persa != null) {
                                 return NavState(
@@ -625,7 +821,8 @@ class NavigationService : Service() {
                                     lineColorRgb = coloreCorsa,
                                     alightName = corsa.alightName,
                                     canceled = persa.canceled,
-                                    missed = !persa.canceled,
+                                    missed = !persa.canceled && !persa.skipped,
+                                    skipped = persa.skipped,
                                 )
                             }
                         }
@@ -640,7 +837,7 @@ class NavigationService : Service() {
                         // "a piedi". Avviando alle 02:21 un viaggio che parte
                         // alle 05:27 si leggeva "190 min a piedi" per una
                         // camminata di quattro minuti.
-                        if (now < leg.startEpoch) {
+                        if (now < inizio) {
                             // "fra 0 min" e' la stessa frase vuota tolta
                             // dagli itinerari e dalla notifica dell'attesa:
                             // sotto il mezzo minuto la risposta e' "adesso".
@@ -648,7 +845,7 @@ class NavigationService : Service() {
                             // "poi 0 min a piedi" e' la stessa frase vuota.
                             val cammino = Times.durationOrUnderMinute(leg.seconds)
                             val dettaglio = { t: Long ->
-                                val mancano = (leg.startEpoch - t).toInt()
+                                val mancano = (inizio - t).toInt()
                                 val fra = if (mancano <= Times.NOW_SECONDS) {
                                     "adesso"
                                 } else {
@@ -664,7 +861,7 @@ class NavigationService : Service() {
                                 kind = p.kind,
                                 destName = p.destName,
                                 phase = "walk",
-                                headline = "Parti alle ${Times.hhmm(leg.startEpoch)}",
+                                headline = "Parti alle ${Times.hhmm(inizio)}",
                                 detail = dettaglio(now),
                                 detailAt = dettaglio,
                                 stopsRemaining = tappa,
@@ -682,7 +879,7 @@ class NavigationService : Service() {
 
                         val dettaglio = { t: Long ->
                             val restano = Times.durationOrUnderMinute(
-                                (leg.startEpoch + leg.seconds - t).toInt(),
+                                (inizio + leg.seconds - t).toInt(),
                             )
                             "$quanto$restano a piedi"
                         }
@@ -749,17 +946,26 @@ class NavigationService : Service() {
                     val live = app.departureBoards.live()
                     val boardAt = live.at(leg.trip, leg.boardPosition, stops, now)
                     val boardDelay = boardAt?.delaySeconds ?: 0
-                    val alightDelay = live
-                        .at(leg.trip, leg.alightPosition, stops, now)?.delaySeconds ?: 0
+                    val alightAt = live.at(leg.trip, leg.alightPosition, stops, now)
+                    val alightDelay = alightAt?.delaySeconds ?: 0
                     val boardTime = leg.dayStartEpoch + leg.dep0 +
                         reader.profileOffset(leg.profile, leg.boardPosition) + boardDelay
                     val alightTime = leg.dayStartEpoch + leg.dep0 +
                         reader.profileOffset(leg.profile, leg.alightPosition) + alightDelay
                     val colore = reader.routeDisplayColor(leg.route) and 0xFFFFFF
-                    if (now < boardTime) {
-                        // Il feed parla della corsa di oggi: per un viaggio
-                        // di domani, lo stesso indice oggi e' un altro bus.
-                        val oggi = stessoGiorno(reader, leg, now)
+                    // Il feed parla della corsa di oggi: per un viaggio di
+                    // domani, lo stesso indice oggi e' un altro bus.
+                    val oggi = stessoGiorno(reader, leg, now)
+                    // Chi ha detto "sono su questo bus" e' gia' a bordo, anche
+                    // se il mezzo e' ancora fermo al capolinea o l'orario
+                    // della fermata da cui parte il piano e' nel futuro di un
+                    // minuto (il ritardo della fermata dopo, per un mezzo che
+                    // ne accumula). Passando dall'attesa gli si diceva "La 20
+                    // e' alla tua fermata" e, dopo due giri, "Il tuo bus sta
+                    // arrivando" forte; o "e' gia' passata" se il feed
+                    // elencava il mezzo dalla fermata uno. La salita di un
+                    // piano "bus" e' per definizione avvenuta.
+                    if (p.kind != "bus" && now < boardTime) {
                         // Una corsa cancellata non arriva: aspettarla in
                         // silenzio e' la cosa peggiore che l'app possa fare.
                         // `canceledTrips` era gia' calcolato e non lo leggeva
@@ -783,6 +989,38 @@ class NavigationService : Service() {
                                 lineColorRgb = colore,
                                 alightName = leg.alightName,
                                 canceled = true,
+                            )
+                        }
+                        // Il feed dichiara SALTATA la fermata dove salgo: il bus
+                        // passa e tira dritto. `live.at` la vede come una
+                        // fermata qualunque (dichiarata, o propagata), quindi
+                        // senza questo la card diceva "La 20 e' a 2 fermate" e
+                        // partiva "Il tuo bus sta arrivando" per un mezzo che
+                        // non si sarebbe fermato.
+                        if (oggi && live.skipped(leg.trip, leg.boardPosition)) {
+                            return NavState(
+                                kind = p.kind,
+                                destName = p.destName,
+                                phase = "wait",
+                                headline = dev.antigravity.fluidtransit.routing.DepartureText
+                                    .skippedLine(
+                                        leg.lineName,
+                                        reader.stopName(
+                                            reader.patternStop(leg.pattern, leg.boardPosition),
+                                        ),
+                                    ),
+                                detail = dev.antigravity.fluidtransit.routing.DepartureText
+                                    .afterMissed(prossimaUguale(reader, leg, live, now, now)),
+                                stopsRemaining = tappa,
+                                totalStops = tappa,
+                                etaEpoch = 0,
+                                journeyDone = primaDi[legIndex],
+                                journeyStops = journeyStops,
+                                legIndex = legIndex,
+                                lineName = leg.lineName,
+                                lineColorRgb = colore,
+                                alightName = leg.alightName,
+                                skipped = true,
                             )
                         }
                         // Dov'e' il mezzo che sto aspettando, in fermate.
@@ -872,7 +1110,26 @@ class NavigationService : Service() {
                             busCertainty = avvicinamento.certainty ?: boardAt?.certainty,
                         )
                     }
-                    if (now < alightTime) {
+                    val alightStop = reader.patternStop(leg.pattern, leg.alightPosition)
+                    val metersToAlight = metersTo(
+                        reader.stopLat(alightStop),
+                        reader.stopLon(alightStop),
+                    )
+                    // Il feed dichiara SALTATA la fermata dove devo scendere.
+                    val discesaSaltata = oggi && live.skipped(leg.trip, leg.alightPosition)
+                    // L'orario di discesa e' una previsione, non un fatto:
+                    // passato quello si resta a bordo finche' c'e' motivo di
+                    // dubitare, invece di dichiarare l'arrivo (e fermare
+                    // ciclo e GPS) sull'orologio. Vedi [NavArrival].
+                    val tenere = now >= alightTime && NavArrival.holdRide(
+                        lateSeconds = now - alightTime,
+                        followed = alightAt != null,
+                        alightPassed = alightAt?.certainty ==
+                            dev.antigravity.fluidtransit.routing.Certainty.SERVED,
+                        alightSkipped = discesaSaltata,
+                        metersToAlight = metersToAlight,
+                    )
+                    if (now < alightTime || tenere) {
                         // A bordo: la prossima fermata la dice la stessa regola
                         // della scheda della corsa. Qui si guardava solo
                         // l'orologio, e il feed che dichiarava servita una
@@ -904,13 +1161,32 @@ class NavigationService : Service() {
                                     reader.profileOffset(leg.profile, pos)
                             },
                         )
-                        val alightStop = reader.patternStop(leg.pattern, leg.alightPosition)
-                        val metersToAlight = metersTo(
-                            reader.stopLat(alightStop),
-                            reader.stopLon(alightStop),
-                        )
+                        // La discesa e' saltata: si dice, e si dice dove
+                        // scendere. Prima la card restava su "Scendi a X" e
+                        // "Scendi alla prossima" per una fermata dove il bus
+                        // non si ferma, e nessuno diceva di scendere prima.
+                        val alternativa = if (discesaSaltata) {
+                            NavArrival.alternativeStop(
+                                skipped = { pos -> live.skipped(leg.trip, pos) },
+                                from = maxOf(nextPos, leg.boardPosition + 1),
+                                alight = leg.alightPosition,
+                                stopCount = stops,
+                            )
+                        } else {
+                            null
+                        }
                         val dettaglio = { t: Long ->
-                            buildString {
+                            if (discesaSaltata) {
+                                dev.antigravity.fluidtransit.routing.DepartureText
+                                    .afterSkippedAlight(
+                                        alternativa?.let {
+                                            reader.stopName(reader.patternStop(leg.pattern, it.position))
+                                        },
+                                        alternativa?.before ?: true,
+                                    )
+                            } else if (tenere) {
+                                NavArrival.overdueLine()
+                            } else buildString {
                                 append(
                                     if (remaining == 1) {
                                         "alla PROSSIMA fermata"
@@ -936,12 +1212,20 @@ class NavigationService : Service() {
                             kind = p.kind,
                             destName = p.destName,
                             phase = "ride",
-                            headline = "Scendi a ${leg.alightName}",
+                            headline = if (discesaSaltata) {
+                                dev.antigravity.fluidtransit.routing.DepartureText
+                                    .skippedLine(leg.lineName, leg.alightName)
+                            } else {
+                                "Scendi a ${leg.alightName}"
+                            },
                             detail = dettaglio(now),
                             detailAt = dettaglio,
                             stopsRemaining = remaining,
                             totalStops = tappa,
-                            etaEpoch = alightTime,
+                            // Un orario di arrivo gia' passato nella notifica
+                            // ("arrivo 14:02" alle 14:06) e' peggio di niente.
+                            etaEpoch = if (tenere) 0L else alightTime,
+                            skipped = discesaSaltata,
                             journeyDone = primaDi[legIndex] + (tappa - remaining).coerceAtLeast(0),
                             journeyStops = journeyStops,
                             metersToGo = metersToAlight,
@@ -956,10 +1240,12 @@ class NavigationService : Service() {
                             // la scheda della corsa elenca le sue.
                             approach = restanti.stops,
                             approachHidden = restanti.hidden,
-                            busEtaEpoch = alightTime,
+                            busEtaEpoch = if (tenere) 0L else alightTime,
                             busCertainty = restanti.certainty,
                         )
                     }
+                    // Sceso davvero: da qui decorre l'eventuale camminata.
+                    rideEnds.putIfAbsent(legIndex, maxOf(alightTime, now))
                 }
             }
         }
@@ -1086,6 +1372,8 @@ class NavigationService : Service() {
     }
 
     override fun onDestroy() {
+        cancelAlarm()
+        releaseLap()
         stopLocation()
         (application as FluidTransitApp).navigation.publish(null)
         (application as FluidTransitApp).navigation.publishFocus(null)
@@ -1111,6 +1399,16 @@ class NavigationService : Service() {
         const val ALERT_ID = 101
         const val ACTION_STOP = "dev.antigravity.fluidtransit.NAV_STOP"
 
+        /** La sveglia che riporta il servizio al giro dopo. */
+        const val ACTION_TICK = "dev.antigravity.fluidtransit.NAV_TICK"
+
+        /**
+         * Quanto la CPU resta tenuta sveglia per un giro: i sei secondi
+         * d'attesa della rete piu' il calcolo, con margine. E' anche il
+         * timeout del blocco, che si libera da solo se il giro si pianta.
+         */
+        const val LAP_WAKE_MS = 15_000L
+
         /**
          * Quanto il ciclo aspetta la rete prima di ricalcolare con quello che
          * ha. Un giro buono sono qualche centinaio di millisecondi; sei
@@ -1121,9 +1419,6 @@ class NavigationService : Service() {
         /** Ogni quanto e ogni quanti metri si chiede una posizione nuova. */
         const val LOCATION_INTERVAL_MS = 5_000L
         const val LOCATION_METERS = 10f
-
-        /** Oltre due minuti, un fix non dice piu' dove sei. */
-        const val FIX_MAX_AGE_NANOS = 120_000_000_000L
 
         /** Entro questo raggio dalla fermata di discesa, e' ora di alzarsi. */
         const val ALIGHT_RADIUS_M = 300

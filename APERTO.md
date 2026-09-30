@@ -41,6 +41,22 @@ non sono state provate con un GPS vero), il cambio di tappa in strada, e lo
 scambio degli orari a viaggio in corso, provato solo nei test su due bundle
 di prova. — 30/09/2026
 
+**La navigazione a telefono in tasca: sveglia a ogni giro e "arrivato" prudente, scritti e provati nei test, non su un bus.**
+Il 30/09/2026 il giro della navigazione e' passato da un `delay` (che si
+ferma con la CPU) a una sveglia di AlarmManager piu' un wake lock tenuto solo
+per la durata del giro, e rinfresca anche le previsioni per fermata, che
+prima nessuno rinfrescava durante il viaggio. "Arrivato" non si dichiara piu'
+sul solo orario di discesa: senza previsione per quella fermata si aspettano
+quattro minuti, e con la posizione (modo Preciso) che dice oltre 400 m fino a
+venti. Le regole a tre rami hanno il loro test (`NavArrivalTest`); la
+sveglia, il blocco e la camminata che parte da quando si scende stanno nel
+servizio e non si provano sulla JVM. Da vedere su un telefono vero, con lo
+schermo spento e in Bilanciato: che "Scendi alla prossima" arrivi prima della
+fermata, e quanto costa in batteria. Resta aperto il ripiego dei ritardi dentro
+`LiveFromPredictions`, che si congela al momento della risoluzione: con le
+previsioni rinfrescate ogni giro si rinnova a ogni snapshot nuovo, ma un 304 lo
+lascia com'e'. — 30/09/2026
+
 **Posizione spenta, microfono senza riconoscimento e notifiche negate: scritti e provati nei test, non su un telefono.**
 Il 30/09/2026 sono stati corretti tre tasti che non facevano niente: il
 mirino con la Posizione di Android spenta (adesso lo dice e porta

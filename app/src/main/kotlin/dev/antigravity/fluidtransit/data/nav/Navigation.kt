@@ -247,6 +247,13 @@ class NavState(
      */
     val missed: Boolean = false,
     /**
+     * Il feed dichiara SALTATA una fermata che mi riguarda: quella di salita
+     * (il bus non mi carica) o, a bordo, quella di discesa (il bus non mi fa
+     * scendere). Come [canceled] e [missed] e' una cosa che non si aggiusta
+     * aspettando, ma a bordo e' piu' urgente: la frase dice dove scendere.
+     */
+    val skipped: Boolean = false,
+    /**
      * Arrivato a piedi, dopo l'ultima camminata. L'avviso dell'arrivo non
      * dice "Scendi qui" a chi e' gia' sceso da un pezzo.
      */

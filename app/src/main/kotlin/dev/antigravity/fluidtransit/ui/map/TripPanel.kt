@@ -492,7 +492,15 @@ fun TripFullContent(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(androidx.compose.foundation.layout.IntrinsicSize.Min)
-                            .clickable { onStopTap(stop) }
+                            // Un pulsante che dice dove porta: senza ruolo e
+                            // senza etichetta il lettore di schermo diceva solo
+                            // "tocca due volte per attivare", e non che si apre
+                            // la fermata. Come nella scheda linea.
+                            .clickable(
+                                role = androidx.compose.ui.semantics.Role.Button,
+                                onClickLabel = "Apri la fermata ${stop.name}",
+                                onClick = { onStopTap(stop) },
+                            )
                             // Il respiro verticale sta nella colonna del
                             // testo, non sulla riga: cosi' il filo del
                             // percorso arriva fino ai bordi della riga e i

@@ -136,6 +136,23 @@ object Times {
     }
 
     /**
+     * L'ultima corsa che sta ancora partendo dal giorno di servizio di IERI:
+     * "Stanotte: ultima corsa alle 00:40".
+     *
+     * Serve dove si descrive una linea a mezzanotte e mezza. La frase di
+     * sempre — "Oggi: prima 05:10, ultima 00:40 di notte" — parla del giorno
+     * che comincia, e quel "00:40 di notte" e' quello di domani: letta alle
+     * 00:30 si capisce "l'ultimo bus e' fra dieci minuti", che e' vero solo
+     * per la corsa di ieri, quella che la frase non nomina. Le due cose si
+     * dicono separate, ognuna col suo giorno.
+     *
+     * Prende un istante e non uno scostamento: l'orologio di una partenza
+     * del giorno prima e' quello di adesso, non "24:40".
+     */
+    fun serviceTail(lastEpoch: Long, zone: ZoneId = Ftb.ROME): String =
+        "Stanotte: ultima corsa alle ${hhmm(lastEpoch, zone)}"
+
+    /**
      * Un giorno come lo direbbe una persona: "oggi", "domani", "5 ottobre".
      *
      * La schermata dello stato dei dati scriveva "Validi dal 2026-09-15 al

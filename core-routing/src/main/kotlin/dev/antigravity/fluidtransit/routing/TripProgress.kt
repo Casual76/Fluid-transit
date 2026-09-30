@@ -49,6 +49,42 @@ object TripProgress {
     fun served(at: LiveTimes.At?, effectiveEpoch: Long, nowEpoch: Long): Boolean =
         at?.certainty == Certainty.SERVED || effectiveEpoch < nowEpoch - GRACE_SECONDS
 
+    /** Come si dice, a parole, che il mezzo si e' gia' lasciato una fermata alle spalle. */
+    const val SERVED_NOTE = "il bus e' gia' passato"
+
+    /**
+     * Cosa dire di una fermata lungo il percorso, oltre al suo orario.
+     *
+     * Nella scheda linea le fermate gia' servite si distinguevano solo
+     * perche' si spegnevano, e il ritardo solo dal colore dell'orario: chi
+     * usa un lettore di schermo sentiva una lista di orari uguali, senza
+     * sapere quali il bus se li fosse lasciati dietro ne' che aveva un
+     * quarto d'ora di ritardo. Un colore, o un'opacita', non e' un modo di
+     * dire le cose che valga per tutti.
+     *
+     * Una fermata servita dice solo questo: il suo orario e' quello di
+     * tabella, e il ritardo di adesso non la riguarda piu'. Una che deve
+     * ancora venire dice qualcosa solo quando il ritardo conta (ambra o
+     * rosso), con le stesse parole della scheda fermata — [phrase] e' quello
+     * che `DepartureText.alongTrip` ha detto di quella fermata. Il resto e'
+     * silenzio: "in orario" su trenta righe di fila e' rumore.
+     *
+     * Il punto di mezzo si legge male da un sintetizzatore vocale, quindi
+     * diventa una virgola.
+     *
+     * @param phrase quello che `DepartureText.alongTrip` dice di questa
+     *   fermata, o null se non ha un orario (i capolinea di una linea che
+     *   oggi non ha piu' corse).
+     * @return null quando non c'e' niente da aggiungere.
+     */
+    fun spokenNote(served: Boolean, phrase: DepartureText.Phrase?): String? = when {
+        served -> SERVED_NOTE
+        phrase == null -> null
+        phrase.tone == DepartureText.Tone.LATE ||
+            phrase.tone == DepartureText.Tone.VERY_LATE -> phrase.support.replace(" · ", ", ")
+        else -> null
+    }
+
     /**
      * La prima fermata che il mezzo deve ancora servire.
      *

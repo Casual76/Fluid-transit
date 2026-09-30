@@ -1,7 +1,9 @@
 package dev.antigravity.fluidtransit.ui.map
 
 import dev.antigravity.fluidtransit.routing.BundleReader
+import dev.antigravity.fluidtransit.routing.Certainty
 import dev.antigravity.fluidtransit.routing.Ftb
+import dev.antigravity.fluidtransit.routing.LiveTimes
 import dev.antigravity.fluidtransit.routing.TestBundle
 import java.io.File
 import java.time.Instant
@@ -66,5 +68,33 @@ class RouteInfoServedTest {
         // fermata mezzo minuto dopo l'orario il bus lo sta ancora cercando:
         // il confine e' un minuto dopo, come in tutto il resto dell'app.
         assertEquals(listOf(true, false, false), linea(alle(8, 2)))
+    }
+
+    /**
+     * Un feed che dice sette minuti di ritardo con un'osservazione di un
+     * quarto d'ora fa, e dichiara servita la prima fermata.
+     */
+    private class Vecchio : LiveTimes {
+        override fun at(tripIndex: Int, position: Int, stopCount: Int, nowEpoch: Long) =
+            LiveTimes.At(
+                delaySeconds = 7 * 60,
+                certainty = if (position == 0) Certainty.SERVED else Certainty.DECLARED,
+                ageSeconds = 15 * 60,
+            )
+    }
+
+    @Test
+    fun `l'eta' del ritardo arriva alla fermata, per dirla a parole`() {
+        // Un ritardo che si mostra ma e' di un quarto d'ora fa deve dire
+        // "visto 15 min fa", come nel tabellone: la scheda linea la buttava,
+        // quindi non poteva dirlo.
+        BundleReader(TestBundle.write(tmp)).use { r ->
+            val info = RouteInfo.build(r, routeIndex = 0, now = alle(8, 1), live = Vecchio())
+            val fermate = info.directions.first().stops
+
+            // La prima e' servita: il ritardo non la riguarda, e nemmeno la sua eta'.
+            assertEquals(listOf(0, 15 * 60, 15 * 60), fermate.map { it.ageSeconds })
+            assertEquals(listOf(true, false, false), fermate.map { it.served })
+        }
     }
 }

@@ -3,9 +3,9 @@ package dev.antigravity.fluidtransit.ai.tools
 import dev.antigravity.fluidtransit.ai.tools.Args.int
 import dev.antigravity.fluidtransit.ai.tools.Args.str
 import dev.antigravity.fluidtransit.routing.BundleReader
-import dev.antigravity.fluidtransit.routing.Ftb
-import dev.antigravity.fluidtransit.routing.Raptor
 import dev.antigravity.fluidtransit.routing.DepartureText
+import dev.antigravity.fluidtransit.routing.Raptor
+import dev.antigravity.fluidtransit.routing.ServiceDays
 import dev.antigravity.fluidtransit.routing.Times
 import dev.antigravity.fluidtransit.routing.WhenText
 import dev.antigravity.fluidtransit.routing.Words
@@ -209,6 +209,14 @@ class NextDeparturesTool : AiTool {
         val board = ctx.transit.board(stopIndex, wanted, 3 * 3600)
             ?: return "errore: gli orari non sono ancora scaricati"
         if (board.rows.isEmpty()) {
+            // "Non passa piu' niente" e' un'affermazione sul mondo: con gli
+            // orari scaduti il guasto e' nostro, e il modello la riferirebbe a
+            // chi domanda se c'e' ancora un bus come un fatto. Le parole sono
+            // quelle del tabellone della fermata.
+            if (board.outsideValidity) {
+                val scaduti = DepartureText.empty(DepartureText.Trouble.ORARI_SCADUTI)
+                return "${scaduti.title}. ${scaduti.detail}"
+            }
             return "da ${reader.stopName(stopIndex)} non passa piu' niente nelle prossime tre ore"
         }
 
@@ -243,32 +251,45 @@ class RouteScheduleTool : AiTool {
             ?: return Resolve.notFound(ctx, "non trovo una linea che si chiami \"$q\"")
         val now = Instant.ofEpochMilli(ctx.nowMillis)
         val today = now.atZone(ctx.zone).toLocalDate()
-        val dayIndex = java.time.temporal.ChronoUnit.DAYS.between(reader.feedStart, today).toInt()
-        val dayStart = Ftb.serviceDayStart(today).epochSecond
+
+        // Ieri e oggi, non solo oggi: alle 00:30 la corsa che sta per passare
+        // e' quasi sempre una "24:40" del giorno di servizio di ieri. Con la
+        // sola data di oggi lo strumento rispondeva "prossima partenza 05:10"
+        // e "ultima 00:40 di notte" — cioe' quella di domani — e il modello
+        // riferiva che l'ultimo bus era fra dieci minuti, o che non ce n'erano.
+        val trips = ServiceDays.tripsOfRoute(
+            reader, hit.routeIndex, ServiceDays.at(reader, now, ctx.zone),
+        )
 
         var first = Int.MAX_VALUE
         var last = Int.MIN_VALUE
         var count = 0
         var nextDep = Long.MAX_VALUE
         var nextHeadsign = ""
-        for (p in reader.patternsOfRoute(hit.routeIndex)) {
-            val firstTrip = reader.patternFirstTrip(p)
-            for (k in 0 until reader.patternTripCount(p)) {
-                val t = firstTrip + k
-                if (dayIndex < 0 || dayIndex >= reader.dayCount) continue
-                if (!reader.serviceActive(reader.tripService(t), dayIndex)) continue
+        for (t in trips) {
+            if (t.day.isToday) {
                 count++
-                val dep0 = reader.tripDeparture0(t)
-                if (dep0 < first) first = dep0
-                if (dep0 > last) last = dep0
-                val dep = dayStart + dep0
-                if (dep >= ctx.nowEpoch && dep < nextDep) {
-                    nextDep = dep
-                    nextHeadsign = reader.patternDestination(p)
-                }
+                if (t.departureSeconds < first) first = t.departureSeconds
+                if (t.departureSeconds > last) last = t.departureSeconds
+            }
+            val dep = t.departureEpoch
+            if (dep >= ctx.nowEpoch && dep < nextDep) {
+                nextDep = dep
+                nextHeadsign = reader.patternDestination(t.patternIndex)
             }
         }
-        if (count == 0) return "la linea ${hit.shortName} oggi non ha corse"
+        val tail = ServiceDays.tail(trips, ctx.nowEpoch)
+        if (count == 0 && tail == null) {
+            // "Nessuna corsa" non e' una sola cosa: con gli orari scaduti non
+            // e' la linea a non averne, siamo noi a non sapere quali siano. Il
+            // modello riferirebbe "oggi non c'e' servizio" a chi domanda se
+            // puo' contare su un bus.
+            if (!ServiceDays.covers(reader, today)) {
+                val scaduti = DepartureText.empty(DepartureText.Trouble.ORARI_SCADUTI)
+                return "${scaduti.title}. ${scaduti.detail}"
+            }
+            return "la linea ${hit.shortName} oggi non ha corse"
+        }
         // Non un modulo 24 in casa: l'ultima corsa di una linea urbana parte
         // spesso dopo la mezzanotte, e "01:13" senza altro fa credere che sia
         // passata stamattina.
@@ -276,9 +297,21 @@ class RouteScheduleTool : AiTool {
         return ToolText.build {
             line("linea", hit.shortName)
             line("destinazione", hit.headsign)
-            line("corse oggi", count)
-            line("prima", hm(first))
-            line("ultima", hm(last))
+            if (tail != null) line(Times.serviceTail(tail, ctx.zone))
+            if (count > 0) {
+                // Prima e ultima sono del giorno di servizio di oggi, e il
+                // "di notte" dice che l'ultima e' dopo la mezzanotte.
+                line("corse oggi", count)
+                line("prima (oggi)", hm(first))
+                line("ultima (oggi)", hm(last))
+            } else if (!ServiceDays.covers(reader, today)) {
+                // Rimane la coda di ieri, ma per oggi gli orari non ci sono:
+                // non e' "nessuna corsa".
+                val scaduti = DepartureText.empty(DepartureText.Trouble.ORARI_SCADUTI)
+                line("oggi", "${scaduti.title}. ${scaduti.detail}")
+            } else {
+                line("corse oggi", "nessuna")
+            }
             if (nextDep != Long.MAX_VALUE) {
                 line("prossima partenza", "${Times.hhmm(nextDep)} verso $nextHeadsign")
             } else {

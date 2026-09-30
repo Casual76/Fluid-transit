@@ -29,6 +29,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -38,9 +42,11 @@ import dev.antigravity.fluidengine.ui.fluid.FluidHairline
 import dev.antigravity.fluidengine.ui.fluid.FluidRadius
 import dev.antigravity.fluidengine.ui.fluid.FluidSegmentedControl
 import dev.antigravity.fluidtransit.routing.BundleReader
+import dev.antigravity.fluidtransit.routing.DepartureText
+import dev.antigravity.fluidtransit.routing.ServiceDays
 import dev.antigravity.fluidtransit.routing.Times
+import dev.antigravity.fluidtransit.routing.TripProgress
 import java.time.Instant
-import java.time.temporal.ChronoUnit
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Info
 
@@ -62,6 +68,26 @@ class RouteInfo(
     val firstDepToday: String?,
     val lastDepToday: String?,
     val headwayMinutes: Int?,
+    /**
+     * L'ultima corsa di IERI che deve ancora partire: "Stanotte: ultima corsa
+     * alle 00:40". Null quando la coda della notte e' finita.
+     *
+     * Alle 00:30 la linea notturna non e' "senza corse oggi" e il suo bus
+     * delle 00:40 non e' domani: e' il giorno di servizio di ieri che sta
+     * finendo. La scheda guardava solo la data di oggi, quindi mostrava gli
+     * orari della prima corsa del mattino e leggeva l'"ultima 00:40 di
+     * notte" del giorno che comincia come "l'ultimo bus e' fra dieci minuti".
+     */
+    val tailNote: String? = null,
+    /**
+     * Oggi non e' dentro la validita' degli orari che abbiamo.
+     *
+     * Senza questo, gli orari scaduti si leggevano "Oggi questa linea non ha
+     * corse" su ogni scheda linea, nello stesso istante in cui il tabellone
+     * di una fermata diceva "Gli orari sono scaduti": una lista vuota che
+     * passa per "niente servizio" mentre il guasto e' nostro.
+     */
+    val outsideValidity: Boolean = false,
 ) {
     class Direction(
         val headsign: String,
@@ -109,9 +135,26 @@ class RouteInfo(
          * di cosa che fa pensare che l'app sbagli i conti.
          */
         val served: Boolean = false,
+        /**
+         * Da quanti secondi e' vecchia l'osservazione da cui viene il ritardo.
+         *
+         * Serve a dirlo a parole: un ritardo che si mostra ma e' di un quarto
+         * d'ora fa deve dire "visto 15 min fa", come nel tabellone e nella
+         * scheda della corsa. Zero quando e' fresco o quando non c'e' un dato.
+         */
+        val ageSeconds: Int = 0,
     )
 
     companion object {
+        /**
+         * Cinque minuti di tolleranza: una corsa appena partita e' ancora
+         * quella che interessa a chi sta guardando le fermate piu' avanti.
+         */
+        private const val JUST_LEFT_SECONDS = 300L
+
+        /** Un'ora e mezza prima e dopo adesso: la finestra da cui si ricava la frequenza. */
+        private const val HEADWAY_WINDOW_SECONDS = 5400L
+
         fun build(
             reader: BundleReader,
             routeIndex: Int,
@@ -120,7 +163,17 @@ class RouteInfo(
         ): RouteInfo {
             val patterns = reader.patternsOfRoute(routeIndex)
             val today = now.atZone(dev.antigravity.fluidtransit.routing.Ftb.ROME).toLocalDate()
-            val dayIndex = ChronoUnit.DAYS.between(reader.feedStart, today).toInt()
+            val nowEpoch = now.epochSecond
+
+            // Le corse di ieri e di oggi, ognuna col suo giorno di servizio.
+            //
+            // Prima si scandiva solo la data di oggi: alle 00:30 il bus delle
+            // "24:40" di ieri non esisteva, e le fermate mostravano gli orari
+            // della prima corsa del mattino. Un giorno da 25 ore o da 23 resta
+            // giusto perche' ogni corsa e' datata da `serviceDayStart` del suo
+            // giorno, non dalla mezzanotte.
+            val days = ServiceDays.at(reader, now)
+            val trips = ServiceDays.tripsOfRoute(reader, routeIndex, days)
 
             // Per direzione, il pattern con piu' corse rappresenta la linea.
             val directions = (0..1).mapNotNull { dir ->
@@ -131,23 +184,16 @@ class RouteInfo(
                 val n = reader.patternStopCount(best)
 
                 // La prossima corsa di questa direzione: e' quella a cui si
-                // riferiscono gli orari mostrati accanto alle fermate.
-                val dayStart = dev.antigravity.fluidtransit.routing.Ftb
-                    .serviceDayStart(today).epochSecond
+                // riferiscono gli orari mostrati accanto alle fermate. Vale
+                // la prima partenza da adesso, di ieri o di oggi che sia.
                 var nextTrip = -1
                 var nextDep = Long.MAX_VALUE
-                if (dayIndex >= 0 && dayIndex < reader.dayCount) {
-                    val firstTrip = reader.patternFirstTrip(best)
-                    for (t in firstTrip until firstTrip + reader.patternTripCount(best)) {
-                        if (!reader.serviceActive(reader.tripService(t), dayIndex)) continue
-                        val dep = dayStart + reader.tripDeparture0(t)
-                        // Cinque minuti di tolleranza: una corsa appena
-                        // partita e' ancora quella che interessa a chi sta
-                        // guardando le fermate piu' avanti.
-                        if (dep >= now.epochSecond - 300 && dep < nextDep) {
-                            nextDep = dep
-                            nextTrip = t
-                        }
+                for (candidate in trips) {
+                    if (candidate.patternIndex != best) continue
+                    val dep = candidate.departureEpoch
+                    if (dep >= nowEpoch - JUST_LEFT_SECONDS && dep < nextDep) {
+                        nextDep = dep
+                        nextTrip = candidate.tripIndex
                     }
                 }
                 val offsets = if (nextTrip >= 0) {
@@ -185,6 +231,7 @@ class RouteInfo(
                             0L
                         },
                         certainty = at?.certainty,
+                        ageSeconds = at?.ageSeconds ?: 0,
                         stopIndex = s,
                         name = reader.stopName(s),
                         idHashHex = java.lang.Long.toHexString(reader.stopIdHash(s)),
@@ -224,24 +271,25 @@ class RouteInfo(
             // Prima/ultima corsa su tutta la linea; la frequenza su UNA sola
             // direzione — sommare i due sensi dimezzerebbe l'intervallo vero
             // (trovato sul device: "ogni 5 min" per una linea da 10).
+            //
+            // Prima e ultima sono del giorno di servizio di OGGI. La frequenza
+            // si conta sugli istanti veri, non sugli scostamenti da oggi: alle
+            // 00:30 le corse attorno a ora sono in parte "24:40" di ieri e in
+            // parte "00:50" di oggi, e sommate come secondi dello stesso giorno
+            // non tornerebbero.
             var first = Int.MAX_VALUE
             var last = Int.MIN_VALUE
-            val depsAroundNow = ArrayList<Int>()
-            val dayStart = dev.antigravity.fluidtransit.routing.Ftb.serviceDayStart(today)
-            val nowSec = (now.epochSecond - dayStart.epochSecond).toInt()
+            val depsAroundNow = ArrayList<Long>()
             val headwayDirection = patterns.firstOrNull()?.let { reader.patternDirection(it) } ?: 0
-            for (p in patterns) {
-                val firstTrip = reader.patternFirstTrip(p)
-                val sameDirection = reader.patternDirection(p) == headwayDirection
-                for (k in 0 until reader.patternTripCount(p)) {
-                    val t = firstTrip + k
-                    if (!reader.serviceActive(reader.tripService(t), dayIndex)) continue
-                    val dep = reader.tripDeparture0(t)
-                    if (dep < first) first = dep
-                    if (dep > last) last = dep
-                    if (sameDirection && dep in (nowSec - 5400)..(nowSec + 5400)) {
-                        depsAroundNow.add(dep)
-                    }
+            for (t in trips) {
+                if (t.day.isToday) {
+                    if (t.departureSeconds < first) first = t.departureSeconds
+                    if (t.departureSeconds > last) last = t.departureSeconds
+                }
+                if (t.direction == headwayDirection &&
+                    t.departureEpoch in (nowEpoch - HEADWAY_WINDOW_SECONDS)..(nowEpoch + HEADWAY_WINDOW_SECONDS)
+                ) {
+                    depsAroundNow.add(t.departureEpoch)
                 }
             }
             val headway = if (depsAroundNow.size >= 3) {
@@ -250,10 +298,16 @@ class RouteInfo(
                     .map { depsAroundNow[it] - depsAroundNow[it - 1] }
                     .filter { it > 0 }
                     .sorted()
-                if (gaps.isEmpty()) null else (gaps[gaps.size / 2] / 60).coerceAtLeast(1)
+                if (gaps.isEmpty()) null else (gaps[gaps.size / 2] / 60).toInt().coerceAtLeast(1)
             } else {
                 null
             }
+
+            // La coda della notte: l'ultima partenza di ieri che non e'
+            // ancora passata. Con la stessa tolleranza delle fermate, cosi'
+            // "Stanotte: ultima corsa alle 00:40" e la prima riga della lista
+            // parlano della stessa corsa.
+            val tail = ServiceDays.tail(trips, nowEpoch - JUST_LEFT_SECONDS)
 
             // L'orologio di una corsa sta in `Times`, dove stava gia': queste
             // parole sono nate qui e adesso le usano anche gli strumenti
@@ -276,6 +330,57 @@ class RouteInfo(
                 firstDepToday = if (first == Int.MAX_VALUE) null else fmt(first),
                 lastDepToday = if (last == Int.MIN_VALUE) null else fmt(last),
                 headwayMinutes = headway,
+                tailNote = tail?.let { Times.serviceTail(it) },
+                // Lo stesso confronto del tabellone di una fermata: cosi' la
+                // scheda linea e la scheda fermata dicono la stessa cosa.
+                outsideValidity = !ServiceDays.covers(reader, today),
+            )
+        }
+    }
+}
+
+/**
+ * Cosa fa questa linea adesso, in poche righe sotto la testata.
+ *
+ * Tre casi che prima erano uno solo. La coda della notte va per prima e per
+ * conto suo: alle 00:30 la corsa che sta per passare e' di ieri, e "ultima
+ * 00:40 di notte" nella riga di oggi la faceva leggere come "l'ultimo bus e'
+ * fra dieci minuti". E "nessuna corsa" non e' una sola cosa: con gli orari
+ * scaduti la linea non ha "zero corse", siamo noi a non sapere quali siano,
+ * ed e' la stessa frase che il tabellone di una fermata dice nello stesso
+ * istante.
+ */
+internal fun RouteInfo.headerText(dir: RouteInfo.Direction?): String = buildString {
+    val stanotte = tailNote
+    if (stanotte != null) {
+        append(stanotte)
+        append('\n')
+    }
+    val prima = firstDepToday
+    val ultima = lastDepToday
+    val ritmo = headwayMinutes
+    if (prima != null && ultima != null) {
+        append("Oggi: prima $prima, ultima $ultima")
+        if (ritmo != null) {
+            append(" · circa ogni ")
+            append(Times.durationLabel(ritmo * 60))
+            append(" a quest'ora")
+        }
+    } else if (outsideValidity) {
+        val scaduti = DepartureText.empty(DepartureText.Trouble.ORARI_SCADUTI)
+        append(scaduti.title)
+        append(". ")
+        append(scaduti.detail)
+    } else {
+        append("Oggi questa linea non ha corse.")
+    }
+    if (dir?.stops?.any { it.timeEpoch > 0 } == true) {
+        append("\nGli orari qui sotto sono della prossima corsa, ")
+        append(if (dir.nextTripLive) "dal bus." else "da tabella.")
+        if (dir.spreadStops > 0) {
+            append(
+                " Fra fermate vicinissime il divario lo stimiamo " +
+                    "noi: il feed pubblica lo stesso minuto per tutte.",
             )
         }
     }
@@ -464,39 +569,17 @@ fun RouteFullContent(
         dev.antigravity.fluidtransit.ui.common.AlertRows(alerts, onOpenAlerts, tail = "su questa linea")
 
         // --- oggi: prima/ultima corsa e frequenza ------------------------
-        if (info.firstDepToday != null && info.lastDepToday != null) {
-            Text(
-                text = buildString {
-                    append("Oggi: prima ${info.firstDepToday}, ultima ${info.lastDepToday}")
-                    if (info.headwayMinutes != null) {
-                        append(" · circa ogni ")
-                        append(dev.antigravity.fluidtransit.routing.Times.durationLabel(info.headwayMinutes * 60))
-                        append(" a quest'ora")
-                    }
-                    val dir = info.directions.getOrNull(direction)
-                    if (dir?.stops?.any { it.timeEpoch > 0 } == true) {
-                        append("\nGli orari qui sotto sono della prossima corsa, ")
-                        append(if (dir.nextTripLive) "dal bus." else "da tabella.")
-                        if (dir.spreadStops > 0) {
-                            append(
-                                " Fra fermate vicinissime il divario lo stimiamo " +
-                                    "noi: il feed pubblica lo stesso minuto per tutte.",
-                            )
-                        }
-                    }
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-            )
-        } else {
-            Text(
-                text = "Oggi questa linea non ha corse.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-            )
-        }
+        //
+        // Le parole stanno in `headerText`: sono l'unica cosa della scheda che
+        // dice cosa fa la linea in questo momento, e a mezzanotte e mezza o a
+        // orari scaduti la risposta cambia, quindi si prova senza un
+        // dispositivo.
+        Text(
+            text = info.headerText(dir),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+        )
 
         // --- direzione ---------------------------------------------------
         if (info.directions.size > 1) {
@@ -533,11 +616,43 @@ fun RouteFullContent(
                 val tinta = if (stop.served) piena.copy(alpha = 0.30f) else piena
                 val primo = i == 0
                 val ultimo = i == dir.stops.size - 1
+                // Le parole di questa fermata, una volta sola: le stesse della
+                // scheda fermata e della scheda corsa, e le usano l'orario, la
+                // riga sotto il nome e il lettore di schermo.
+                val frase = if (stop.timeEpoch > 0) {
+                    DepartureText.alongTrip(
+                        scheduledEpoch = stop.scheduledEpoch,
+                        delaySeconds = (stop.timeEpoch - stop.scheduledEpoch)
+                            .toInt().takeIf { stop.certainty != null },
+                        certainty = stop.certainty,
+                        nowEpoch = nowSec,
+                        ageSeconds = stop.ageSeconds,
+                    )
+                } else {
+                    null
+                }
+                // Cosa un lettore di schermo deve dire oltre all'orario.
+                //
+                // Il tratto gia' percorso si distingueva solo perche' si
+                // spegneva, e il ritardo solo dal colore dell'orario: chi non
+                // vede sentiva una lista di orari uguali, senza sapere quali
+                // il bus se li fosse lasciati dietro ne' che avesse un quarto
+                // d'ora di ritardo.
+                val nota = TripProgress.spokenNote(stop.served, frase)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(androidx.compose.foundation.layout.IntrinsicSize.Min)
-                        .clickable { onStopTap(stop) }
+                        // Un pulsante che dice dove porta: senza ruolo e
+                        // senza etichetta il lettore di schermo diceva solo
+                        // "tocca due volte per attivare", e non che si apre
+                        // la fermata.
+                        .clickable(
+                            role = Role.Button,
+                            onClickLabel = "Apri la fermata ${stop.name}",
+                            onClick = { onStopTap(stop) },
+                        )
+                        .semantics { if (nota != null) stateDescription = nota }
                         .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -579,37 +694,51 @@ fun RouteFullContent(
                                 .background(color = tinta, shape = CircleShape),
                         )
                     }
-                    Text(
-                        text = stop.name,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (stop.served) {
-                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f).padding(vertical = 10.dp),
-                    )
-                    if (stop.timeEpoch > 0) {
+                    Column(modifier = Modifier.weight(1f).padding(vertical = 10.dp)) {
+                        Text(
+                            text = stop.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (stop.served) {
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        // Il ritardo che conta si legge anche, non solo si
+                        // vede: l'orario accanto e' gia' quello col ritardo
+                        // dentro, e il suo colore da solo non lo dice a chi
+                        // distingue male l'ambra dal verde. Come nella scheda
+                        // della corsa, ma solo quando c'e' qualcosa da dire:
+                        // "in orario" su trenta righe di fila e' rumore.
+                        //
+                        // Le stesse parole le ha gia' `nota` per il lettore
+                        // di schermo: questa riga le nasconde, altrimenti si
+                        // sentirebbero due volte.
+                        if (!stop.served && nota != null && frase != null) {
+                            Text(
+                                text = frase.support,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.clearAndSetSemantics { },
+                            )
+                        }
+                    }
+                    if (frase != null) {
                         // L'orario della prossima corsa, col tono che dice da
                         // dove viene: prima era verde per tutta la direzione
                         // appena una corsa era seguita, comprese le fermate
                         // che il feed non copre.
-                        val tone = dev.antigravity.fluidtransit.routing.DepartureText.alongTrip(
-                            scheduledEpoch = stop.scheduledEpoch,
-                            delaySeconds = (stop.timeEpoch - stop.scheduledEpoch)
-                                .toInt().takeIf { stop.certainty != null },
-                            certainty = stop.certainty,
-                            nowEpoch = nowSec,
-                        ).tone
                         Text(
                             text = dev.antigravity.fluidtransit.routing.Times.hhmm(stop.timeEpoch),
                             style = MaterialTheme.typography.labelLarge,
                             color = if (stop.served) {
                                 MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             } else {
-                                dev.antigravity.fluidtransit.ui.common.toneColor(tone)
+                                dev.antigravity.fluidtransit.ui.common.toneColor(frase.tone)
                             },
                         )
                     } else if (i == 0 || i == dir.stops.size - 1) {

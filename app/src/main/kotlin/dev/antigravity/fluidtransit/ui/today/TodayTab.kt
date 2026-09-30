@@ -377,7 +377,16 @@ fun TodayTab(
                         // bastava che il consiglio fosse di oggi, e alle
                         // dieci del mattino la riga diceva ancora "Esci alle
                         // 07:25".
-                        val adviceToday = Routines.adviceStillGood(r, adesso)
+                        val rigaDiOggi = if (isToday) {
+                            dev.antigravity.fluidtransit.data.routines.RoutineText.today(
+                                r,
+                                java.time.Instant.ofEpochSecond(adesso)
+                                    .atZone(dev.antigravity.fluidtransit.routing.Ftb.ROME).toLocalDate(),
+                                adesso,
+                            )
+                        } else {
+                            null
+                        }
                         FluidListRow(
                             title = r.label.ifEmpty { "→ ${r.toName}" },
                             subtitle = buildString {
@@ -385,9 +394,9 @@ fun TodayTab(
                                 append(" · ")
                                 append(if (r.anchor == "arrive") "entro le " else "parti alle ")
                                 append(dev.antigravity.fluidtransit.routing.Times.clockOfDay(r.anchorMinutes))
-                                if (isToday && adviceToday) {
+                                if (rigaDiOggi != null) {
                                     append("\n")
-                                    append(r.lastAdviceText)
+                                    append(rigaDiOggi)
                                 }
                             },
                             meta = when {

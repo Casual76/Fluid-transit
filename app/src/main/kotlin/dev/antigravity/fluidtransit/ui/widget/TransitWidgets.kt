@@ -513,13 +513,6 @@ class RoutineWidget : GlanceAppWidget() {
             dev.antigravity.fluidtransit.data.routines.Routines
                 .adviceStillGood(todayRoutine, adesso)
 
-        // L'ora della routine di oggi: serve a distinguere "il consiglio deve
-        // ancora arrivare" da "per oggi e' andata", che prima erano la stessa
-        // frase.
-        val ancoraOggi = todayRoutine != null &&
-            adesso < dev.antigravity.fluidtransit.data.routines.Routines
-                .anchorEpoch(oggi, todayRoutine.anchorMinutes)
-
         provideContent {
             val layout = resolveEngineWidgetLayout(LocalSize.current, hasFooter = false)
             EngineWidgetSurface(
@@ -545,32 +538,22 @@ class RoutineWidget : GlanceAppWidget() {
                             layout = layout,
                         )
 
-                        consiglioValido -> EngineWidgetRow(
-                            title = todayRoutine.lastAdviceText.ifEmpty { "Calcolo in corso" },
-                            // Non "di adesso": un consiglio si calcola tre
-                            // quarti d'ora prima, e quei ritardi erano di
-                            // allora.
-                            subtitle = "calcolato coi ritardi live",
-                            palette = palette,
-                            layout = layout,
-                            tone = palette.primaryTone,
-                            trailing = dev.antigravity.fluidtransit.routing.Times
-                                .hhmm(todayRoutine.lastAdviceEpoch),
-                        )
-
-                        ancoraOggi -> EngineWidgetRow(
-                            title = "Il consiglio arriva da solo",
-                            subtitle = "circa 45 minuti prima dell'orario",
-                            palette = palette,
-                            layout = layout,
-                        )
-
-                        else -> EngineWidgetRow(
-                            title = "Per oggi e' andata",
-                            subtitle = "il prossimo consiglio al prossimo giorno della routine",
-                            palette = palette,
-                            layout = layout,
-                        )
+                        // Gli stati li decide Routines.adviceState e le parole
+                        // RoutineText: prima qui "nessun bus utile" diventava
+                        // "il consiglio arriva da solo", e un consiglio di tre
+                        // quarti d'ora prima si diceva "coi ritardi live".
+                        else -> {
+                            val riga = dev.antigravity.fluidtransit.data.routines.RoutineText
+                                .widget(todayRoutine, oggi, adesso)
+                            EngineWidgetRow(
+                                title = riga.title,
+                                subtitle = riga.subtitle,
+                                palette = palette,
+                                layout = layout,
+                                tone = if (consiglioValido) palette.primaryTone else palette.neutralTone,
+                                trailing = riga.trailing,
+                            )
+                        }
                     }
                 }
             }

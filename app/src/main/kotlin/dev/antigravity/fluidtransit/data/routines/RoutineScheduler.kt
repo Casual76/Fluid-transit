@@ -215,7 +215,8 @@ object RoutineScheduler {
                     it.id, it.label, it.fromLat, it.fromLon, it.toLat, it.toLon, it.toName,
                     it.days, it.anchor, it.anchorMinutes, it.enabled,
                     lastAdviceEpoch = 0,
-                    lastAdviceText = "Oggi nessun bus utile",
+                    lastAdviceText = RoutineText.NESSUN_BUS,
+                    lastComputeEpoch = Instant.now().epochSecond,
                 )
             }
             scheduleNextCompute(app, r, doneDay = day)
@@ -241,6 +242,7 @@ object RoutineScheduler {
                 it.days, it.anchor, it.anchorMinutes, it.enabled,
                 lastAdviceEpoch = leave.epochSecond,
                 lastAdviceText = advice,
+                lastComputeEpoch = Instant.now().epochSecond,
             )
         }
 

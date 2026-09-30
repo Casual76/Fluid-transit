@@ -134,4 +134,43 @@ class AdviceFreshnessTest {
         assertFalse(Routines.adviceStillGood(routine(0), uscita))
         assertFalse(Routines.adviceStillGood(routine(uscita, text = ""), uscita))
     }
+
+    // ------------------------------------------------ a che punto e' oggi
+
+    private fun conCalcolo(ora: Int, leave: Long, computed: Long, text: String = "Esci alle ...") =
+        Routines.Routine(
+            id = 9, label = "r", fromLat = 43.0, fromLon = 11.0, toLat = 43.1, toLon = 11.1,
+            toName = "x", days = setOf(3), anchor = "arrive", anchorMinutes = ora * 60,
+            enabled = true, lastAdviceEpoch = leave, lastAdviceText = text,
+            lastComputeEpoch = computed,
+        )
+
+    @Test
+    fun `nessun bus utile si vede, e non e' 'il consiglio arriva da solo'`() {
+        // Mattina di sciopero: il calcolo delle 07:15 non trova bus. Lo zero
+        // dell'ora di uscita voleva dire anche "non ancora calcolato", e il
+        // widget prometteva un consiglio che non sarebbe mai arrivato.
+        val r = conCalcolo(8, leave = 0, computed = mezzanotte + 7 * 3600 + 15 * 60, text = RoutineText.NESSUN_BUS)
+        assertEquals(Routines.Companion.AdviceState.NO_BUS, Routines.adviceState(r, OGGI, mezzanotte + 7 * 3600 + 30 * 60))
+        // Quello di ieri non vale per oggi.
+        val ieri = conCalcolo(8, leave = 0, computed = mezzanotte - 24 * 3600 + 7 * 3600)
+        assertEquals(Routines.Companion.AdviceState.NOT_YET, Routines.adviceState(ieri, OGGI, mezzanotte + 7 * 3600))
+    }
+
+    @Test
+    fun `passata l'ora di uscire lo si dice, fino all'ora della routine`() {
+        val esci = mezzanotte + 7 * 3600 + 40 * 60
+        val r = conCalcolo(8, leave = esci, computed = esci - 45 * 60)
+        assertEquals(Routines.Companion.AdviceState.GOOD, Routines.adviceState(r, OGGI, esci - 10 * 60))
+        assertEquals(Routines.Companion.AdviceState.PASSED, Routines.adviceState(r, OGGI, esci + 10 * 60))
+        assertEquals(Routines.Companion.AdviceState.DONE, Routines.adviceState(r, OGGI, mezzanotte + 8 * 3600 + 5 * 60))
+    }
+
+    @Test
+    fun `un consiglio dice quando e' stato calcolato`() {
+        val esci = mezzanotte + 7 * 3600 + 40 * 60
+        val r = conCalcolo(8, leave = esci, computed = mezzanotte + 6 * 3600 + 55 * 60)
+        val riga = RoutineText.widget(r, OGGI, esci - 10 * 60)
+        assertTrue(riga.subtitle, riga.subtitle.contains("06:55"))
+    }
 }

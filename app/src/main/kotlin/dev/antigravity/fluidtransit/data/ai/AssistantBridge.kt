@@ -333,7 +333,11 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
             anchor = r.anchor,
             anchorMinutes = r.anchorMinutes,
             enabled = r.enabled,
-            lastAdvice = r.lastAdviceText.takeIf { it.isNotBlank() },
+            lastAdvice = dev.antigravity.fluidtransit.data.routines.RoutineText.assistant(
+                r,
+                java.time.LocalDate.now(dev.antigravity.fluidtransit.routing.Ftb.ROME),
+                java.time.Instant.now().epochSecond,
+            ),
         )
     }
 

@@ -36,8 +36,14 @@ class Routines(private val file: File) {
         /** Minuti dalla mezzanotte locale dell'orario di ancoraggio. */
         val anchorMinutes: Int,
         val enabled: Boolean,
-        val lastAdviceEpoch: Long = 0, // quando USCIRE, epoch s (0 = mai calcolato)
+        val lastAdviceEpoch: Long = 0, // quando USCIRE, epoch s (0 = nessuna uscita)
         val lastAdviceText: String = "",
+        /**
+         * Quando e' stato fatto l'ultimo calcolo, riuscito o no. Senza, "non
+         * ancora calcolato" e "calcolato, e nessun bus utile" erano lo stesso
+         * zero: vedi [RoutineText].
+         */
+        val lastComputeEpoch: Long = 0,
     )
 
     val version = MutableStateFlow(0)
@@ -61,6 +67,7 @@ class Routines(private val file: File) {
                 enabled = o.optBoolean("enabled", true),
                 lastAdviceEpoch = o.optLong("adviceEpoch"),
                 lastAdviceText = o.optString("adviceText"),
+                lastComputeEpoch = o.optLong("computeEpoch"),
             )
         }
     }.getOrElse { emptyList() }
@@ -91,7 +98,8 @@ class Routines(private val file: File) {
                         .put("anchorMinutes", r.anchorMinutes)
                         .put("enabled", r.enabled)
                         .put("adviceEpoch", r.lastAdviceEpoch)
-                        .put("adviceText", r.lastAdviceText),
+                        .put("adviceText", r.lastAdviceText)
+                        .put("computeEpoch", r.lastComputeEpoch),
                 )
             }
             Durable.write(file, a.toString())
@@ -120,6 +128,31 @@ class Routines(private val file: File) {
          * somma sull'orologio, e con 1440 minuti (un arrivo arrotondato alla
          * mezzanotte) passa al giorno dopo invece di lanciare un'eccezione.
          */
+        /** A che punto e' una routine oggi: vedi [adviceState]. */
+        enum class AdviceState { NOT_YET, NO_BUS, GOOD, PASSED, DONE }
+
+        /**
+         * A che punto e' la routine del giorno [day], adesso.
+         *
+         * - GOOD: c'e' un consiglio e la sua ora di uscita non e' passata
+         *   (con la grazia di [GRAZIA_CONSIGLIO_S]);
+         * - NO_BUS: il calcolo di oggi c'e' stato e non ha trovato bus;
+         * - PASSED: l'ora di uscire e' passata, l'ora della routine no;
+         * - NOT_YET: prima dell'ora della routine, e niente ancora calcolato;
+         * - DONE: l'ora della routine e' passata.
+         */
+        fun adviceState(r: Routine, day: java.time.LocalDate, nowEpoch: Long): AdviceState {
+            val anchor = anchorEpoch(day, r.anchorMinutes)
+            val calcolataOggi = RoutineTiming.adviceBelongsTo(r.lastComputeEpoch, anchor)
+            if (adviceStillGood(r, nowEpoch) && RoutineTiming.adviceBelongsTo(r.lastAdviceEpoch, anchor)) {
+                return AdviceState.GOOD
+            }
+            if (nowEpoch >= anchor) return AdviceState.DONE
+            if (calcolataOggi && r.lastAdviceEpoch == 0L) return AdviceState.NO_BUS
+            if (RoutineTiming.adviceBelongsTo(r.lastAdviceEpoch, anchor)) return AdviceState.PASSED
+            return AdviceState.NOT_YET
+        }
+
         /**
          * L'ora della prossima occorrenza: oggi se non e' ancora passata e
          * oggi e' uno dei suoi giorni, se no il prossimo giorno buono. E' il

@@ -157,13 +157,7 @@ fun MapScreen(
 
     /** Quanto e' alta la card del viaggio: la camera ci lascia lo spazio. */
     var navCardHeight by remember { mutableStateOf(0) }
-    LaunchedEffect(panel, navActive) {
-        onTabBarHidden(
-            navActive ||
-                panel is Panel.RouteMini || panel is Panel.RouteFull ||
-                panel is Panel.TripMini || panel is Panel.TripFull,
-        )
-    }
+
 
     // Precisa O approssimativa. Da Android 12 chi apre la finestra del
     // permesso puo' scegliere "approssimativa", che concede solo COARSE: qui
@@ -276,6 +270,17 @@ fun MapScreen(
     // basta — cioe' com'era prima della Fase 8.
     val assistantEnabled by app.assistant.enabled.collectAsStateWithLifecycle(initialValue = false)
     var assistantOpen by remember { mutableStateOf(false) }
+    // La tab bar si toglie di mezzo anche per l'assistente. Si apre nello
+    // stesso posto in fondo, e la barra — disegnata dopo, sopra — gli copriva
+    // la riga di scrittura e il tasto per fermarlo: con la tastiera chiusa
+    // (sempre, a voce) i tocchi su "Stop" finivano su Mappa o Oggi.
+    LaunchedEffect(panel, navActive, assistantOpen) {
+        onTabBarHidden(
+            navActive || assistantOpen ||
+                panel is Panel.RouteMini || panel is Panel.RouteFull ||
+                panel is Panel.TripMini || panel is Panel.TripFull,
+        )
+    }
     var assistantMode by remember {
         mutableStateOf(dev.antigravity.fluidtransit.ai.orchestrator.AskMode.VOICE)
     }

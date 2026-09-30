@@ -357,7 +357,7 @@ fun RouteFullContent(
      * niente fosse. Un avviso di servizio e' l'unica cosa che puo' rendere
      * sbagliato tutto il resto di quel pannello.
      */
-    alerts: List<String> = emptyList(),
+    alerts: List<String>? = emptyList(),
     onOpenAlerts: (() -> Unit)? = null,
 ) {
     val dir = info.directions.getOrNull(direction) ?: info.directions.firstOrNull() ?: return

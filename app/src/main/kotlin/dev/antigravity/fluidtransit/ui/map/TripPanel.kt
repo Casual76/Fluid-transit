@@ -338,7 +338,7 @@ fun TripFullContent(
     onBoardBus: (() -> Unit)? = null,
     onDismiss: (() -> Unit)? = null,
     /** Gli avvisi in corso sulla linea di questa corsa, gia' filtrati. */
-    alerts: List<String> = emptyList(),
+    alerts: List<String>? = emptyList(),
     onOpenAlerts: (() -> Unit)? = null,
 ) {
     // Il battito dell'app, uno solo.

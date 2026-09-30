@@ -364,11 +364,11 @@ class RealtimeClient(
     /**
      * Gli avvisi di servizio, dal proxy, con 5 minuti di cache: la scheda
      * Oggi li chiede a ogni apertura e gli avvisi non cambiano al minuto.
-     */
-    suspend fun fetchAlerts(): List<GtfsRtLite.RtAlert> = fetchAlertsOrNull() ?: emptyList()
-
-    /**
-     * Gli avvisi, oppure null se non siamo riusciti a saperlo.
+     *
+     * Oppure null se non siamo riusciti a saperlo. C'era anche una versione
+     * che trasformava il null in lista vuota, e le quattro schede che la
+     * usavano sopra una fermata non mostravano nessun avviso anche col
+     * download fallito: e' stata tolta perche' non ci ricada nessuno.
      *
      * La differenza non e' accademica: la schermata degli avvisi, quando la
      * lista tornava vuota, scriveva "Nessun avviso in corso" — che e' una

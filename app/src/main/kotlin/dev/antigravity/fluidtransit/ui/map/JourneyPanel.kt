@@ -398,7 +398,7 @@ fun JourneyDetailContent(
     onCreateRoutine: ((Set<Int>, String, Int) -> Unit)? = null,
     onStart: (() -> Unit)? = null,
     /** Gli avvisi in corso sulle linee di QUESTO viaggio, gia' filtrati. */
-    alerts: List<String> = emptyList(),
+    alerts: List<String>? = emptyList(),
     onOpenAlerts: (() -> Unit)? = null,
 ) {
     Row(

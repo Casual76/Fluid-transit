@@ -162,6 +162,16 @@ class FluidTransitApp : Application() {
         >(null)
 
     /**
+     * La costruzione dell'indice di ricerca e' fallita su questo bundle.
+     *
+     * Senza, un indice che non arriva mai e uno che sta arrivando erano lo
+     * stesso null, e la ricerca rispondeva "Niente con questo nome" a
+     * qualunque parola: un'affermazione sulla rete dei trasporti, mentre il
+     * guasto era nostro.
+     */
+    val searchIndexFailed = kotlinx.coroutines.flow.MutableStateFlow(false)
+
+    /**
      * L'indirizzo con cui l'app e' stata aperta, finche' non lo si e' aperto.
      *
      * Sta sull'Application e non sull'Activity per due motivi. Uno: quando
@@ -497,14 +507,17 @@ class FluidTransitApp : Application() {
             stopGroups.collect { groups ->
                 val reader =
                     (bundleManager.state.value as? BundleManager.BundleState.Ready)?.reader
-                searchIndex.value = if (reader == null || groups == null) {
-                    null
+                if (reader == null || groups == null) {
+                    searchIndex.value = null
+                    searchIndexFailed.value = false
                 } else {
-                    kotlinx.coroutines.withContext(Dispatchers.Default) {
+                    val built = kotlinx.coroutines.withContext(Dispatchers.Default) {
                         runCatching {
                             dev.antigravity.fluidtransit.ui.map.SearchIndex.build(reader, groups)
                         }.getOrNull()
                     }
+                    searchIndex.value = built
+                    searchIndexFailed.value = built == null
                 }
             }
         }

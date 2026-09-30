@@ -301,6 +301,7 @@ fun MapScreen(
     // costruiva questa schermata e lo prestava all'assistente, che quindi
     // senza mappa aperta cercava dentro il niente.
     val searchIndex by app.searchIndex.collectAsStateWithLifecycle()
+    val searchIndexFailed by app.searchIndexFailed.collectAsStateWithLifecycle()
 
     // La geometria delle tratte, decodificata pigramente: e' quella che fa
     // correre i bus sulla strada invece di attraversare gli isolati.
@@ -501,11 +502,17 @@ fun MapScreen(
         is Panel.RouteFull -> p.routeIndex
         else -> null
     }
+    // Quale linea non si e' riusciti a calcolare, e il tasto per riprovare.
+    // Distinguono "sto leggendo" da "non e' riuscito": prima erano lo stesso
+    // null, e il pannello restava sullo spinner per sempre.
+    var routeFailedFor by remember { mutableStateOf<Int?>(null) }
+    var routeRetry by remember { mutableStateOf(0) }
     val routeInfo by produceState<RouteInfo?>(
         initialValue = null,
         currentRouteIndex, ready?.buildId,
         // Anche i ritardi: gli orari accanto alle fermate devono restare veri.
         rtDelays?.generatedAt,
+        routeRetry,
     ) {
         val reader = ready?.reader
         val idx = currentRouteIndex
@@ -518,10 +525,20 @@ fun MapScreen(
         // thread della UI. Un'eccezione qui dentro portava giu' l'app; adesso
         // resta lo scheletro, e la chiave del produceState (il buildId) fa
         // ripartire il calcolo col bundle nuovo.
-        value = withContext(Dispatchers.Default) {
+        val built = withContext(Dispatchers.Default) {
             runCatching {
                 RouteInfo.build(reader, idx, Instant.now(), app.departureBoards.live())
             }.getOrNull()
+        }
+        // Un ricalcolo fallito non butta la scheda che c'era: e' la stessa
+        // linea con i minuti di prima, meglio di un errore. L'errore si dice
+        // solo quando non c'e' niente da mostrare.
+        if (built != null) {
+            routeFailedFor = null
+            value = built
+        } else if (value?.routeIndex != idx) {
+            routeFailedFor = idx
+            value = null
         }
     }
 
@@ -532,8 +549,8 @@ fun MapScreen(
     // fermate — quindi "questa fermata e' spostata" non si puo' sapere. Le
     // linee si', ed e' quello che serve a chi sta li' ad aspettare.
     val currentStopHash = (panel as? Panel.Stop)?.tap?.idHashHex
-    val avvisiDiFermata by produceState(
-        initialValue = emptyList<String>(),
+    val avvisiDiFermata by produceState<List<String>?>(
+        initialValue = emptyList(),
         currentStopHash, ready?.buildId,
     ) {
         val reader = ready?.reader
@@ -555,7 +572,14 @@ fun MapScreen(
                     .ifEmpty { reader.routeLongName(route) }
             }
         }
-        val tutti = runCatching { app.realtime.fetchAlerts() }.getOrDefault(emptyList())
+        // Null = non scaricati, e si dice. Prima diventava una lista vuota,
+        // cioe' "nessun avviso": un'affermazione sulla rete mentre il guasto
+        // era nostro.
+        val tutti = runCatching { app.realtime.fetchAlertsOrNull() }.getOrNull()
+        if (tutti == null) {
+            value = null
+            return@produceState
+        }
         val adesso = java.time.Instant.now().epochSecond
         value = tutti
             .filter { a ->
@@ -584,13 +608,20 @@ fun MapScreen(
     // suoi piani. La scheda gliela nascondeva.
     val currentTripRoute = (panel as? Panel.TripMini)?.ref?.routeHash
         ?: (panel as? Panel.TripFull)?.ref?.routeHash
-    val avvisiDiCorsa by produceState(initialValue = emptyList<String>(), currentTripRoute) {
+    val avvisiDiCorsa by produceState<List<String>?>(initialValue = emptyList(), currentTripRoute) {
         val hash = currentTripRoute
         if (hash == null || hash == 0L) {
             value = emptyList()
             return@produceState
         }
-        val tutti = runCatching { app.realtime.fetchAlerts() }.getOrDefault(emptyList())
+        // Null = non scaricati, e si dice. Prima diventava una lista vuota,
+        // cioe' "nessun avviso": un'affermazione sulla rete mentre il guasto
+        // era nostro.
+        val tutti = runCatching { app.realtime.fetchAlertsOrNull() }.getOrNull()
+        if (tutti == null) {
+            value = null
+            return@produceState
+        }
         val adesso = java.time.Instant.now().epochSecond
         value = tutti
             .filter { a ->
@@ -616,8 +647,8 @@ fun MapScreen(
     // Si chiedono solo quando una scheda linea e' davvero aperta, e il
     // recupero ha cinque minuti di cache: aprirne una seconda non ricarica
     // niente.
-    val avvisiDiLinea by produceState(
-        initialValue = emptyList<String>(),
+    val avvisiDiLinea by produceState<List<String>?>(
+        initialValue = emptyList(),
         currentRouteIndex, ready?.buildId,
     ) {
         val reader = ready?.reader
@@ -627,7 +658,14 @@ fun MapScreen(
             return@produceState
         }
         val hash = runCatching { reader.routeIdHash(idx) }.getOrNull()
-        val tutti = runCatching { app.realtime.fetchAlerts() }.getOrDefault(emptyList())
+        // Null = non scaricati, e si dice. Prima diventava una lista vuota,
+        // cioe' "nessun avviso": un'affermazione sulla rete mentre il guasto
+        // era nostro.
+        val tutti = runCatching { app.realtime.fetchAlertsOrNull() }.getOrNull()
+        if (tutti == null) {
+            value = null
+            return@produceState
+        }
         val adesso = java.time.Instant.now().epochSecond
         value = tutti
             .filter { a ->
@@ -660,9 +698,11 @@ fun MapScreen(
             tripTick++
         }
     }
+    var tripFailedFor by remember { mutableStateOf<Int?>(null) }
+    var tripRetry by remember { mutableStateOf(0) }
     val tripInfo by produceState<TripInfo?>(
         initialValue = null,
-        currentTripRef, rtDelays, ready?.buildId, tripTick,
+        currentTripRef, rtDelays, ready?.buildId, tripTick, tripRetry,
     ) {
         val reader = ready?.reader
         val ref = currentTripRef
@@ -672,7 +712,7 @@ fun MapScreen(
         }
         val d = rtDelays?.byTripHash?.get(ref.tripHash)
         // Come la scheda linea: il bundle puo' cambiare mentre si calcola.
-        value = withContext(Dispatchers.Default) {
+        val built = withContext(Dispatchers.Default) {
             runCatching {
                 TripInfo.build(
                     reader = reader,
@@ -683,6 +723,13 @@ fun MapScreen(
                     live = app.departureBoards.live(),
                 )
             }.getOrNull()
+        }
+        if (built != null) {
+            tripFailedFor = null
+            value = built
+        } else if (value?.ref?.vehKey != ref.vehKey) {
+            tripFailedFor = ref.vehKey
+            value = null
         }
     }
 
@@ -1104,8 +1151,8 @@ fun MapScreen(
         ?.filterIsInstance<dev.antigravity.fluidtransit.routing.Raptor.Leg.Ride>()
         ?.map { it.route }
         ?.distinct()
-    val avvisiDiViaggio by produceState(
-        initialValue = emptyList<String>(),
+    val avvisiDiViaggio by produceState<List<String>?>(
+        initialValue = emptyList(),
         currentJourneyRoutes, ready?.buildId,
     ) {
         val reader = ready?.reader
@@ -1117,7 +1164,14 @@ fun MapScreen(
         val linee = routes.associate { r ->
             reader.routeIdHash(r) to reader.routeShortName(r).ifEmpty { reader.routeLongName(r) }
         }
-        val tutti = runCatching { app.realtime.fetchAlerts() }.getOrDefault(emptyList())
+        // Null = non scaricati, e si dice. Prima diventava una lista vuota,
+        // cioe' "nessun avviso": un'affermazione sulla rete mentre il guasto
+        // era nostro.
+        val tutti = runCatching { app.realtime.fetchAlertsOrNull() }.getOrNull()
+        if (tutti == null) {
+            value = null
+            return@produceState
+        }
         val adesso = java.time.Instant.now().epochSecond
         value = tutti
             .filter { a ->
@@ -1639,6 +1693,11 @@ fun MapScreen(
                 query = query,
                 placesReady = placesState is
                     dev.antigravity.fluidtransit.data.places.PlacesManager.State.Ready,
+                transitSearch = when {
+                    searchIndex != null -> TransitSearch.READY
+                    searchIndexFailed -> TransitSearch.FAILED
+                    else -> TransitSearch.BUILDING
+                },
                 // I civici arrivano dopo, ma entrano nella stessa lista e si
                 // ordinano insieme agli altri: stessa scala di pertinenza.
                 results = risultati,
@@ -2182,6 +2241,10 @@ fun MapScreen(
                                 val info = routeInfo
                                 if (info != null && info.routeIndex == state.routeIndex) {
                                     RouteMiniContent(info, routeDirection)
+                                } else if (routeFailedFor == state.routeIndex) {
+                                    PanelFailed("Non sono riuscito a leggere questa linea.") {
+                                        routeRetry++
+                                    }
                                 } else {
                                     PanelLoading("Leggo la linea\u2026", compact = true)
                                 }
@@ -2218,6 +2281,10 @@ fun MapScreen(
                                         alerts = avvisiDiLinea,
                                         onOpenAlerts = onOpenAlerts,
                                     )
+                                } else if (routeFailedFor == state.routeIndex) {
+                                    PanelFailed("Non sono riuscito a leggere questa linea.") {
+                                        routeRetry++
+                                    }
                                 } else {
                                     PanelLoading("Leggo la linea\u2026")
                                 }
@@ -2234,6 +2301,10 @@ fun MapScreen(
                                 val info = tripInfo
                                 if (info != null && info.ref.vehKey == state.ref.vehKey) {
                                     TripMiniContent(info)
+                                } else if (tripFailedFor == state.ref.vehKey) {
+                                    PanelFailed("Non sono riuscito a leggere questa corsa.") {
+                                        tripRetry++
+                                    }
                                 } else {
                                     PanelLoading("Leggo la corsa\u2026", compact = true)
                                 }
@@ -2309,6 +2380,10 @@ fun MapScreen(
                                         alerts = avvisiDiCorsa,
                                         onOpenAlerts = onOpenAlerts,
                                     )
+                                } else if (tripFailedFor == state.ref.vehKey) {
+                                    PanelFailed("Non sono riuscito a leggere questa corsa.") {
+                                        tripRetry++
+                                    }
                                 } else {
                                     PanelLoading("Leggo la corsa\u2026")
                                 }

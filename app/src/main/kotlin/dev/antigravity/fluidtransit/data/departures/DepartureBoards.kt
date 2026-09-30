@@ -151,7 +151,10 @@ class DepartureBoards(private val app: FluidTransitApp) {
     }
 
     private fun compute(key: Key, now: Instant): DepartureBoard {
-        val reader = readerOrNull() ?: return empty(key, now)
+        // Senza orari aperti il tabellone non e' vuoto: non e' ancora stato
+        // calcolato. Resta a zero, e le schede dicono "Leggo gli orari";
+        // appena il bundle arriva, `bundleManager.state` lo ricalcola.
+        val reader = readerOrNull() ?: return empty(key)
         val live = liveTimes()
         if (key.stops.size != 1) {
             return Departures.merged(reader, key.stops, now, key.limit, key.horizon, live)
@@ -251,14 +254,23 @@ class DepartureBoards(private val app: FluidTransitApp) {
         return risolte
     }
 
-    private fun empty(key: Key, now: Instant = Instant.now()): DepartureBoard {
+    /**
+     * Un tabellone non ancora calcolato: `computedAtEpoch` a zero.
+     *
+     * Nasceva timbrato con l'ora di adesso, e per le schede un tabellone
+     * timbrato e vuoto e' un tabellone calcolato che non ha trovato niente:
+     * ogni fermata, aprendola, diceva "Nessun passaggio a breve" per il
+     * mezzo secondo del primo calcolo — e i rami "sto caricando" delle
+     * quattro schede che li avevano non scattavano mai.
+     */
+    private fun empty(key: Key): DepartureBoard {
         val stop = key.stops.firstOrNull() ?: -1
         val name = if (key.stops.size == 1) {
             runCatching { readerOrNull()?.stopName(stop) }.getOrNull() ?: ""
         } else {
             ""
         }
-        return DepartureBoard.empty(stop, name, now.epochSecond)
+        return DepartureBoard.empty(stop, name, 0L)
     }
 
     @Synchronized

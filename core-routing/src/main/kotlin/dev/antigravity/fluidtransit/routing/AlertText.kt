@@ -38,6 +38,23 @@ object AlertText {
     }
 
     /** Vero se l'avviso riguarda adesso: e' il filtro che decide cosa mostrare. */
+    /**
+     * Gli avvisi non si sono scaricati.
+     *
+     * Non e' la stessa cosa che non ce ne siano, e le schede lo dicevano come
+     * se lo fosse: il download fallito diventava una lista vuota, la lista
+     * vuota non disegnava niente, e sopra una fermata con la linea deviata
+     * non compariva nessun avviso. La schermata degli avvisi aveva gia' le
+     * parole giuste; adesso stanno qui e le usano tutte.
+     */
+    const val UNAVAILABLE_TITLE = "Gli avvisi non sono arrivati"
+    const val UNAVAILABLE_DETAIL =
+        "Non siamo riusciti a scaricarli, quindi non sappiamo se ce ne sono. " +
+            "Non e' la stessa cosa che non ce ne siano"
+
+    /** La stessa cosa in una riga, in cima a una scheda. */
+    const val UNAVAILABLE_ROW = "Avvisi non arrivati: non sappiamo se ce ne sono"
+
     fun active(startEpoch: Long, endEpoch: Long, nowEpoch: Long): Boolean =
         (startEpoch == 0L || startEpoch <= nowEpoch) &&
             (endEpoch == 0L || endEpoch >= nowEpoch)

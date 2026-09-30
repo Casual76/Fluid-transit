@@ -115,7 +115,7 @@ fun StopPanelContent(
      * Le linee si': se la 12 che passa di qui oggi e' deviata, chi e' alla
      * fermata deve saperlo prima di aspettarla.
      */
-    alerts: List<String> = emptyList(),
+    alerts: List<String>? = emptyList(),
     onOpenAlerts: (() -> Unit)? = null,
     /** Il tocco su una riga: "perche' questo numero", aperto sulla riga stessa. */
     onWhyTap: (

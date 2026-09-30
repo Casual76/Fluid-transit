@@ -83,6 +83,36 @@ internal fun PanelLoading(what: String, compact: Boolean = false) {
 }
 
 /**
+ * Il calcolo di una scheda non e' riuscito, e lo si dice.
+ *
+ * Il calcolo della linea e della corsa gira dentro un `runCatching`, perche'
+ * il bundle puo' chiudersi sotto i piedi allo scambio notturno; ma il
+ * fallimento diventava null, e null voleva gia' dire "non ancora pronto".
+ * Il pannello restava sullo spinner per sempre: "sto leggendo" detto a
+ * qualcosa che non sarebbe mai arrivato.
+ */
+@Composable
+internal fun PanelFailed(what: String, onRetry: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = what,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        dev.antigravity.fluidengine.ui.fluid.FluidButton(
+            text = "Riprova",
+            onClick = onRetry,
+            style = dev.antigravity.fluidengine.ui.fluid.FluidButtonStyle.Filled,
+        )
+    }
+}
+
+/**
  * Quanto puo' essere largo un pannello.
  *
  * In verticale su un telefono non cambia niente: lo schermo e' piu' stretto

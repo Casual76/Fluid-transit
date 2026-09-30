@@ -33,7 +33,8 @@ import dev.antigravity.fluidtransit.routing.Words
  */
 @Composable
 fun AlertRows(
-    alerts: List<String>,
+    /** Null = non si sono scaricati: si dice, invece di non disegnare niente. */
+    alerts: List<String>?,
     onOpenAlerts: (() -> Unit)?,
     modifier: Modifier = Modifier,
     /**
@@ -45,6 +46,14 @@ fun AlertRows(
      */
     tail: String = "su queste linee",
 ) {
+    if (alerts == null) {
+        AlertRow(
+            dev.antigravity.fluidtransit.routing.AlertText.UNAVAILABLE_ROW,
+            onOpenAlerts,
+            modifier,
+        )
+        return
+    }
     if (alerts.isEmpty()) return
     for (a in alerts.take(MAX_ROWS)) {
         AlertRow(a, onOpenAlerts, modifier)

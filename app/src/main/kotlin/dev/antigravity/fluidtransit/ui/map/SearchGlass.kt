@@ -122,6 +122,12 @@ fun SearchGlass(
      */
     placesReady: Boolean = true,
     /**
+     * Dove sta la ricerca di fermate e linee: pronta, ancora da costruire
+     * (si fa dopo l'apertura degli orari, qualche secondo al primo avvio), o
+     * fallita. "Niente con questo nome" si dice solo nel primo caso.
+     */
+    transitSearch: TransitSearch = TransitSearch.READY,
+    /**
      * Cosa si sta cercando, quando non e' "qualcosa".
      *
      * La stessa barra serve a trovare un posto sulla mappa e a compilare una
@@ -274,7 +280,15 @@ fun SearchGlass(
                     if (results.isEmpty()) {
                         item {
                             Text(
-                                text = if (query.length == 1) {
+                                text = if (transitSearch == TransitSearch.BUILDING) {
+                                    "Sto preparando la ricerca di fermate e linee: " +
+                                        "un attimo e riprova."
+                                } else if (transitSearch == TransitSearch.FAILED) {
+                                    "La ricerca di fermate e linee non e' riuscita a " +
+                                        "partire con gli orari di oggi. Riapri l'app; se " +
+                                        "succede ancora, Stato dei dati in Impostazioni " +
+                                        "dice cosa non va."
+                                } else if (query.length == 1) {
                                     // "Prova con meno lettere" con una lettera
                                     // sola non vuol dire niente, e con un
                                     // carattere si cercano solo le sigle.
@@ -492,3 +506,6 @@ private fun SuggestionRow(s: Suggestion, onPick: (Suggestion) -> Unit, divider: 
         }
     }
 }
+
+/** Lo stato della ricerca di fermate e linee, per le parole del "niente". */
+enum class TransitSearch { READY, BUILDING, FAILED }

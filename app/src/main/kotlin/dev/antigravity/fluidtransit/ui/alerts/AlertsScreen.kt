@@ -144,10 +144,9 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
         if (alerts == null) {
             item {
                 FluidEmptyState(
-                    title = "Gli avvisi non sono arrivati",
-                    detail = "Non siamo riusciti a scaricarli, quindi non sappiamo se ce ne " +
-                        "sono. Non e' la stessa cosa che non ce ne siano: tira giu' per " +
-                        "riprovare.",
+                    title = dev.antigravity.fluidtransit.routing.AlertText.UNAVAILABLE_TITLE,
+                    detail = dev.antigravity.fluidtransit.routing.AlertText.UNAVAILABLE_DETAIL +
+                        ": tira giu' per riprovare.",
                 )
             }
             return@FluidScreen

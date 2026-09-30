@@ -55,6 +55,17 @@ passaggio. Le strade possibili: testo scuro dove rende di piu', oppure tinte
 un poco piu' scure (che pero' sono anche il colore delle tratte sulla mappa,
 e sulla basemap scura si leggerebbero peggio). — misurato il 30/09/2026
 
+**Il vetro dei pannelli lascia leggere le etichette della mappa sotto.**
+Visto su un Galaxy S25 il 30/09/2026, pannello "Qui intorno" sopra Sesto
+Fiorentino: la destinazione "CALENZANO UNIVERSITÀ" finiva a ridosso
+dell'etichetta "Cimitero Maggiore" della basemap, e si leggeva
+"CALENZANO UNIVERSITÀggiore". Il vetro e' dell'engine e la trasparenza e'
+voluta; ma sopra una mappa piena di scritte il testo del pannello e quello
+della mappa sono dello stesso colore e della stessa famiglia. Le strade: una
+velatura un po' piu' coprente per i pannelli con righe di testo, o le
+etichette della basemap attenuate quando un pannello e' aperto. Scelta
+d'aspetto, quindi da decidere. — 30/09/2026
+
 **Mentre si cammina verso la fermata il bus puo' essere gia' passato, e la
 card non lo dice.** Visto sull'emulatore il 30/09: camminando verso Piazza
 Dalmazia per la 20 delle 14:00, alle 13:58 il mezzo assegnato a quella corsa
@@ -78,6 +89,18 @@ intatte le tratte e le etichette. Visto su Firenze a schermo pulito: le
 strade restano gialle chiare e leggibili, il fiume e i verdi si riconoscono,
 le etichette sono nitide, e le tratte colorate sono senza dubbio la cosa
 principale. Prima erano una fra tante. — verificato il 16/09/2026
+
+**L'emulatore `codex_api35_pixel` ha 2 GB di RAM, e va in swap.** Il
+30/09/2026 l'app andava in ANR a ogni avvio col bundle presente, con le
+tracce dentro `HardwareRenderer.setStopped`: `top` dava 1,87 GB occupati su
+2 e quasi 800 MB di swap, e il tempo di sistema dell'app erano page fault.
+Con `-memory 4096 -cores 4 -gpu host -feature -Vulkan` parte. Ma quello che
+l'emulatore non da' — la rete che si apre in ritardo all'avvio, i dati di
+lingua del produttore, i font veri — l'ha dato solo il telefono: la build di
+debug sul telefono si installa accanto a PampAI rifirmandola con la chiave
+di release (`apksigner sign --ks ...`), perche' il permesso AI_TOOLS
+dichiarato da tutte e due vuole la stessa firma (vedi "Due app Pampa").
+— 30/09/2026
 
 **Per guardare l'app su un emulatore che va in ANR di continuo**, i dialoghi
 di sistema si tolgono con `adb shell settings put global hide_error_dialogs

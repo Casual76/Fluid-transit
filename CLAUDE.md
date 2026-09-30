@@ -169,6 +169,31 @@ pausa intera — fino a cinque ore, misurate dal banco di fedelta' fra il 22 e
 il 29/09. Adesso la regola sta in `freshness.js` e la usano tutte e due le
 vie.
 
+**All'avvio la rete non c'e' ancora, e `isActiveNetworkMetered` dice si'.**
+Nell'`onCreate` dell'Application il processo non e' in primo piano, e il
+sistema gli tiene la rete chiusa per una frazione di secondo; in quella
+finestra `isActiveNetworkMetered` risponde `true` e `getActiveNetwork` null.
+Su un Galaxy S25 in Wi-Fi la prima apertura chiedeva "Sei su rete mobile"
+due volte su tre. Le callback di rete, invece, arrivano anche per una rete
+ancora bloccata: fidarsi di quelle fa partire il download che muore su
+"Unable to resolve host". La domanda si fa a `Metered`, che ha tre risposte
+e sa aspettare.
+
+**`zoomWhileTracking` subito dopo aver cambiato `cameraMode` non fa niente.**
+MapLibre lo ignora finche' la camera sta andando verso la posizione, e
+passare da libero a tracking e' quella transizione: la mappa si centrava su
+di te e restava allo zoom della regione. Zoom e inclinazione vanno dentro
+`setCameraMode(modo, durata, zoom, bearing, tilt, listener)`.
+
+**I nomi di mesi e giorni non si chiedono alla piattaforma.**
+`Month.getDisplayName(FULL, ITALIAN)` sulla JVM dei test da' "settembre", su
+un Samsung "Settembre": un difetto che nessun test puo' vedere. Stanno in
+`Words.month` e `Words.weekday`.
+
+**Gli stili di OpenFreeMap preferiscono l'inglese** (`coalesce(name_en,
+name)`): "Florence", "TUSCANY". `localizeLabels` li riporta a `name:it`
+al caricamento dello stile; uno stile nuovo va controllato li'.
+
 ## Numeri misurati, non stimati
 
 Servono prima di progettare, e sono costati tempo: qui per non rimisurarli.

@@ -82,7 +82,8 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
                             },
                             meta = when {
                                 daysLeft < 0 -> "scaduti"
-                                daysLeft <= 3 -> "$daysLeft g"
+                                // "2 g" era un'abbreviazione che non usa nessuno.
+                                daysLeft <= 3 -> dev.antigravity.fluidtransit.routing.Words.count(daysLeft.toInt(), "giorno", "giorni")
                                 else -> "ok"
                             },
                         )

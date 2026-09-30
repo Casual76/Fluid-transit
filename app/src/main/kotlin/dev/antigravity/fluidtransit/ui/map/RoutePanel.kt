@@ -327,7 +327,9 @@ fun RouteMiniContent(info: RouteInfo, direction: Int) {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = "${dir.stops.size} fermate · ~${dir.durationMinutes} min",
+                // Col vocabolario: "1 fermate" e "~250 min" uscivano da qui.
+                text = dev.antigravity.fluidtransit.routing.Words.count(dir.stops.size, "fermata", "fermate") +
+                    " · ~" + dev.antigravity.fluidtransit.routing.Times.durationLabel(dir.durationMinutes * 60),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -464,7 +466,9 @@ fun RouteFullContent(
                 text = buildString {
                     append("Oggi: prima ${info.firstDepToday}, ultima ${info.lastDepToday}")
                     if (info.headwayMinutes != null) {
-                        append(" · circa ogni ${info.headwayMinutes} min a quest'ora")
+                        append(" · circa ogni ")
+                        append(dev.antigravity.fluidtransit.routing.Times.durationLabel(info.headwayMinutes * 60))
+                        append(" a quest'ora")
                     }
                     val dir = info.directions.getOrNull(direction)
                     if (dir?.stops?.any { it.timeEpoch > 0 } == true) {

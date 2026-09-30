@@ -158,6 +158,13 @@ class TimesTest {
     }
 
     @Test
+    fun `un'ora del giorno si scrive come l'orologio`() {
+        assertEquals("07:05", Times.clockOfDay(7 * 60 + 5))
+        assertEquals("00:00", Times.clockOfDay(0))
+        assertEquals("23:59", Times.clockOfDay(24 * 60 - 1))
+    }
+
+    @Test
     fun `una durata quasi zero si dice a parole`() {
         // Le camminate di pochi passi e le discese imminenti finivano in
         // "0 min", che e' la stessa frase vuota di "parte tra 0 min". Stava

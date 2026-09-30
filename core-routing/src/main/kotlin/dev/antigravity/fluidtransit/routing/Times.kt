@@ -168,6 +168,18 @@ object Times {
     }
 
     /**
+     * Un orario dato in minuti dalla mezzanotte: "07:05".
+     *
+     * Le routine lo salvano cosi', e la scheda Oggi lo scriveva con un
+     * `"%02d:%02d".format` suo. Stesso orologio di [hhmm], per chi non ha un
+     * istante ma solo un'ora del giorno.
+     */
+    fun clockOfDay(minutesOfDay: Int): String {
+        val m = ((minutesOfDay % (24 * 60)) + 24 * 60) % (24 * 60)
+        return "%02d:%02d".format(m / 60, m % 60)
+    }
+
+    /**
      * L'orario scelto per un viaggio: "Parti ora", "Parti alle 14:30",
      * "Parti domani alle 07:30", "Arrivi entro le 09:00".
      *

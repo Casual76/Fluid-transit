@@ -381,7 +381,7 @@ fun TodayTab(
                                 append(daysShort(r.days))
                                 append(" · ")
                                 append(if (r.anchor == "arrive") "entro le " else "parti alle ")
-                                append("%02d:%02d".format(r.anchorMinutes / 60, r.anchorMinutes % 60))
+                                append(dev.antigravity.fluidtransit.routing.Times.clockOfDay(r.anchorMinutes))
                                 if (isToday && adviceToday) {
                                     append("\n")
                                     append(r.lastAdviceText)

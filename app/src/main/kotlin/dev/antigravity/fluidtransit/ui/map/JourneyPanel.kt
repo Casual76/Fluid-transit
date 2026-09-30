@@ -79,6 +79,7 @@ class UiJourney(
             val legs = j.legs.mapIndexed { i, leg ->
                 when (leg) {
                     is Raptor.Leg.Walk -> UiLeg.Walk(
+                        seconds = leg.seconds,
                         minutes = (leg.seconds + 30) / 60,
                         toName = if (leg.toStop >= 0) reader.stopName(leg.toStop) else "destinazione",
                         depTime = hm(leg.departure),
@@ -138,7 +139,13 @@ class UiJourney(
 private const val WAIT_WORTH_SAYING_S = 120
 
 sealed class UiLeg {
-    class Walk(val minutes: Int, val toName: String, val depTime: String) : UiLeg()
+    class Walk(
+        val minutes: Int,
+        val toName: String,
+        val depTime: String,
+        /** I secondi veri: le parole li vogliono, il numero nella pastiglia no. */
+        val seconds: Int = minutes * 60,
+    ) : UiLeg()
     class Ride(
         /**
          * Quanto si aspetta alla fermata prima di salire.
@@ -375,10 +382,9 @@ private fun JourneyRow(j: UiJourney, onClick: () -> Unit) {
             )
             Text(
                 text = when {
-                    j.walkOnly -> "${j.walkMin} min a piedi"
+                    j.walkOnly -> dev.antigravity.fluidtransit.routing.Times.durationOrUnderMinute(j.raw.walkSeconds) + " a piedi"
                     j.transfers == 0 -> "diretto"
-                    j.transfers == 1 -> "1 cambio"
-                    else -> "${j.transfers} cambi"
+                    else -> dev.antigravity.fluidtransit.routing.Words.count(j.transfers, "cambio", "cambi")
                 },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -420,13 +426,22 @@ fun JourneyDetailContent(
                 if (j.hasLive) LiveDot(liveGreen())
             }
             Text(
-                text = "${j.durationLabel} · ${
-                    when (j.transfers) {
-                        0 -> "diretto"
-                        1 -> "1 cambio"
-                        else -> "${j.transfers} cambi"
+                // "0 min a piedi" usciva su ogni viaggio senza camminate: la
+                // riga si scrive solo se c'e' davvero da camminare.
+                text = buildString {
+                    append(j.durationLabel)
+                    append(" · ")
+                    append(
+                        if (j.transfers == 0) "diretto" else dev.antigravity.fluidtransit.routing.Words.count(j.transfers, "cambio", "cambi"),
+                    )
+                    if (j.raw.walkSeconds > dev.antigravity.fluidtransit.routing.Times.NOW_SECONDS) {
+                        append(" · ")
+                        append(dev.antigravity.fluidtransit.routing.Times.durationLabel(j.raw.walkSeconds))
+                        append(" a piedi")
                     }
-                } · ${j.walkMin} min a piedi · → $toName",
+                    append(" · → ")
+                    append(toName)
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -524,11 +539,12 @@ fun JourneyDetailContent(
                         // partenza e' gia' sul marciapiede della fermata
                         // usciva "Cammina 0 min fino a PORTA SAN FREDIANO",
                         // che e' un'istruzione a non fare niente.
-                        text = if (leg.minutes == 0) {
-                            "Meno di un minuto a piedi fino a ${leg.toName}"
-                        } else {
-                            "Cammina ${leg.minutes} min fino a ${leg.toName}"
-                        },
+                        // Le parole della navigazione: "4 min a piedi fino a",
+                        // "Meno di un minuto a piedi fino a". Il dettaglio del
+                        // viaggio e la card del viaggio in corso dicevano la
+                        // stessa camminata in due modi.
+                        text = dev.antigravity.fluidtransit.routing.Times.durationOrUnderMinute(leg.seconds)
+                            .replaceFirstChar { it.uppercase() } + " a piedi fino a ${leg.toName}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),

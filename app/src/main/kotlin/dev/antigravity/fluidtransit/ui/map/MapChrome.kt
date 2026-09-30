@@ -206,7 +206,11 @@ fun LiveDownCapsule(
     var expanded by remember {
         androidx.compose.runtime.mutableStateOf(false)
     }
-    val minuti = ((status.feedAgeSeconds ?: 0L) / 60).coerceAtLeast(1)
+    // "Da 340 min" si leggeva quando la Regione si fermava per ore: l'eta'
+    // si dice con le parole di tutte le eta' dell'app.
+    val minuti = dev.antigravity.fluidtransit.routing.Times.durationLabel(
+        (status.feedAgeSeconds ?: 0L).coerceIn(60L, Int.MAX_VALUE.toLong()).toInt(),
+    )
     val titolo = when {
         offline -> "Il telefono non e' in rete"
         status.source == dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.SCHEDULE_ONLY -> "Nessun dato dal vivo"
@@ -226,7 +230,7 @@ fun LiveDownCapsule(
                 "direttamente dalla Regione, i ritardi no. I minuti che vedi " +
                 "sono quelli di tabella."
         else ->
-            "Da $minuti min la Regione non pubblica posizioni nuove. Noi le " +
+            "Da $minuti la Regione non pubblica posizioni nuove. Noi le " +
                 "stiamo chiedendo: i bus sulla mappa sono dove erano allora."
     }
     androidx.compose.foundation.layout.Column(

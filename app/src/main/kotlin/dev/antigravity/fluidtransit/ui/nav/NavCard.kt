@@ -198,7 +198,11 @@ private fun Testata(state: NavState, onToggle: () -> Unit, onStop: () -> Unit) {
 private fun Alternative(state: NavState, focus: NavFocus?) {
     // Anche mentre si cammina, quando la corsa non si prende piu': e'
     // proprio li' che serve sapere cos'altro passa dalla stessa fermata.
-    val persa = state.canceled || state.missed || state.skipped
+    // La discesa saltata vale solo prima di salire: a bordo `skipped` c'e'
+    // pure, ma le linee utili sono quelle fra la fermata di salita e la
+    // discesa, non azionabili da chi e' gia' sul bus.
+    val persa = state.canceled || state.missed ||
+        (state.skipped && state.phase != "ride")
     if (state.phase != "wait" && !persa) return
     val utili = focus?.useful?.take(3).orEmpty()
     if (utili.isEmpty()) return

@@ -61,7 +61,17 @@ class NavArrivalTest {
     @Test
     fun `una discesa saltata non e' un arrivo nemmeno col feed`() {
         assertTrue(hold(late = 60, followed = true, skipped = true))
-        assertFalse(hold(late = NavArrival.GRACE_SECONDS, followed = true, skipped = true))
+        // Oltre la tolleranza corta si resta a bordo: la fermata alternativa
+        // puo' essere a piu' di quattro minuti.
+        assertTrue(hold(late = NavArrival.GRACE_SECONDS, followed = true, skipped = true))
+        // Col bus che passa a meno di 300 m senza fermarsi la vicinanza non e'
+        // un arrivo.
+        assertTrue(hold(late = 30, skipped = true, meters = 120))
+        assertTrue(hold(late = 30, followed = true, skipped = true, meters = NavArrival.NEAR_METERS))
+        // Il tetto resta, quello largo.
+        assertFalse(hold(late = NavArrival.GRACE_FAR_SECONDS, skipped = true, meters = 120))
+        // Se il feed dichiara servita la fermata non c'e' niente da aspettare.
+        assertFalse(hold(late = 30, passed = true, skipped = true))
     }
 
     @Test

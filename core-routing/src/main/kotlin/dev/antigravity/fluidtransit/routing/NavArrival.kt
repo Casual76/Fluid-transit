@@ -26,8 +26,8 @@ object NavArrival {
 
     /**
      * Tolleranza oltre l'orario di discesa quando di quella corsa non
-     * abbiamo una previsione per quella fermata (o la fermata e' saltata):
-     * il bus puo' essere in ritardo e nessuno lo sa.
+     * abbiamo una previsione dichiarata per quella fermata: il bus puo'
+     * essere in ritardo e nessuno lo sa.
      */
     const val GRACE_SECONDS = 4 * 60L
 
@@ -49,12 +49,16 @@ object NavArrival {
      * Si resta "a bordo" anche se l'orario di discesa e' passato?
      *
      * @param lateSeconds quanto e' passato dall'orario di discesa (>= 0).
-     * @param followed il feed ha una previsione per QUESTA fermata: il
-     *   ritardo e' gia' dentro l'orario, e la tolleranza serve meno.
+     * @param followed il feed DICHIARA una previsione per QUESTA fermata
+     *   (certezza DECLARED): il ritardo e' gia' dentro l'orario, e la
+     *   tolleranza serve meno. Un ritardo portato avanti da una fermata
+     *   precedente, o una nostra stima, non basta: e' proprio il numero che
+     *   puo' sbagliare.
      * @param alightPassed il feed dichiara SERVITA la fermata di discesa: il
      *   bus e' davvero andato oltre, non c'e' niente da aspettare.
      * @param alightSkipped il feed dichiara SALTATA la fermata di discesa:
-     *   "sei a DEST" sarebbe falso anche con l'orologio giusto.
+     *   "sei a DEST" sarebbe falso anche con l'orologio giusto e anche con
+     *   la posizione vicina, quindi si resta a bordo fino al tetto largo.
      * @param metersToAlight metri dalla discesa, -1 se la posizione non si sa
      *   (modo Bilanciato, o fix vecchio o impreciso).
      */
@@ -67,11 +71,18 @@ object NavArrival {
     ): Boolean {
         if (lateSeconds < 0) return true
         if (alightPassed) return false
+        // La discesa saltata prima di tutto: il bus puo' passare a cento
+        // metri dalla fermata senza fermarsi, quindi ne' la vicinanza ne' la
+        // tolleranza corta dicono "sei arrivato" — la persona e' ancora a
+        // bordo e deve scendere alla fermata alternativa. Il tetto resta,
+        // quello largo, perche' chi e' sceso prima non resta per sempre su
+        // una card che dice "scendi dopo".
+        if (alightSkipped) return lateSeconds < GRACE_FAR_SECONDS
         if (metersToAlight in 0..NEAR_METERS) return false
         if (metersToAlight > FAR_METERS) return lateSeconds < GRACE_FAR_SECONDS
         // Senza posizione, o sulla soglia fra vicino e lontano: conta solo
         // quanto ci si puo' fidare dell'orologio.
-        return if (!followed || alightSkipped) lateSeconds < GRACE_SECONDS else false
+        return if (!followed) lateSeconds < GRACE_SECONDS else false
     }
 
     /**

@@ -417,7 +417,14 @@ class NavigationService : Service() {
         }.also { job ->
             // Il ciclo esce da piu' parti (arrivo, orari persi, nuovo piano,
             // Termina): il blocco si libera in un punto solo.
-            job.invokeOnCompletion { releaseLap() }
+            //
+            // Solo se il giro e' ancora quello corrente: un piano nuovo
+            // annulla il vecchio e lancia subito il suo, e l'handler del
+            // vecchio scatta dopo l'acquireLap del nuovo. Il blocco e' uno
+            // solo e non contato, quindi liberava quello del giro nuovo e la
+            // CPU poteva riaddormentarsi a meta' della sua prima chiamata di
+            // rete.
+            job.invokeOnCompletion { if (loopJob === job) releaseLap() }
         }
     }
 
@@ -1123,7 +1130,12 @@ class NavigationService : Service() {
                     // ciclo e GPS) sull'orologio. Vedi [NavArrival].
                     val tenere = now >= alightTime && NavArrival.holdRide(
                         lateSeconds = now - alightTime,
-                        followed = alightAt != null,
+                        // Solo la previsione DICHIARATA per questa fermata
+                        // conta come "seguita": un ritardo propagato da una
+                        // fermata prima o una nostra proiezione e' il numero
+                        // che puo' sbagliare, e con lui la tolleranza serve.
+                        followed = alightAt?.certainty ==
+                            dev.antigravity.fluidtransit.routing.Certainty.DECLARED,
                         alightPassed = alightAt?.certainty ==
                             dev.antigravity.fluidtransit.routing.Certainty.SERVED,
                         alightSkipped = discesaSaltata,

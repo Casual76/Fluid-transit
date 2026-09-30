@@ -29,7 +29,7 @@ import {
   SNAPSHOT_KEY, HEADER_LEN, buildSnapshot, readHeader, sliceSection,
 } from './snapshot.js';
 import { buildPredictions } from './predictions.js';
-import { refreshPolicy, holdEmptyTripUpdates } from './freshness.js';
+import { refreshPolicy, holdEmptyTripUpdates, withDeadline, BLOCKING_WAIT_MS } from './freshness.js';
 
 const ORIGIN = 'https://regionetoscana.smartregion.toscana.it/mobility/artifacts/gtfs-rt';
 const UA = 'FluidTransit-RT/1.0 (+https://github.com/Casual76/Fluid-transit)';
@@ -78,8 +78,9 @@ const SECTION_KEYS = {
  * appesa appendeva anche l'app. Non e' un'ipotesi: il 24/09 il keepalive e'
  * fallito dopo sessanta secondi senza ricevere un byte, cioe' /refresh era
  * rimasto fermo su un fetch. Dieci secondi sono venti volte quello che
- * servono di solito (170-400 ms, misurati il 30/09) e restano sotto il
- * timeout di lettura dell'app, che e' di 20 (RealtimeClient).
+ * servono di solito (170-400 ms, misurati il 30/09). La lettura che aspetta
+ * il giro comunque non li aspetta tutti: si ferma a BLOCKING_WAIT_MS
+ * (freshness.js) e serve quello che c'e'.
  */
 const ORIGIN_TIMEOUT_MS = 10_000;
 
@@ -136,20 +137,25 @@ function maybeLazyRefresh(env, ctx, generatedAt) {
 }
 
 /**
- * Se lo snapshot e' troppo vecchio per servirlo, fa il giro e lo aspetta.
+ * Se lo snapshot e' troppo vecchio per servirlo, fa il giro e lo aspetta —
+ * ma non oltre BLOCKING_WAIT_MS (freshness.js).
  *
  * Torna true solo se il giro ha SCRITTO: sugli esiti 'invariato' e 'feed non
  * raggiunti' i byte su R2 sono per definizione quelli gia' in mano, e
  * rileggerli sarebbe lavoro buttato proprio nel caso in cui questo ramo
- * scatta piu' spesso (origine ferma). Se l'origine non risponde si serve
- * quello che c'e': meglio un dato vecchio che dichiara la sua eta' di un
- * errore.
+ * scatta piu' spesso (origine ferma). Se l'origine non risponde, o non
+ * risponde in tempo, si serve quello che c'e': meglio un dato vecchio che
+ * dichiara la sua eta' di un errore, e meglio subito che dopo il timeout del
+ * fetch. Il giro scaduto non si butta: resta in `waitUntil` e scrive per chi
+ * legge dopo.
  */
-async function freshen(env, generatedAt) {
+async function freshen(env, ctx, generatedAt) {
   const policy = refreshPolicy({ now: nowSeconds(), generatedAt, lastRefreshAt });
   if (policy !== 'blocking') return false;
+  const giro = sharedRefresh(env);
+  ctx.waitUntil(giro.catch(() => {}));
   try {
-    const outcome = await sharedRefresh(env);
+    const outcome = await withDeadline(giro, BLOCKING_WAIT_MS);
     return typeof outcome === 'string' && outcome.startsWith('scritto');
   } catch {
     return false;
@@ -429,7 +435,7 @@ async function serveSection(request, env, ctx, kind) {
     // primo lettore dopo una pausa riceveva la pausa intera. Il 30/09 alle
     // 12:40 la sezione servita aveva due ore; il banco di fedelta' l'aveva
     // vista in undici giri su quattordici, e la chiamava "non conclusivo".
-    if (direct && (await freshen(env, Number((direct.customMetadata || {}).gen || 0)))) {
+    if (direct && (await freshen(env, ctx, Number((direct.customMetadata || {}).gen || 0)))) {
       const again = await env.RT.get(SECTION_KEYS[kind]);
       if (again) {
         direct.body.cancel().catch(() => {});
@@ -494,7 +500,7 @@ async function serveSection(request, env, ctx, kind) {
     }
 
     // Si rilegge SOLO se il giro ha scritto davvero: qui sono ~400 KB.
-    if (await freshen(env, header.generatedAt)) {
+    if (await freshen(env, ctx, header.generatedAt)) {
       const again = await env.RT.get(SNAPSHOT_KEY);
       if (again) {
         const fresher = new Uint8Array(await again.arrayBuffer());

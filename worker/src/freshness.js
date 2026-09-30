@@ -85,3 +85,40 @@ export function holdEmptyTripUpdates({ now, tuTs, prev }) {
   if (!prev || !(prev.delayCount > 0)) return false;
   return now - (prev.generatedAt || 0) < EMPTY_HOLD_SECONDS;
 }
+
+/**
+ * Quanto una lettura aspetta il giro bloccante prima di servire il vecchio.
+ *
+ * Il giro dura di solito uno-tre secondi (tre fetch da 170-400 ms, il parse,
+ * le scritture su R2); il limite dei fetch verso l'origine e' invece dieci
+ * secondi per feed, perche' un giro lento e' meglio di nessun giro. Ma quei
+ * dieci secondi non devono diventare l'attesa del telefono: quando l'origine
+ * della Regione si pianta — e succede, il keepalive del 24/09 e' rimasto
+ * appeso un minuto — ogni isolate nuovo avrebbe fatto aspettare al suo primo
+ * lettore tutto il timeout, con quattro sezioni chieste in parallelo
+ * all'avvio. Prima del rinfresco alla lettura quel lettore riceveva subito
+ * il dato vecchio con la sua eta'; con questo tetto lo riceve dopo quattro
+ * secondi, e il giro finisce comunque in background per chi viene dopo.
+ */
+export const BLOCKING_WAIT_MS = 4_000;
+
+/**
+ * Aspetta `promise` al massimo `ms` millisecondi.
+ *
+ * @template T
+ * @param {Promise<T>} promise
+ * @param {number} ms
+ * @returns {Promise<T | undefined>} l'esito, o undefined se e' scaduto il tempo.
+ *   Un rifiuto passa com'e': chi chiama decide cosa farne.
+ */
+export async function withDeadline(promise, ms) {
+  let timer;
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(undefined), ms);
+  });
+  try {
+    return await Promise.race([promise, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}

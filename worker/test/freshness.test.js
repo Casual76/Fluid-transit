@@ -6,6 +6,8 @@ import {
   LAZY_REFRESH_AFTER_SECONDS,
   BLOCKING_REFRESH_AFTER_SECONDS,
   EMPTY_HOLD_SECONDS,
+  BLOCKING_WAIT_MS,
+  withDeadline,
 } from '../src/freshness.js';
 
 const NOW = 1_790_764_968;
@@ -75,5 +77,32 @@ describe('holdEmptyTripUpdates', () => {
     const vuoto = { generatedAt: NOW - 60, delayCount: 0 };
     assert.equal(holdEmptyTripUpdates({ now: NOW, tuTs: 0, prev: vuoto }), false);
     assert.equal(holdEmptyTripUpdates({ now: NOW, tuTs: 0, prev: null }), false);
+  });
+});
+
+describe('withDeadline', () => {
+  test('un giro puntuale porta il suo esito', async () => {
+    const esito = await withDeadline(Promise.resolve('scritto: 1 veicoli'), 50);
+    assert.equal(esito, 'scritto: 1 veicoli');
+  });
+
+  // L'origine appesa: il lettore non deve aspettare i dieci secondi del
+  // fetch, ma servire quello che c'e' allo scadere del tetto.
+  test('un giro che non finisce non trattiene la risposta', async () => {
+    const appeso = new Promise(() => {});
+    const inizio = Date.now();
+    const esito = await withDeadline(appeso, 30);
+    assert.equal(esito, undefined);
+    assert.ok(Date.now() - inizio < 1000);
+  });
+
+  test('un giro fallito resta un fallimento', async () => {
+    await assert.rejects(withDeadline(Promise.reject(new Error('origine giu\'')), 50), /origine/);
+  });
+
+  test('il tetto sta sotto il timeout di lettura dell\'app', () => {
+    // RealtimeClient legge con 20 s di timeout, e all'avvio chiede quattro
+    // sezioni insieme: il tetto deve lasciarne ampiamente.
+    assert.ok(BLOCKING_WAIT_MS <= 5_000);
   });
 });

@@ -159,7 +159,17 @@ class BundleManager(
         // Solo su una rete che sappiamo non a consumo: "non lo so ancora"
         // all'avvio si aspetta un attimo invece di saltare il giro, perche'
         // il prossimo controllo e' fra un'ora (vedi Metered).
-        if (dev.antigravity.fluidtransit.data.net.Metered.await(cm) != false) return
+        //
+        // Tranne quando gli orari in tasca sono scaduti o scadono domani. Chi
+        // usa solo i dati mobili non avrebbe avuto nessun modo di
+        // aggiornarli: il controllo in sottofondo aspettava un Wi-Fi che non
+        // arrivava, e nessun tasto lo forzava. Con gli orari scaduti l'app
+        // non serve a niente, e sei mega sono il prezzo giusto.
+        val consumo = dev.antigravity.fluidtransit.data.net.Metered.await(cm)
+        val scadono = !java.time.LocalDate.now(dev.antigravity.fluidtransit.routing.Ftb.ROME)
+            .plusDays(1).isBefore(current.reader.feedEnd)
+        if (consumo == null) return
+        if (consumo && !scadono) return
         runCatching {
             val index = fetchIndex()
             if (index.buildId == java.lang.Long.toHexString(current.buildId)) {

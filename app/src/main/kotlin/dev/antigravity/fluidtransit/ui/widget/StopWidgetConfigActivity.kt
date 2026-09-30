@@ -133,6 +133,15 @@ class StopWidgetConfigActivity : ComponentActivity() {
                 // gia' giusto.
                 prefs[KEY_STOP_NAME] = nome
             }
+            // Il contatore, oltre all'update: se il lanciatore ha appena
+            // agganciato il widget c'e' una sessione Glance aperta — quella
+            // che ha disegnato "Tocca per configurare" — e per una
+            // quarantina di secondi l'update da solo non la fa ricaricare.
+            // Il widget legge la fermata dal suo stato dentro la
+            // composizione, ma il tabellone lo ricarica solo a contatore
+            // mosso. E' il sospetto piu' forte dietro al widget che restava
+            // a "Tocca per configurare" pur avendo la fermata salvata.
+            WidgetTick.bump()
             StopWidget().update(this@StopWidgetConfigActivity, glanceId)
             setResult(
                 RESULT_OK,

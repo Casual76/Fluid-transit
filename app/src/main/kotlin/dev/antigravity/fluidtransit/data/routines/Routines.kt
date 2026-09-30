@@ -4,6 +4,7 @@ import android.content.Context
 import dev.antigravity.fluidtransit.data.store.Durable
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -105,9 +106,23 @@ class Routines(private val file: File) {
             Durable.write(file, a.toString())
         }
         version.value++
+        changes.update { it + 1 }
     }
 
     companion object {
+
+        /**
+         * Sale a ogni scrittura, da QUALUNQUE istanza.
+         *
+         * [version] e' di una sola istanza, e lo scheduler delle sveglie ne
+         * apre di sue: quello che scrive il consiglio non faceva muovere il
+         * `version` di `app.routines`, e chi ascolta quello — Oggi — non lo
+         * sapeva. Il widget vive in una sessione Glance che resta aperta
+         * tre quarti di minuto e ignora gli `updateAll` di quel tempo: senza
+         * un segnale che arrivi da tutte le istanze, un consiglio appena
+         * calcolato non si vedeva sulla home fino al giro dopo.
+         */
+        val changes = MutableStateFlow(0)
 
         /**
          * Quanto un consiglio resta buono dopo l'ora di uscire.

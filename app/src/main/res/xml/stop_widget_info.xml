@@ -9,4 +9,5 @@
     android:updatePeriodMillis="1800000"
     android:initialLayout="@layout/widget_loading"
     android:configure="dev.antigravity.fluidtransit.ui.widget.StopWidgetConfigActivity"
+    android:widgetFeatures="reconfigurable"
     android:description="@string/widget_stop_description" />

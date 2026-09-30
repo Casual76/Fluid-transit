@@ -564,4 +564,43 @@ class DepartureTextTest {
         val pieno = DepartureText.why(row(300), now)
         assertTrue(pieno.lines.any { it.contains("feed non parla") }, "${pieno.lines}")
     }
+
+    // ------------------------------------------------- il numero vecchio
+
+    @Test
+    fun `un numero vecchio dice la sua eta' anche dove la riga di provenienza non c'e'`() {
+        // Sul widget piccolo il sottotitolo non si disegna: l'eta' che la
+        // frase di supporto scrive deve poter viaggiare da sola.
+        val vecchio = row(300, delay = 900, certainty = Certainty.DECLARED, age = 900)
+        assertEquals("visto 15 min fa", DepartureText.oldAgeNote(vecchio))
+        assertTrue(
+            DepartureText.phrase(vecchio, now).support.endsWith(DepartureText.oldAgeNote(vecchio)!!),
+            "la nota e la frase di supporto dicono due cose diverse",
+        )
+    }
+
+    @Test
+    fun `un numero fresco, da tabella o di una corsa cancellata non porta nessuna eta'`() {
+        val soglia = DepartureText.VECCHIO_SECONDS
+        assertEquals(
+            null,
+            DepartureText.oldAgeNote(
+                row(300, delay = 60, certainty = Certainty.DECLARED, age = soglia - 1),
+            ),
+        )
+        assertEquals(
+            "visto 10 min fa",
+            DepartureText.oldAgeNote(
+                row(300, delay = 60, certainty = Certainty.DECLARED, age = soglia),
+            ),
+        )
+        // Senza dato dal vivo l'eta' non significa niente: vale la tabella.
+        assertEquals(null, DepartureText.oldAgeNote(row(300, age = 5_000)))
+        assertEquals(
+            null,
+            DepartureText.oldAgeNote(
+                row(300, delay = 60, certainty = Certainty.DECLARED, canceled = true, age = 5_000),
+            ),
+        )
+    }
 }

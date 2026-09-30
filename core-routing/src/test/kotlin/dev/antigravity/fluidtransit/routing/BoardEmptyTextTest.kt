@@ -148,6 +148,24 @@ class BoardEmptyTextTest {
     }
 
     @Test
+    fun `sul widget una fermata sparita dice che toccarla serve a sceglierne un'altra`() {
+        // Al formato piccolo il kit nasconde il sottotitolo: l'azione deve
+        // stare nel titolo, che c'e' sempre, e deve starci in una riga.
+        val sparita = DepartureText.emptyOnWidget(DepartureText.Trouble.FERMATA_SCONOSCIUTA)
+        assertTrue("tocca" in sparita.title, sparita.title)
+        assertTrue(sparita.title.length <= 34, "'${sparita.title}' e' troppo lungo per una riga")
+        // Le altre schermate non cambiano parole: il tocco e' del solo widget.
+        assertEquals(
+            DepartureText.empty(DepartureText.Trouble.FERMATA_SCONOSCIUTA).title,
+            "Questa fermata non c'e' piu'",
+        )
+        // E tutte le altre situazioni restano quelle di sempre.
+        for (t in DepartureText.Trouble.entries - DepartureText.Trouble.FERMATA_SCONOSCIUTA) {
+            assertEquals(DepartureText.empty(t).title, DepartureText.emptyOnWidget(t).title)
+        }
+    }
+
+    @Test
     fun `un tabellone fuori validita' si legge come scaduto`() {
         assertEquals(
             DepartureText.Trouble.ORARI_SCADUTI,

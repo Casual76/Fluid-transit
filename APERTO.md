@@ -195,6 +195,19 @@ che resta davvero aperto e' solo quello di un widget appena TRASCINATO dal
 lanciatore, che non si e' potuto ricreare a comando.
 — sistemato e riprovato il 16/09/2026
 
+**Il widget appena trascinato: la causa probabile e' la sessione Glance, non
+il lanciatore.** Letto sul bytecode di Glance 1.1.1 il 30/09/2026:
+`provideGlance` gira una volta per sessione, e la sessione resta viva una
+quarantina di secondi dopo il primo disegno; in quel tempo `update()` e
+`updateAll()` rileggono solo lo stato e non rilanciano niente. Il disegno che
+il lanciatore provoca al momento dell'aggancio ("Tocca per configurare")
+apriva la finestra, e sia l'update della configurazione sia la sveglia due
+secondi dopo ci cadevano dentro. Ora i due widget leggono palette, fermata,
+tabellone e routine DENTRO `provideContent` e si ricaricano al contatore
+`WidgetTick`. Non provato su un telefono: resta da vedere trascinando un
+widget nuovo.
+— corretto il 30/09/2026, da verificare su un dispositivo
+
 **Le parole del pannello corsa, viste su un bus vivo.** Aspettate le ore di
 servizio e fatte alle 05:10 sulla linea 23 verso CROCE A VARLIANO: "Posizione
 live - aggiornata 2 min fa", "+2 min di ritardo" col pallino verde, e tutte

@@ -205,7 +205,7 @@ object DepartureText {
                 } else {
                     ""
                 }
-                "$source$ritardo · visto ${Words.age(ageSeconds.toLong())} fa"
+                "$source$ritardo · ${seen(ageSeconds)}"
             }
             // Il ritardo e' zero ma il feed sta seguendo la corsa: "in orario"
             // e' un'informazione, ed e' diversa da "non sappiamo niente".
@@ -232,6 +232,27 @@ object DepartureText {
             pulse = certainty == Certainty.DECLARED,
         )
     }
+
+    /** "visto 15 min fa": di quando e' un numero che non e' piu' fresco. */
+    private fun seen(ageSeconds: Int): String = "visto ${Words.age(ageSeconds.toLong())} fa"
+
+    /**
+     * L'eta' di un numero vecchio, per chi non ha spazio per la riga di provenienza.
+     *
+     * Il widget piccolo — e un 4x2 lo e' quasi ovunque — nasconde il
+     * sottotitolo, e con lui il "visto 15 min fa" che [phrase] scrive nel
+     * sostegno. Restavano il colore e il pallino di un ritardo che l'origine
+     * non confermava da un quarto d'ora: un numero vecchio spacciato per
+     * fresco, che e' proprio la cosa che la soglia [VECCHIO_SECONDS] esiste
+     * per impedire. Null quando il numero e' fresco, quando non e' dal vivo,
+     * e quando la corsa e' cancellata o saltata: lo dice gia' la parola.
+     */
+    fun oldAgeNote(row: NextDeparture): String? =
+        if (row.live && !row.canceled && !row.skipped && row.ageSeconds >= VECCHIO_SECONDS) {
+            seen(row.ageSeconds)
+        } else {
+            null
+        }
 
     /**
      * La stessa partenza in una riga sola.
@@ -759,6 +780,29 @@ object DepartureText {
             "nessuna fermata nel raggio",
         )
     }
+
+    /**
+     * Le parole di un tabellone vuoto SUL WIDGET.
+     *
+     * Uguali a [empty] salvo una: il widget della fermata, toccato, riapre la
+     * scelta della fermata, e chi ne ha una sparita non ha altro da fare che
+     * sceglierne un'altra. Quel "sceglierne un'altra" stava solo nella frase
+     * lunga, che il widget non mostra mai, e al formato piccolo nemmeno il
+     * sottotitolo: restava "Questa fermata non c'e' piu'" senza dire che
+     * toccarla serve a qualcosa. L'azione va nel titolo, l'unica riga che
+     * c'e' sempre.
+     */
+    fun emptyOnWidget(trouble: Trouble): Empty {
+        val base = empty(trouble)
+        return if (trouble == Trouble.FERMATA_SCONOSCIUTA) {
+            Empty(WIDGET_STOP_GONE_TITLE, base.detail, base.short)
+        } else {
+            base
+        }
+    }
+
+    /** Sta in un titolo da 13 sp su un widget stretto: meglio corto di tagliato. */
+    const val WIDGET_STOP_GONE_TITLE = "Fermata tolta: tocca per cambiarla"
 
     /**
      * Il guaio di un tabellone gia' calcolato e senza righe.

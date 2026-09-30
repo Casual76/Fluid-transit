@@ -14,6 +14,14 @@ import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.state.getAppWidgetState
 import androidx.glance.appwidget.action.actionStartActivity
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.datastore.preferences.core.Preferences
+import androidx.glance.currentState
+import androidx.glance.semantics.contentDescription
+import androidx.glance.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
@@ -60,11 +68,11 @@ import dev.antigravity.fluidtransit.ui.nav.Deeplink
 import dev.antigravity.fluidtransit.ui.theme.TransitBrand
 import java.time.Instant
 import java.time.LocalDate
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 
 /**
  * Il tocco su un widget porta dove il widget guarda.
@@ -184,13 +192,23 @@ private fun RigaPartenza(
     onLineClick: Action?,
 ) {
     val phrase = DepartureText.phrase(row, nowEpoch)
+    // Un numero vecchio si presenta con la sua eta'.
+    val vecchio = DepartureText.oldAgeNote(row)
     Row(
         modifier = GlanceModifier
             .fillMaxWidth()
             .padding(
                 horizontal = if (layout.compact) 10.dp else 12.dp,
                 vertical = if (layout.compact) 7.dp else 9.dp,
-            ),
+            )
+            // La riga detta come una persona, per TalkBack.
+            //
+            // Senza, pastiglia, destinazione e minuti si leggevano come tre
+            // frammenti senza legame, e "in ritardo", "in orario" o "stimato"
+            // non si dicevano mai: sul widget piccolo la puntualita' stava
+            // nel solo colore. E' la frase che la scheda fermata usa, dalla
+            // stessa funzione, quindi non puo' divergere.
+            .semantics { contentDescription = DepartureText.spoken(row, nowEpoch) },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         PastigliaLinea(row.line, row.colorRgb, layout, onLineClick)
@@ -223,9 +241,25 @@ private fun RigaPartenza(
         // guardando. Fermo invece che pulsante: un RemoteViews non anima, e
         // un pallino che sta li' e' comunque la stessa convenzione che l'app
         // usa a due dita di distanza.
-        if (phrase.pulse) {
+        //
+        // Non per un numero vecchio: il pallino dice "il feed sta seguendo
+        // QUESTA corsa", e dopo dieci minuti di silenzio dell'origine non e'
+        // piu' vero. La Regione si ferma per quarti d'ora anche di mattina
+        // (misurato), e fino a qui la riga teneva il pallino e il rosso di un
+        // ritardo di tre quarti d'ora prima, senza una parola che lo datasse.
+        if (phrase.pulse && vecchio == null) {
             Box(modifier = GlanceModifier.size(6.dp).background(colore).cornerRadius(3.dp)) {}
             Spacer(GlanceModifier.width(5.dp))
+        }
+        // La riga di provenienza, dove il kit la nasconde: nel widget
+        // piccolo il sottotitolo non c'e', e con lui "visto 15 min fa".
+        if (vecchio != null && !layout.showSubtitle) {
+            Text(
+                text = vecchio,
+                style = engineWidgetTextStyle(color = palette.onSurfaceVariant, size = 11.sp),
+                maxLines = 1,
+            )
+            Spacer(GlanceModifier.width(6.dp))
         }
         Text(
             text = phrase.headline,
@@ -329,6 +363,16 @@ private fun EtichettaOraDisegno(testo: String, palette: EngineWidgetPalette) {
     )
 }
 
+/**
+ * Il tabellone di un widget e la fermata a cui appartiene.
+ *
+ * La fermata viaggia insieme al risultato perche' il widget la legge dal suo
+ * stato dentro la composizione: se cambia mentre il tabellone si ricarica,
+ * quello che c'e' in mano e' della fermata di prima e non si deve mostrare
+ * sotto il nome della nuova.
+ */
+private class Caricato(val hash: String?, val esito: StopBoard)
+
 class StopWidget : GlanceAppWidget() {
 
     override val sizeMode: SizeMode = SizeMode.Exact
@@ -336,12 +380,13 @@ class StopWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val app = context.applicationContext as FluidTransitApp
-        val settings = app.settingsStore.current()
-        val palette = engineWidgetPalette(context, settings, TransitBrand)
+        val settingsIniziali = app.settingsStore.current()
 
-        val prefs = getAppWidgetState(context, PreferencesGlanceStateDefinition, id)
-        val stopHash = prefs[KEY_STOP_HASH]
-        val stopName = prefs[KEY_STOP_NAME] ?: ""
+        // Il contatore si legge PRIMA di caricare: un ridisegno chiesto mentre
+        // si carica deve fare ricaricare, non perdersi.
+        val tickIniziale = WidgetTick.ticks.value
+        val prefsIniziali = getAppWidgetState(context, PreferencesGlanceStateDefinition, id)
+        val hashIniziale = prefsIniziali[KEY_STOP_HASH]
         // Il numero del widget, per poter riaprire la sua configurazione.
         //
         // Un widget senza fermata scriveva "Tocca per configurare" e poi,
@@ -353,31 +398,73 @@ class StopWidget : GlanceAppWidget() {
             androidx.glance.appwidget.GlanceAppWidgetManager(context).getAppWidgetId(id)
         }.getOrDefault(android.appwidget.AppWidgetManager.INVALID_APPWIDGET_ID)
 
-        val esito = loadBoard(app, stopHash)
-        val board = (esito as? StopBoard.Ready)?.board
-        val rows = board?.rows
-        // Il nome che vale e' quello degli orari.
-        //
-        // Quello salvato nella configurazione e' un ripiego per quando il
-        // bundle non e' ancora pronto — un avvio freddo, un widget disegnato
-        // prima dell'app — e resta com'era il giorno in cui si e' scelta la
-        // fermata. Misurato su questo telefono: il widget diceva "SODERINI" e
-        // la fermata si chiama "SODERINI TORRINO SANTA ROSA". Stessa cosa,
-        // due nomi, a seconda di dove la guardi.
-        val nome = board?.stopName?.ifEmpty { null } ?: stopName
+        // Il primo disegno ha gia' i dati: si carica qui, prima del contenuto,
+        // cosi' la home non passa da un "Orari in arrivo" di un istante.
+        val iniziale = Caricato(hashIniziale, loadBoard(app, hashIniziale))
 
         provideContent {
+            // Tutto quello che il widget mostra si legge QUI, dentro il
+            // contenuto, e non prima.
+            //
+            // In Glance 1.1 `provideGlance` gira una volta per sessione e la
+            // sessione resta viva una quarantina di secondi: in quel tempo
+            // `update()` e `updateAll()` rileggono solo lo stato e non
+            // rilanciano questa funzione. Con tavolozza, fermata e tabellone
+            // letti qui sopra e chiusi dentro il contenuto, scegliere una
+            // fermata o cambiare accento entro il minuto da un disegno non
+            // si vedeva: il widget restava a "Tocca per configurare" fino
+            // alla sveglia seguente, anche mezz'ora dopo.
+            val settings by app.settingsStore.settings.collectAsState(initial = settingsIniziali)
+            val palette = remember(settings) { engineWidgetPalette(context, settings, TransitBrand) }
+            val prefs = currentState<Preferences>()
+            val stopHash = prefs[KEY_STOP_HASH]
+            val stopName = prefs[KEY_STOP_NAME] ?: ""
+            val tick by WidgetTick.ticks.collectAsState()
+            val caricato by produceState(iniziale, stopHash, tick) {
+                value = if (stopHash == iniziale.hash && tick == tickIniziale) {
+                    iniziale
+                } else {
+                    Caricato(stopHash, loadBoard(app, stopHash))
+                }
+            }
+            // Un tabellone di un'altra fermata, o non ancora arrivato: si dice
+            // "in arrivo", non si mostra quello che era.
+            val esito = when {
+                stopHash == null -> StopBoard.NoStop
+                caricato.hash == stopHash -> caricato.esito
+                else -> StopBoard.NoTimetable
+            }
+            val board = (esito as? StopBoard.Ready)?.board
+            val rows = board?.rows
+            // Il nome che vale e' quello degli orari.
+            //
+            // Quello salvato nella configurazione e' un ripiego per quando il
+            // bundle non e' ancora pronto — un avvio freddo, un widget disegnato
+            // prima dell'app — e resta com'era il giorno in cui si e' scelta la
+            // fermata. Misurato su questo telefono: il widget diceva "SODERINI" e
+            // la fermata si chiama "SODERINI TORRINO SANTA ROSA". Stessa cosa,
+            // due nomi, a seconda di dove la guardi.
+            val nome = board?.stopName?.ifEmpty { null } ?: stopName
+
             val misura = LocalSize.current
             val layout = resolveEngineWidgetLayout(misura, hasFooter = false)
             // L'ora del disegno, dove il sottotitolo non c'e'.
             val oraDisegno = board?.let {
                 oraDelDisegno(it.computedAtEpoch, layout.compact, misura.width)
             }
+            // Dove porta il tocco: la scelta della fermata se non ce n'e'
+            // una o se quella salvata non esiste piu' negli orari di oggi,
+            // la fermata stessa altrimenti.
+            //
+            // La fermata sparita era un vicolo cieco: il widget diceva che
+            // non c'era piu', il tocco apriva la mappa su un pannello vuoto,
+            // e l'unico rimedio era togliere il widget e rimetterlo.
+            val daScegliere = stopHash == null || esito is StopBoard.UnknownStop
             EngineWidgetSurface(
                 palette = palette,
                 layout = layout,
                 onClick = actionStartActivity(
-                    if (stopHash == null && widgetId != android.appwidget.AppWidgetManager
+                    if (daScegliere && widgetId != android.appwidget.AppWidgetManager
                             .INVALID_APPWIDGET_ID
                     ) {
                         android.content.Intent(context, StopWidgetConfigActivity::class.java)
@@ -397,6 +484,8 @@ class StopWidget : GlanceAppWidget() {
                     layout = layout,
                     subtitle = when {
                         stopHash == null -> "Tocca per configurare"
+                        esito is StopBoard.UnknownStop ->
+                            DepartureText.empty(DepartureText.Trouble.FERMATA_SCONOSCIUTA).short
                         board == null -> "Orari in arrivo…"
                         // Di quando sono questi numeri.
                         //
@@ -443,7 +532,7 @@ class StopWidget : GlanceAppWidget() {
                                     else -> DepartureText.Trouble.ORARI_NON_PRONTI
                                 }
                             }
-                            val parole = DepartureText.empty(guaio)
+                            val parole = DepartureText.emptyOnWidget(guaio)
                             EngineWidgetRow(
                                 title = parole.title,
                                 subtitle = parole.short,
@@ -498,24 +587,51 @@ class StopWidget : GlanceAppWidget() {
         // I ritardi, che il widget prima non guardava affatto: mostrava gli
         // orari di tabella come se fossero certi, e per mezz'ora di fila.
         //
-        // In parallelo, e con poco tempo. Questo codice gira anche dentro il
-        // `goAsync` di una ricevente, che il sistema si aspetta finisca in
-        // una decina di secondi: in fila, sei secondi di attesa del bundle
-        // piu' quattro piu' quattro fanno quattordici, e un disegno che non
-        // arriva in tempo lascia sulla home la schermata di prima. E' il
-        // sospetto piu' probabile dietro al widget che restava a "Tocca per
-        // configurare" dopo la configurazione.
+        // IN FILA, come fanno tutti gli altri (mappa, Oggi, preferiti,
+        // routine): i ritardi per primi, perche' e' il giro dei mezzi dentro
+        // `refreshDelays` a stabilire da dove arriva il tempo reale. In un
+        // processo appena nato lo stato parte da "solo orari", e
+        // `refreshPredictions` esce subito finche' non e' "proxy": lanciate in
+        // parallelo, le previsioni per fermata non venivano mai scaricate. Il
+        // widget poi disegnava ogni riga come "orario da tabella" e un bus
+        // cancellato come in corsa, mentre l'app diceva "dal bus". Con un
+        // telefono che uccide il processo fra una sveglia e l'altra, e' ogni
+        // disegno.
         //
-        // Se la rete non risponde in tempo si mostrano gli orari di tabella,
-        // dicendolo: e' il comportamento giusto, non una rinuncia.
+        // Con poco tempo, e se la rete non risponde si mostrano gli orari di
+        // tabella, dicendolo: e' il comportamento giusto, non una rinuncia.
+        val delays0 = app.realtime.delays.value
+        val predictions0 = app.realtime.predictions.value
+        val vehicles0 = app.realtime.vehicles.value
+        val versione0 = app.liveVersion.value
         runCatching {
             withTimeoutOrNull(REALTIME_WAIT_MS) {
-                coroutineScope {
-                    launch { runCatching { app.realtime.refreshDelays() } }
-                    launch { runCatching { app.realtime.refreshPredictions() } }
-                }
+                runCatching { app.realtime.refreshDelays() }
+                runCatching { app.realtime.refreshPredictions() }
             }
         }
+        // E si aspetta che l'app abbia digerito quello che e' arrivato.
+        //
+        // I ritardi, le corse cancellate e i mezzi vivi entrano nei loro
+        // modelli da collettori dell'Application, che partono DOPO che il
+        // giro ha consegnato: uno scatto preso subito leggeva i modelli a
+        // meta' — corse cancellate che non lo erano ancora, un verso solo
+        // della fermata offline — e i gruppi di banchine, che nascono nello
+        // stesso modo, potevano mancare del tutto. Ogni collettore alza
+        // `liveVersion` a lavoro finito: si aspetta un rialzo per ogni fonte
+        // cambiata, con un tetto, perche' se due consegne si fondono i rialzi
+        // sono di meno e non si deve aspettare all'infinito.
+        val cambiate = listOf(
+            app.realtime.delays.value !== delays0,
+            app.realtime.predictions.value !== predictions0,
+            app.realtime.vehicles.value !== vehicles0,
+        ).count { it }
+        if (cambiate > 0) {
+            withTimeoutOrNull(COLLECTORS_WAIT_MS) {
+                app.liveVersion.first { it >= versione0 + cambiate }
+            }
+        }
+        withTimeoutOrNull(COLLECTORS_WAIT_MS) { app.stopGroups.first { it != null } }
         val board = app.departureBoards.snapshot(listOf(stop), limit = 5)
         return StopBoard.Ready(
             board = board,
@@ -530,13 +646,40 @@ class StopWidget : GlanceAppWidget() {
         const val BUNDLE_WAIT_MS = 5_000L
 
         /**
-         * Quanto si aspettano i ritardi.
+         * Quanto si aspettano i ritardi e le previsioni, una dopo l'altra.
          *
-         * Il totale con l'attesa del bundle deve stare sotto la decina di
-         * secondi che il sistema concede a una ricevente.
+         * Il disegno non e' dentro la decina di secondi di un `goAsync`: la
+         * ricevente accoda il lavoro e lo fa Glance, in un suo worker. Ma il
+         * widget deve comunque arrivare: cinque secondi bastano a un giro di
+         * ritardi e uno di previsioni su una rete normale.
          */
-        const val REALTIME_WAIT_MS = 3_000L
+        const val REALTIME_WAIT_MS = 5_000L
+
+        /** Quanto si aspetta che i collettori dell'app finiscano di digerire. */
+        const val COLLECTORS_WAIT_MS = 1_000L
     }
+}
+
+/**
+ * Quello che il widget della routine ha letto, e quando.
+ *
+ * Si rilegge dal disco a ogni cambio di contatore o di routine, e l'ora si
+ * prende insieme: `adesso` decide se il consiglio vale ancora, e un'ora
+ * presa a parte da' una lettura che non torna con se stessa.
+ */
+private class FotoRoutine(
+    val oggi: LocalDate,
+    val adesso: Long,
+    val routines: List<dev.antigravity.fluidtransit.data.routines.Routines.Routine>,
+)
+
+private fun leggiRoutine(context: Context): FotoRoutine {
+    val oggi = LocalDate.now(Ftb.ROME)
+    return FotoRoutine(
+        oggi = oggi,
+        adesso = Instant.now().epochSecond,
+        routines = dev.antigravity.fluidtransit.data.routines.Routines(context).list(),
+    )
 }
 
 class RoutineWidget : GlanceAppWidget() {
@@ -545,34 +688,58 @@ class RoutineWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val app = context.applicationContext as FluidTransitApp
-        val settings = app.settingsStore.current()
-        val palette = engineWidgetPalette(context, settings, TransitBrand)
+        val settingsIniziali = app.settingsStore.current()
 
-        val oggi = LocalDate.now(Ftb.ROME)
-        val routines = dev.antigravity.fluidtransit.data.routines.Routines(context).list()
-        val adesso = Instant.now().epochSecond
-        val todayRoutine = dev.antigravity.fluidtransit.data.routines.Routines.relevantToday(
-            routines,
-            oggi,
-            adesso,
-        )
-
-        // Un consiglio vale finche' non e' passata l'ora di uscire.
-        //
-        // `lastAdviceEpoch` e' l'ora in cui USCIRE, non l'ora in cui il
-        // consiglio e' stato calcolato: bastava che fosse di oggi perche' il
-        // widget lo tenesse in vetrina fino a mezzanotte. Visto sulla home
-        // alle 09:47: "Esci alle 07:25 — linea 23 alle 07:28", scritto come
-        // se fosse la cosa da fare adesso, sotto una riga che prometteva
-        // "coi ritardi live di adesso". Due ore e mezza prima era vero.
-        //
-        // Cinque minuti di grazia: chi guarda il telefono appena dopo essere
-        // uscito vuole ancora vedere qual era il piano.
-        val consiglioValido = todayRoutine != null &&
-            dev.antigravity.fluidtransit.data.routines.Routines
-                .adviceStillGood(todayRoutine, adesso)
+        // I due segnali si leggono prima dei dati: un cambio che arriva mentre
+        // si legge deve far rileggere, non perdersi. Vedi [WidgetTick].
+        val tickIniziale = WidgetTick.ticks.value
+        val cambiIniziali =
+            dev.antigravity.fluidtransit.data.routines.Routines.changes.value
+        val iniziale = leggiRoutine(context)
 
         provideContent {
+            // Tavolozza e routine si leggono dentro il contenuto, non prima:
+            // in una sessione Glance gia' aperta `updateAll` non rilancia
+            // `provideGlance`, e con tutto chiuso qui sopra cancellare o
+            // mettere in pausa una routine entro il minuto da un disegno
+            // lasciava sulla home "Esci alle 07:25" per una routine che non
+            // c'era piu', e toccarla non apriva niente. Lo stesso per un
+            // consiglio appena calcolato, e per due accenti provati di fila.
+            val settings by app.settingsStore.settings.collectAsState(initial = settingsIniziali)
+            val palette = remember(settings) { engineWidgetPalette(context, settings, TransitBrand) }
+            val tick by WidgetTick.ticks.collectAsState()
+            val cambi by dev.antigravity.fluidtransit.data.routines.Routines.changes
+                .collectAsState()
+            val foto by produceState(iniziale, tick, cambi) {
+                value = if (tick == tickIniziale && cambi == cambiIniziali) {
+                    iniziale
+                } else {
+                    withContext(Dispatchers.IO) { leggiRoutine(context) }
+                }
+            }
+            val oggi = foto.oggi
+            val adesso = foto.adesso
+            val todayRoutine = dev.antigravity.fluidtransit.data.routines.Routines.relevantToday(
+                foto.routines,
+                oggi,
+                adesso,
+            )
+
+            // Un consiglio vale finche' non e' passata l'ora di uscire.
+            //
+            // `lastAdviceEpoch` e' l'ora in cui USCIRE, non l'ora in cui il
+            // consiglio e' stato calcolato: bastava che fosse di oggi perche' il
+            // widget lo tenesse in vetrina fino a mezzanotte. Visto sulla home
+            // alle 09:47: "Esci alle 07:25 — linea 23 alle 07:28", scritto come
+            // se fosse la cosa da fare adesso, sotto una riga che prometteva
+            // "coi ritardi live di adesso". Due ore e mezza prima era vero.
+            //
+            // Cinque minuti di grazia: chi guarda il telefono appena dopo essere
+            // uscito vuole ancora vedere qual era il piano.
+            val consiglioValido = todayRoutine != null &&
+                dev.antigravity.fluidtransit.data.routines.Routines
+                    .adviceStillGood(todayRoutine, adesso)
+
             val layout = resolveEngineWidgetLayout(LocalSize.current, hasFooter = false)
             EngineWidgetSurface(
                 palette = palette,

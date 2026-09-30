@@ -93,7 +93,8 @@ class BoardEmptyTextTest {
             "deve dire fin dove ha guardato: ${parole.detail}",
         )
         assertTrue("cerca una fermata" in parole.detail, "deve dire cosa fare: ${parole.detail}")
-        assertTrue("sposta la mappa" in parole.detail, "deve dire cosa fare: ${parole.detail}")
+        // Non "sposta la mappa": col GPS acceso non cambia niente.
+        assertTrue("sposta la mappa" !in parole.detail, "promette un gesto che non serve: ${parole.detail}")
     }
 
     @Test

@@ -187,19 +187,31 @@ class StopDayScheduleTool : AiTool {
     val lineFilter = args.str("linea")?.let { q -> ctx.transit.findRoutes(q, 1).firstOrNull()?.routeIndex }
     // Senza tetto: `corse` deve essere il totale vero, e "prima" e "ultima" quelle vere. Con
     // `limit = 60` il numero si fermava a sessanta e l'ultimo bus della giornata non c'era.
+    // Senza "alle" la finestra arriva alla fine del giorno di servizio (fino alle 30 passate),
+    // e il lettore guarda anche il giorno dopo: senza questo filtro entravano le corse regolari
+    // del mattino seguente, e "ultima" diventava il bus delle 06:05 di domani. Si tengono le corse
+    // del giorno chiesto, comprese le sue notturne oltre le 24, e quelle della notte prima che
+    // cadono dopo la mezzanotte di quel giorno. Con un "alle" esplicito oltre la mezzanotte, il
+    // giorno dopo e' quello che si e' chiesto e resta.
+    val mezzanotteDopo = date.plusDays(1).atStartOfDay(ctx.zone).toInstant()
+    val soloIlGiorno = args.str("alle") == null
     val departures = reader.nextDepartures(stop, start, limit = Int.MAX_VALUE, horizonSeconds = window.horizonSeconds, zone = ctx.zone)
       .filter { lineFilter == null || it.routeIndex == lineFilter }
+      .filter { !soloIlGiorno || it.serviceDate == date || it.instant < mezzanotteDopo }
     // Il giorno con le parole di `Times.dateLabel`: al modello serve sapere che "domani" e' il 1
     // ottobre, ma a chi legge la risposta non va detto "2026-10-01".
     val giornoEsteso = Times.dateLabel(date, today, relative = false)
     val giornoRelativo = Times.dateLabel(date, today)
+    // Senza "alle" la fine della finestra e' un numero tecnico (la fine del giorno di servizio):
+    // scriverlo, "alle 06:10 di notte", sembrerebbe una fascia che nessuno ha chiesto.
+    val fino = if (soloIlGiorno) "fino all'ultima corsa" else "alle ${label(window.toMinutes)}"
     if (departures.isEmpty()) {
-      return "da ${reader.stopName(stop)} non passa niente il $giornoEsteso fra le ${label(window.fromMinutes)} e le ${label(window.toMinutes)}"
+      return "da ${reader.stopName(stop)} non passa niente il $giornoEsteso dalle ${label(window.fromMinutes)} $fino"
     }
     return ToolText.build {
       line("fermata", reader.stopName(stop))
       val giorno = if (giornoRelativo == giornoEsteso) giornoEsteso else "$giornoRelativo, $giornoEsteso"
-      line("giorno", "$giorno, dalle ${label(window.fromMinutes)} alle ${label(window.toMinutes)}")
+      line("giorno", "$giorno, dalle ${label(window.fromMinutes)} $fino")
       line("corse", departures.size)
       // Prima e ultima stanno sopra l'elenco: e' l'elenco che il tetto di caratteri taglia in
       // fondo, e "a che ora finisce il servizio" e' proprio la riga che non deve mancare.

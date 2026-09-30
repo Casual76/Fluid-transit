@@ -674,8 +674,11 @@ object DepartureText {
 
         Trouble.NESSUNA_FERMATA_VICINA -> Empty(
             "Nessuna fermata qui intorno",
+            // Non "sposta la mappa": col GPS acceso "qui intorno" si misura da dove
+            // sei, e spostare la mappa non cambiava niente. Queste due cose
+            // funzionano con tutte e due le ancore.
             "Nel raggio di ${Words.distance(NEARBY_RADIUS_METERS)} non ce ne sono: " +
-                "sposta la mappa su un paese o cerca una fermata per nome.",
+                "cerca una fermata per nome o toccane una sulla mappa.",
             "nessuna fermata nel raggio",
         )
     }

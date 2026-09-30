@@ -174,7 +174,7 @@ fun TodayTab(
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) {
                 scaricaAvvisi(false)
-                delay(AVVISI_OGNI_MS)
+                delay(dev.antigravity.fluidtransit.data.rt.RealtimeClient.ALERTS_POLL_MS)
             }
         }
     }
@@ -691,16 +691,6 @@ fun TodayTab(
         },
     )
 }
-
-/**
- * Ogni quanto si riscaricano gli avvisi mentre la scheda e' davanti.
- *
- * Cinque minuti e un filo: la cache di `RealtimeClient.fetchAlertsOrNull` vale
- * cinque minuti secchi, e un giro esattamente a cinque minuti cadrebbe ogni
- * tanto un istante PRIMA che scada, troverebbe la risposta di prima e
- * lascerebbe la scheda ferma per altri cinque.
- */
-private const val AVVISI_OGNI_MS = 5 * 60_000L + 10_000L
 
 private fun daysShort(days: Set<Int>): String {
     if (days.size == 7) return "Tutti i giorni"

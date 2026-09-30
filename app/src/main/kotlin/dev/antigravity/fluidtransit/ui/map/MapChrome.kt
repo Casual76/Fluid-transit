@@ -1,5 +1,7 @@
 package dev.antigravity.fluidtransit.ui.map
 
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -147,6 +149,15 @@ fun CategoryChipsRow(
     )
     val scrolling = layout.mode == ChipMode.SCROLLING
     val scroll = rememberScrollState()
+    // Nella fila che scorre, il chip acceso si porta in vista. Il filtro e'
+    // ricordato fra un'apertura e l'altra: coi caratteri grandi chi aveva
+    // lasciato "Extraurbani" riapriva l'app con quel chip tagliato fuori dal
+    // bordo, la mappa filtrata e nessun segno del perche' mancassero i bus
+    // urbani — proprio chi ingrandisce i caratteri per vederci meglio.
+    val inVista = remember { androidx.compose.foundation.relocation.BringIntoViewRequester() }
+    LaunchedEffect(selected, scrolling) {
+        if (scrolling) inVista.bringIntoView()
+    }
     Row(
         // Un gruppo di scelte esclusive, detto come tale: con un lettore di
         // schermo i tre chip erano tre pulsanti uguali, e quale fosse acceso
@@ -175,6 +186,13 @@ fun CategoryChipsRow(
                     // da sola e' alta quanto i 40 dp, e un'altezza fissa la
                     // tagliava in alto e in basso.
                     .heightIn(min = 40.dp)
+                    .then(
+                        if (isSelected) {
+                            Modifier.bringIntoViewRequester(inVista)
+                        } else {
+                            Modifier
+                        },
+                    )
                     .glassSurface(
                         state = backdrop,
                         tint = GlassDefaults.floatingTint(),

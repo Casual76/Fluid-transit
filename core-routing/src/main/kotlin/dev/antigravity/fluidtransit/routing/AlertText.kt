@@ -50,6 +50,10 @@ object AlertText {
         "Non siamo riusciti a scaricarli, quindi non sappiamo se ce ne sono. " +
             "Non e' la stessa cosa che non ce ne siano"
 
+    /** Com'e' andato un "Riprova", detto a chi usa il lettore di schermo. */
+    const val RETRY_OK = "Avvisi aggiornati"
+    const val RETRY_FAILED = "Gli avvisi non sono arrivati neanche stavolta"
+
     /** La stessa cosa in una riga, in cima a una scheda. */
     const val UNAVAILABLE_ROW = "Avvisi non arrivati: non sappiamo se ce ne sono"
 

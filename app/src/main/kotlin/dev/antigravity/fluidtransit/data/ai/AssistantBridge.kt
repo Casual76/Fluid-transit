@@ -319,9 +319,32 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
             dev.antigravity.fluidtransit.data.bundle.BundleFailure.words(state.message).title
     }
 
+    /**
+     * Com'e' andato l'aggiornamento chiesto con l'azione RefreshData.
+     *
+     * L'azione ha gia' lanciato il controllo (dopo la conferma dell'utente):
+     * qui non se ne lancia un secondo, se ne aspetta l'esito. Prima si
+     * richiamava retry() e si rispondeva subito col solo stato, cioe'
+     * "pronto (versione vecchia)" mentre il controllo doveva ancora partire,
+     * e l'assistente lo riferiva come "fatto".
+     */
     override suspend fun refreshData(): String {
-        app.bundleManager.retry()
-        return dataStatus()
+        val prima = (app.bundleManager.state.value as? BundleState.Ready)?.buildId
+        val finito = app.bundleManager.awaitRetry(REFRESH_WAIT_MS)
+        val dopo = app.bundleManager.state.value
+        val offerta = app.bundleManager.updateOffer.value
+        return when {
+            offerta is dev.antigravity.fluidtransit.data.bundle.BundleManager.UpdateOffer.Failed ->
+                "non aggiornati: " +
+                    dev.antigravity.fluidtransit.data.bundle.BundleFailure.words(offerta.message).title
+            offerta is dev.antigravity.fluidtransit.data.bundle.BundleManager.UpdateOffer.Downloading ->
+                "in scaricamento (${(offerta.progress * 100).toInt()}%)"
+            !finito -> "controllo avviato, ancora in corso"
+            dopo is BundleState.Ready && prima != null && dopo.buildId != prima ->
+                "aggiornati: versione ${dopo.buildId}"
+            dopo is BundleState.Ready -> "gia' aggiornati (versione ${dopo.buildId})"
+            else -> dataStatus()
+        }
     }
 
     override fun routines(): List<RoutineInfo> = app.routines.list().map { r ->
@@ -403,3 +426,6 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
     /** La stessa regola della ricerca, e adesso lo e' davvero: [Reference]. */
     private fun referencePoint(): Pair<Double, Double>? = Reference.point(here, looking)
 }
+
+/** Quanto l'assistente aspetta l'esito di un aggiornamento prima di rispondere. */
+private const val REFRESH_WAIT_MS = 20_000L

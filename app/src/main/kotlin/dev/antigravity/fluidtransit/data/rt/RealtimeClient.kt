@@ -619,6 +619,14 @@ class RealtimeClient(
         const val SNAPSHOT_FRESH_SECONDS = 180L
         private const val DIRECT_HOLD_MS = 5 * 60_000L
 
+        /**
+         * Ogni quanto una schermata aperta riscarica gli avvisi: appena oltre
+         * i cinque minuti della cache, cosi' il giro trova una risposta nuova
+         * e non quella in memoria. Uno solo per Oggi e per la schermata degli
+         * avvisi: due copie di questo numero si sarebbero staccate dalla cache.
+         */
+        const val ALERTS_POLL_MS = 5 * 60_000L + 10_000L
+
         /** Oltre questa eta' "zero avvisi" non si ripete: vedi [fetchAlertsOrNull]. */
         const val ALERTS_EMPTY_TRUST_MS = 30 * 60_000L
 

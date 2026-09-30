@@ -269,7 +269,14 @@ class BundleManager(
                         // Il progresso si pubblica solo se qualcuno lo sta
                         // guardando: il giro in sottofondo non ha una riga
                         // che lo mostri.
-                        if (userApproved) {
+                        //
+                        // E anche chi aspettava il Wi-Fi lo sta guardando:
+                        // arrivato il Wi-Fi, per tutto il download la riga
+                        // diceva ancora "Aspetto il Wi-Fi" col tasto per
+                        // scaricare sui dati acceso.
+                        if (userApproved || _updateOffer.value is UpdateOffer.WaitingForWifi ||
+                            _updateOffer.value is UpdateOffer.Downloading
+                        ) {
                             _updateOffer.value = UpdateOffer.Downloading(
                                 if (index.bytes > 0) (done.toFloat() / index.bytes).coerceIn(0f, 1f) else 0f,
                             )
@@ -420,6 +427,20 @@ class BundleManager(
         runCatching { cm.unregisterNetworkCallback(callback) }
     }
 
+    /** L'ultimo controllo chiesto con [retry]: chi l'ha chiesto ne aspetta l'esito. */
+    @Volatile
+    private var ultimoControllo: kotlinx.coroutines.Job? = null
+
+    /**
+     * Aspetta la fine del controllo chiesto con [retry], fino a [timeoutMs].
+     * True se e' finito. Serve all'assistente per dire com'e' andata invece
+     * di "fatto" subito dopo averlo lanciato.
+     */
+    suspend fun awaitRetry(timeoutMs: Long): Boolean {
+        val job = ultimoControllo ?: return true
+        return kotlinx.coroutines.withTimeoutOrNull(timeoutMs) { job.join(); true } ?: false
+    }
+
     fun retry() {
         // Da Ready non c'e' il primo scarico da smettere di aspettare: l'unico
         // callback in carica e' quello di "aspetto il Wi-Fi per gli orari
@@ -427,17 +448,20 @@ class BundleManager(
         // dire "aspetto" con nessuno ad aspettare. Succede quando l'assistente
         // controlla i dati mentre l'utente ha scelto di aspettare.
         if (state.value !is BundleState.Ready) stopWaitingForWifi()
-        scope.launch(Dispatchers.IO) {
+        ultimoControllo = scope.launch(Dispatchers.IO) {
             mutex.withLock {
                 // Con gli orari in tasca "riprova" non riscarica da capo: si
-                // guarda in silenzio se ce ne sono di nuovi, sulla rete che
-                // c'e' e con le sue regole. Prima passava da requestDownload,
+                // guarda se ce ne sono di nuovi, e li si prende anche sui dati
+                // mobili — chi chiama retry() da qui e' l'assistente, dopo che
+                // l'utente ha confermato "aggiorna gli orari". Quella conferma
+                // e' il permesso: prima il giro la ignorava, sui dati non
+                // faceva niente, e l'assistente rispondeva "fatto". Prima passava da requestDownload,
                 // che da Ready pubblica Downloading: la richiesta di
                 // aggiornare i dati fatta all'assistente — due volte, dalla
                 // sua azione e dal suo strumento — riportava l'app sulla
                 // schermata di benvenuto, su qualunque rete, mobile compresa.
                 if (state.value is BundleState.Ready) {
-                    refreshSilently()
+                    refreshSilently(userApproved = true)
                 } else {
                     requestDownload(userApprovedMetered = true)
                 }

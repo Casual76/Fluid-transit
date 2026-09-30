@@ -1,5 +1,6 @@
 package dev.antigravity.fluidtransit.ui.alerts
 
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -117,11 +118,25 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
             ?.let { Result.success(it) }
             ?: Result.failure(java.io.IOException("avvisi non scaricati"))
     }
-    LaunchedEffect(Unit) { scarica(false) }
+    // Si riscaricano finche' la schermata e' davanti, e subito quando ci si
+    // torna: e' la schermata che si apre per sapere se c'e' uno sciopero, e
+    // lasciata aperta alle 07:00 alle 07:40 mostrava ancora la lista delle
+    // 07:00, senza un'eta' perche' il download era riuscito. La cache di
+    // cinque minuti rende il giro leggero.
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    LaunchedEffect(Unit) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            while (true) {
+                scarica(false)
+                kotlinx.coroutines.delay(dev.antigravity.fluidtransit.data.rt.RealtimeClient.ALERTS_POLL_MS)
+            }
+        }
+    }
     val alerts = esito?.getOrNull()
 
     val scope = rememberCoroutineScope()
     var refreshing by remember { mutableStateOf(false) }
+    val vista = androidx.compose.ui.platform.LocalView.current
 
     // Riprovare e' un tasto, e il gesto di tirare giu' fa la stessa cosa.
     //
@@ -140,6 +155,13 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
                     // messaggio. La lista che c'e' gia' invece resta dov'e'.
                     if (esito?.getOrNull() == null) esito = null
                     scarica(true)
+                    // Com'e' andata, a voce. Col lettore di schermo il tasto
+                    // spariva insieme al messaggio, il fuoco cadeva, e un
+                    // secondo fallimento non lo diceva nessuno.
+                    @Suppress("DEPRECATION")
+                    vista.announceForAccessibility(
+                        if (esito?.getOrNull() != null) AlertText.RETRY_OK else AlertText.RETRY_FAILED,
+                    )
                     // Mezzo secondo di cortesia: un aggiornamento che sparisce
                     // prima di essere visto non e' una risposta.
                     kotlinx.coroutines.delay(600)

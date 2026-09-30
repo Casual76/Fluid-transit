@@ -1,5 +1,6 @@
 package dev.antigravity.fluidtransit.ui.map
 
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -133,10 +134,29 @@ fun PlacePanelContent(
     onRemoveSaved: (() -> Unit)? = null,
     /** "Parti da qui": mette questo punto come ORIGINE del pianificatore. */
     onStartHere: (() -> Unit)? = null,
+    /**
+     * Si sta scrivendo il nome: chi ospita il pannello lo solleva sopra la
+     * tastiera (vedi [keyboardLift]). Sta fuori perche' il sollevamento deve
+     * spostare tutto il vetro senza toccarne le misure: uno spazio dentro il
+     * pannello, com'era, si accorciava proprio quando serviva — coi caratteri
+     * grandi o su una finestra bassa il campo restava sotto la tastiera.
+     */
+    onEditing: (Boolean) -> Unit = {},
 ) {
     var saving by remember { mutableStateOf(false) }
     var customLabel by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
+    LaunchedEffect(saving) { onEditing(saving) }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { onEditing(false) } }
+    // Salvato, il modulo si chiude. La scheda che torna ha lo stesso punto, e
+    // quindi la stessa chiave: il suo stato restava in piedi, e dopo "Salva"
+    // o "Fatto" il modulo era ancora aperto col nome scritto dentro, senza
+    // nessun segno che il posto fosse stato salvato.
+    fun salva(nome: String) {
+        onSave(nome)
+        saving = false
+        customLabel = ""
+    }
 
     Row(
         modifier = Modifier
@@ -246,7 +266,7 @@ fun PlacePanelContent(
                     text = label,
                     icon = null,
                     backdrop = backdrop,
-                    onClick = { onSave(label) },
+                    onClick = { salva(label) },
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -287,7 +307,7 @@ fun PlacePanelContent(
                     keyboardActions = KeyboardActions(
                         onDone = {
                             focusManager.clearFocus()
-                            if (customLabel.isNotBlank()) onSave(customLabel)
+                            if (customLabel.isNotBlank()) salva(customLabel)
                         },
                     ),
                     decorationBox = { inner ->
@@ -310,7 +330,7 @@ fun PlacePanelContent(
                 // Senza un nome non c'e' niente da salvare: il campo accanto
                 // dice gia' cosa manca.
                 enabled = customLabel.isNotBlank(),
-                onClick = { onSave(customLabel) },
+                onClick = { salva(customLabel) },
             )
         }
         // Il modulo sale sopra la tastiera.
@@ -332,10 +352,7 @@ fun PlacePanelContent(
         // compila. Il vetro si allunga verso l'alto e il fondo resta dov'e',
         // sotto la tastiera; in orizzontale la testata esce dallo schermo e
         // restano visibili il campo e "Salva", che sono in fondo.
-        val density = LocalDensity.current
-        val tastiera = with(density) { WindowInsets.ime.getBottom(density).toDp() }
-        val barraSistema = with(density) { WindowInsets.navigationBars.getBottom(density).toDp() }
-        Spacer(Modifier.height(keyboardLift(tastiera, barraSistema, PLACE_PANEL_RESTING_MARGIN)))
+        // Il sollevamento lo fa chi ospita il pannello: vedi [onEditing].
     }
     Spacer(Modifier.height(6.dp))
 }
@@ -347,7 +364,7 @@ fun PlacePanelContent(
  * pannello che non e' in modalita' linea): se la' cambia, cambia anche qui,
  * altrimenti il modulo si alza troppo poco o troppo.
  */
-private val PLACE_PANEL_RESTING_MARGIN = FluidTabBarDefaults.ContentInset + 10.dp
+internal val PLACE_PANEL_RESTING_MARGIN = FluidTabBarDefaults.ContentInset + 10.dp
 
 /**
  * Di quanto alzare il modulo perche' la tastiera non lo copra.

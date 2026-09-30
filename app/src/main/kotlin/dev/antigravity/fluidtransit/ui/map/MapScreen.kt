@@ -1,5 +1,11 @@
 package dev.antigravity.fluidtransit.ui.map
 
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.WindowInsets
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import android.Manifest
 import android.app.Activity
 import android.content.ActivityNotFoundException
@@ -190,6 +196,8 @@ fun MapScreen(
     // accesa si segue, ma solo se nel frattempo non ha preso in mano la
     // mappa — un gesto la butta a FREE e toglie l'attesa.
     var attendiPosizione by remember { mutableStateOf(false) }
+    /** Cosa dire al ritorno dalle impostazioni di Android: vedi `avvisa`. */
+    var ritornoDaImpostazioni by remember { mutableStateOf<RitornoDaImpostazioni?>(null) }
     // E si riguarda a ogni ritorno nell'app: chi va nelle Impostazioni di
     // Android e accende la posizione da li', tornando trovava l'app
     // convinta del contrario finche' non la chiudeva.
@@ -237,7 +245,7 @@ fun MapScreen(
     // posizione e quello delle notifiche negano allo stesso modo — la
     // richiesta torna indietro all'istante e il tasto sembra morto — e si
     // rimediano allo stesso modo, con una parola e con l'interruttore.
-    fun avvisa(id: String, titolo: String, messaggio: String, impostazioni: Intent? = null) {
+    fun mostra(id: String, titolo: String, messaggio: String) {
         scope.launch {
             notifications?.show(
                 FluidNotification(
@@ -248,9 +256,40 @@ fun MapScreen(
                 ),
             )
         }
-        if (impostazioni != null) {
-            runCatching { activityCorrente()?.startActivity(impostazioni) }
+    }
+
+    /**
+     * Quando si porta la persona nelle impostazioni di Android, la parola si
+     * dice al ritorno, e solo se e' ancora vera ([ancoraVero]).
+     *
+     * Messa in coda prima di partire, la notizia non faceva in tempo a
+     * comparire — il pannello aspetta che l'app sia davanti — e compariva al
+     * ritorno: la persona aveva appena acceso la posizione, la mappa
+     * cominciava a seguirla, e un banner giallo diceva "La posizione del
+     * telefono e' spenta... Ti porto dov'e' l'interruttore".
+     */
+    fun avvisa(
+        id: String,
+        titolo: String,
+        messaggio: String,
+        impostazioni: Intent? = null,
+        ancoraVero: () -> Boolean = { true },
+    ) {
+        if (impostazioni == null) {
+            mostra(id, titolo, messaggio)
+            return
         }
+        val aperta = runCatching { activityCorrente()?.startActivity(impostazioni) }.isSuccess
+        if (aperta) {
+            ritornoDaImpostazioni = RitornoDaImpostazioni(id, titolo, messaggio, ancoraVero)
+        } else {
+            mostra(id, titolo, messaggio)
+        }
+    }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+        val r = ritornoDaImpostazioni ?: return@LifecycleEventEffect
+        ritornoDaImpostazioni = null
+        if (r.ancoraVero()) mostra(r.id, r.titolo, r.messaggio)
     }
 
     // La Posizione di Android spenta, col permesso dell'app gia' concesso.
@@ -261,12 +300,13 @@ fun MapScreen(
             id = "posizione-spenta",
             titolo = "La posizione del telefono e' spenta",
             messaggio = "Accendila dalle impostazioni di Android: e' cosi' che la " +
-                "mappa ti trova." + (if (apri) " Ti porto dov'e' l'interruttore." else ""),
+                "mappa ti trova.",
             impostazioni = if (apri) {
                 Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS)
             } else {
                 null
             },
+            ancoraVero = { !posizioneDiSistemaAccesa(context) },
         )
     }
 
@@ -293,13 +333,13 @@ fun MapScreen(
             avvisa(
                 id = "posizione-negata",
                 titolo = "Il permesso di posizione e' negato",
-                messaggio = "Android non lo chiede piu'. Ti porto dov'e' " +
-                    "l'interruttore: senza, la mappa usa il centro di " +
-                    "quello che stai guardando.",
+                messaggio = "Android non lo chiede piu': si accende dalle impostazioni " +
+                    "dell'app. Senza, la mappa usa il centro di quello che stai guardando.",
                 impostazioni = Intent(
                     android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                     android.net.Uri.fromParts("package", context.packageName, null),
                 ),
+                ancoraVero = { !posizioneConcessa() },
             )
         }
     }
@@ -338,7 +378,7 @@ fun MapScreen(
     }
 
     // Il mic di sistema: il ripiego di sempre, quando il proxy vocale non puo'.
-    fun launchSystemMic() {
+    fun launchSystemMic(permessoNegato: Boolean = false) {
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(
                 RecognizerIntent.EXTRA_LANGUAGE_MODEL,
@@ -361,11 +401,23 @@ fun MapScreen(
         fun senzaRiconoscimentoVocale() {
             // Si apre la barra: la tastiera sale da sola e si scrive a mano.
             searchOpen = true
-            avvisa(
-                id = "mic-assente",
-                titolo = "Il riconoscimento vocale non c'e' su questo telefono",
-                messaggio = "Scrivi il nome della fermata, della linea o del posto nella barra.",
-            )
+            if (permessoNegato) {
+                // Con l'assistente acceso la voce dell'app funzionerebbe: manca
+                // solo il permesso. Dire "il riconoscimento non c'e'" era la
+                // frase del caso opposto, e chi la leggeva non riprovava.
+                avvisa(
+                    id = "mic-negato",
+                    titolo = "Il microfono e' spento per l'app",
+                    messaggio = "Consenti il microfono dalle impostazioni dell'app per " +
+                        "parlare all'assistente, oppure scrivi nella barra.",
+                )
+            } else {
+                avvisa(
+                    id = "mic-assente",
+                    titolo = "Il riconoscimento vocale non c'e' su questo telefono",
+                    messaggio = "Scrivi il nome della fermata, della linea o del posto nella barra.",
+                )
+            }
         }
         try {
             micLauncher.launch(intent)
@@ -383,6 +435,8 @@ fun MapScreen(
     // basta — cioe' com'era prima della Fase 8.
     val assistantEnabled by app.assistant.enabled.collectAsStateWithLifecycle(initialValue = false)
     var assistantOpen by remember { mutableStateOf(false) }
+    /** Si sta scrivendo il nome di un posto: il pannello sale sopra la tastiera. */
+    var placeEditing by remember { mutableStateOf(false) }
     // La tab bar si toglie di mezzo anche per l'assistente. Si apre nello
     // stesso posto in fondo, e la barra — disegnata dopo, sopra — gli copriva
     // la riga di scrittura e il tasto per fermarlo: con la tastiera chiusa
@@ -416,7 +470,7 @@ fun MapScreen(
         if (granted && assistantEnabled) {
             openAssistant(dev.antigravity.fluidtransit.ai.orchestrator.AskMode.VOICE)
         } else {
-            launchSystemMic()
+            launchSystemMic(permessoNegato = !granted && assistantEnabled)
         }
     }
 
@@ -453,12 +507,15 @@ fun MapScreen(
                 NotifMotivo.VIAGGIO ->
                     "Il viaggio lo segui restando nell'app: fuori dall'app non ti " +
                         "avviso quando scendere."
-            } + (if (apri) " Ti porto dov'e' l'interruttore." else ""),
+            },
             impostazioni = if (apri) {
                 Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                     .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
             } else {
                 null
+            },
+            ancoraVero = {
+                !androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()
             },
         )
     }
@@ -786,12 +843,29 @@ fun MapScreen(
     // null, e il pannello restava sullo spinner per sempre.
     var routeFailedFor by remember { mutableStateOf<Int?>(null) }
     var routeRetry by remember { mutableStateOf(0) }
+    // Il battito della scheda linea: l'orologio comune, a grana di mezzo
+    // minuto. La scheda porta cose che dipendono dall'ora — "Stanotte: ultima
+    // corsa alle 00:40", le fermate gia' servite, l'eta' di un ritardo — e si
+    // ricostruiva solo quando cambiavano i ritardi: con l'origine ferma o
+    // senza rete, alle 00:55 diceva ancora "ultima corsa alle 00:40". Il
+    // battito da dieci secondi rifarebbe la scansione delle corse ogni dieci
+    // secondi; mezzo minuto basta, e solo mentre la scheda e' aperta.
+    val battitoLinea by remember(currentRouteIndex != null) {
+        if (currentRouteIndex == null) {
+            kotlinx.coroutines.flow.flowOf(0L)
+        } else {
+            dev.antigravity.fluidtransit.data.time.UiClock.ticks()
+                .map { it / 30 }
+                .distinctUntilChanged()
+        }
+    }.collectAsStateWithLifecycle(initialValue = 0L)
     val routeInfo by produceState<RouteInfo?>(
         initialValue = null,
         currentRouteIndex, ready?.buildId,
         // Anche i ritardi: gli orari accanto alle fermate devono restare veri.
         rtDelays?.generatedAt,
         routeRetry,
+        battitoLinea,
     ) {
         val reader = ready?.reader
         val idx = currentRouteIndex
@@ -2476,6 +2550,8 @@ fun MapScreen(
                     }
                 }
                 val isMini = p is Panel.RouteMini || p is Panel.TripMini
+                val imeInsets = WindowInsets.ime
+                val navInsets = WindowInsets.navigationBars
                 BottomGlassPanel(
                     backdrop = backdrop,
                     paneTitle = when (val p = panel) {
@@ -2518,7 +2594,22 @@ fun MapScreen(
                     modifier = Modifier
                         .widthIn(max = PanelMaxWidth)
                         .padding(horizontal = FluidTabBarDefaults.HorizontalMargin)
-                        .padding(bottom = bottomPad),
+                        .padding(bottom = bottomPad)
+                        // Mentre si scrive il nome di un posto il pannello
+                        // sale sopra la tastiera, tutto, senza cambiare le
+                        // sue misure: vedi PlacePanelContent.onEditing.
+                        .offset {
+                            if (p is Panel.Place && placeEditing) {
+                                val tastiera = imeInsets.getBottom(this)
+                                val barra = navInsets.getBottom(this)
+                                val sale = keyboardLift(
+                                    tastiera.toDp(), barra.toDp(), PLACE_PANEL_RESTING_MARGIN,
+                                )
+                                androidx.compose.ui.unit.IntOffset(0, -sale.roundToPx())
+                            } else {
+                                androidx.compose.ui.unit.IntOffset.Zero
+                            }
+                        },
                 ) {
                     androidx.compose.animation.AnimatedContent(
                         targetState = p,
@@ -2830,6 +2921,7 @@ fun MapScreen(
                                 PlacePanelContent(
                                     ref = state.ref,
                                     backdrop = backdrop,
+                                    onEditing = { placeEditing = it },
                                     onDismiss = { exitRouteMode() },
                                     onGo = { goToPlace(state.ref) },
                                     onStartHere = {
@@ -3097,4 +3189,12 @@ private fun posizioneDiSistemaAccesa(context: android.content.Context): Boolean 
 private val POSIZIONE = arrayOf(
     Manifest.permission.ACCESS_FINE_LOCATION,
     Manifest.permission.ACCESS_COARSE_LOCATION,
+)
+
+/** Una parola da dire al ritorno dalle impostazioni di Android, se e' ancora vera. */
+private class RitornoDaImpostazioni(
+    val id: String,
+    val titolo: String,
+    val messaggio: String,
+    val ancoraVero: () -> Boolean,
 )

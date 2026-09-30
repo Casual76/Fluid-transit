@@ -181,8 +181,12 @@ fun SearchGlass(
                 imageVector = if (open) Icons.AutoMirrored.Rounded.ArrowBack else Icons.Rounded.Search,
                 contentDescription = if (open) "Chiudi la ricerca" else null,
                 tint = MaterialTheme.colorScheme.onSurface,
+                // I 48 dp servono solo quando la freccia e' un tasto: a barra
+                // chiusa la lente non si tocca, e i suoi 20 dp in piu'
+                // mandavano a capo "Cerca fermate, linee e luoghi" sui
+                // telefoni sotto i 390 dp.
                 modifier = Modifier
-                    .minimumInteractiveComponentSize()
+                    .then(if (open) Modifier.minimumInteractiveComponentSize() else Modifier)
                     .size(28.dp)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
@@ -227,6 +231,10 @@ fun SearchGlass(
                     text = "Cerca fermate, linee e luoghi",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface,
+                    // Una riga, anche coi caratteri grandi: la capsula e'
+                    // alta 52 dp e una seconda riga usciva dal vetro.
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
             }

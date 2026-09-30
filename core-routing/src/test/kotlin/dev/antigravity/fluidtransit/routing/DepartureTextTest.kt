@@ -108,6 +108,19 @@ class DepartureTextTest {
         )
         assertTrue(vecchia.support.startsWith("dal bus"), vecchia.support)
         assertTrue(vecchia.support.contains("15 min fa"), vecchia.support)
+        // Otto minuti di ritardo sono ambra: il ritardo si dice anche a
+        // parole, e prima dell'eta', che su una riga tagliata e' quella che
+        // si puo' perdere.
+        assertTrue(vecchia.support.contains("di ritardo"), vecchia.support)
+        assertTrue(
+            vecchia.support.indexOf("di ritardo") < vecchia.support.indexOf("15 min fa"),
+            vecchia.support,
+        )
+        val vecchiaRossa = DepartureText.phrase(
+            row(600, delay = 25 * 60, certainty = Certainty.DECLARED, age = 15 * 60),
+            now,
+        )
+        assertTrue(vecchiaRossa.support.contains("di ritardo"), vecchiaRossa.support)
 
         // Fresca: l'eta' non si dice, si dice l'orario di tabella.
         val fresca = DepartureText.phrase(

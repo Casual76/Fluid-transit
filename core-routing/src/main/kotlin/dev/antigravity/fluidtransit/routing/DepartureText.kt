@@ -193,8 +193,20 @@ object DepartureText {
             // spacciato per fresco e' peggio di nessun numero: qui si dice
             // l'eta' al posto dell'orario di tabella, che in quel momento e'
             // la cosa meno interessante.
-            live && ageSeconds >= VECCHIO_SECONDS ->
-                "$source · visto ${Words.age(ageSeconds.toLong())} fa"
+            //
+            // E se e' un ritardo che conta, si dice anche quello, prima
+            // dell'eta': il tono resta ambra o rosso, e chi non vede i colori
+            // leggeva solo "visto 15 min fa". Prima dell'eta' perche' su una
+            // riga del widget tagliata in fondo si perde l'eta', non il
+            // ritardo.
+            live && ageSeconds >= VECCHIO_SECONDS -> {
+                val ritardo = if (tone == Tone.LATE || tone == Tone.VERY_LATE) {
+                    " · ${Times.delayLabel(delaySeconds)}"
+                } else {
+                    ""
+                }
+                "$source$ritardo · visto ${Words.age(ageSeconds.toLong())} fa"
+            }
             // Il ritardo e' zero ma il feed sta seguendo la corsa: "in orario"
             // e' un'informazione, ed e' diversa da "non sappiamo niente".
             // Un ritardo che conta si dice anche a parole. Il colore da solo

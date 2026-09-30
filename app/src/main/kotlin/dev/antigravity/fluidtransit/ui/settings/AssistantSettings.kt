@@ -157,14 +157,20 @@ fun AssistantSettingsGroup(app: FluidTransitApp) {
                     }
                 }
             },
+            // Col campo vuoto e una chiave gia' salvata il tasto la RIPROVA:
+            // la riga dice "toccala per riprovare", e prima il tocco apriva
+            // il dialogo e "Salva e prova" lo chiudeva senza fare niente —
+            // la chiave andava incollata di nuovo, in un campo che adesso
+            // non si vede. Col campo vuoto e nessuna chiave, il tasto e'
+            // spento: non c'e' niente da salvare.
             confirmButton = {
-                TextButton(onClick = {
-                    val key = draft.trim()
+                val riprova = present && draft.isBlank()
+                TextButton(enabled = draft.isNotBlank() || present, onClick = {
+                    val key = draft.trim().ifEmpty { null }
                     editing = null
-                    if (key.isEmpty()) return@TextButton
                     scope.launch {
                         verifying = target
-                        assistant.keys.set(target, key)
+                        if (key != null) assistant.keys.set(target, key)
                         // Provarla adesso: scoprire che e' sbagliata alla
                         // prima domanda sarebbe il momento peggiore.
                         when (val result = assistant.verifier.verify(target)) {
@@ -176,12 +182,16 @@ fun AssistantSettingsGroup(app: FluidTransitApp) {
 
                             else -> {
                                 assistant.keys.set(target, null)
-                                lastError = "Il servizio l'ha rifiutata: controlla di averla copiata tutta."
+                                lastError = if (key == null) {
+                                    "Il servizio ha rifiutato la chiave salvata: incollala di nuovo."
+                                } else {
+                                    "Il servizio l'ha rifiutata: controlla di averla copiata tutta."
+                                }
                             }
                         }
                         verifying = null
                     }
-                }) { Text("Salva e prova") }
+                }) { Text(if (riprova) "Riprova" else "Salva e prova") }
             },
             dismissButton = {
                 TextButton(onClick = { editing = null }) { Text("Annulla") }

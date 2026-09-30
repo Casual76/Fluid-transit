@@ -379,6 +379,12 @@ fun JourneysContent(
         }
 
         else -> {
+            // Anche con l'elenco pieno: dal centro della mappa i bus sono
+            // quelli di un posto dove forse non sei, e "posizione non
+            // concessa" in piccolo sotto il titolo non e' una via d'uscita.
+            // Con un tasto in cima chi non ha mai dato il permesso lo vede
+            // subito, prima di fidarsi di viaggi calcolati per altri.
+            if (fromMapCenter) UseLocationButton(onUseLocation, backdrop)
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()

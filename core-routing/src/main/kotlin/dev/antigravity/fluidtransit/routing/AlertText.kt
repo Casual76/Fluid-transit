@@ -87,6 +87,17 @@ object AlertText {
         "Aggiornati ${pastMoment(checkedEpoch, nowEpoch)}: adesso non riusciamo a scaricarli"
 
     /**
+     * La stessa di [stale], per una riga dentro una scheda della mappa.
+     *
+     * Su "Oggi" e sulla schermata Avvisi il titolo sopra dice che si parla di
+     * avvisi; in una scheda la frase e' una riga sola, e quando la lista
+     * vecchia e' vuota e' l'unica: senza soggetto non dice di cosa e'
+     * l'aggiornamento, ne' se ci sono avvisi o no. Qui il soggetto c'e'.
+     */
+    fun staleCard(checkedEpoch: Long, nowEpoch: Long): String =
+        "Avvisi aggiornati ${pastMoment(checkedEpoch, nowEpoch)}: adesso non riusciamo a scaricarli"
+
+    /**
      * Quanti avvisi restano fuori da una scheda che ne mostra solo i primi.
      *
      * "Altri 1 avviso" usciva su ogni fermata con tre avvisi: il plurale

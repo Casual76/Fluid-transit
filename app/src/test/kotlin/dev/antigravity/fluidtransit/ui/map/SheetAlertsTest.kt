@@ -166,7 +166,7 @@ class SheetAlertsTest {
         val v = vista(SheetAlerts.Feed(listOf(sciopero), adesso - 1800))
         assertEquals(1, v.rows?.size)
         assertEquals(
-            dev.antigravity.fluidtransit.routing.AlertText.stale(adesso - 1800, adesso),
+            dev.antigravity.fluidtransit.routing.AlertText.staleCard(adesso - 1800, adesso),
             v.staleNote,
         )
     }

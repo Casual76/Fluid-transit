@@ -61,14 +61,18 @@ object OriginText {
 
     /**
      * Nessun viaggio: col centro della mappa come partenza la ragione piu'
-     * probabile non e' l'orario, e dirlo e' il rimedio.
+     * probabile e' la partenza, e dirlo e' il rimedio. L'orario resta fra le
+     * possibilita': di notte, con la mappa su Firenze, "nessun viaggio" e'
+     * spesso proprio quello, e chi non ha dato il permesso non deve perdere
+     * anche quell'indizio.
      */
     const val NO_JOURNEY_TITLE = "Nessun viaggio trovato"
 
     fun noJourneyDetail(fromMapCenter: Boolean): String =
         if (fromMapCenter) {
             "Stai partendo dal centro della mappa, non da dove sei: da li' il bus " +
-                "potrebbe non passare. Scegli da dove parti, o usa la tua posizione."
+                "potrebbe non passare. Scegli da dove parti, usa la tua posizione, " +
+                "oppure prova a cambiare orario."
         } else {
             "In questa finestra il bus non ci arriva. Prova a cambiare orario."
         }

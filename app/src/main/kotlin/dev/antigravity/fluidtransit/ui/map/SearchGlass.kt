@@ -147,6 +147,12 @@ fun SearchGlass(
      * e' meta' della risposta.
      */
     hint: String = "Fermata, linea o luogo…",
+    /**
+     * Si sta compilando una riga del pianificatore: i risultati non contengono
+     * le linee (non sono posti), e le frasi di "niente trovato" non le nominano
+     * come inesistenti.
+     */
+    plannerMode: Boolean = false,
     /** Se c'e', con la barra piena il tasto del mic diventa "chiedi all'IA". */
     onAsk: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -313,6 +319,12 @@ fun SearchGlass(
                                         "partire con gli orari di oggi. Riapri l'app; se " +
                                         "succede ancora, Stato dei dati in Impostazioni " +
                                         "dice cosa non va."
+                                } else if (plannerMode && query.length == 1) {
+                                    // Le linee qui sono filtrate via: dire che
+                                    // nessuna si chiama cosi' sarebbe falso.
+                                    dev.antigravity.fluidtransit.routing.SearchText.PLANNER_ONE_CHAR
+                                } else if (plannerMode && placesReady) {
+                                    dev.antigravity.fluidtransit.routing.SearchText.PLANNER_NONE
                                 } else if (query.length == 1) {
                                     // "Prova con meno lettere" con una lettera
                                     // sola non vuol dire niente, e con un
@@ -322,7 +334,14 @@ fun SearchGlass(
                                 } else if (placesReady) {
                                     "Niente con questo nome. Prova con meno lettere."
                                 } else {
-                                    "Fermate e linee non ne hanno. " + when (placesWait) {
+                                    (
+                                        if (plannerMode) {
+                                            dev.antigravity.fluidtransit.routing.SearchText
+                                                .PLANNER_STOPS_ONLY
+                                        } else {
+                                            "Fermate e linee non ne hanno. "
+                                        }
+                                        ) + when (placesWait) {
                                         PlacesWait.DOWNLOADING ->
                                             "Gli indirizzi e i luoghi si stanno ancora " +
                                                 "scaricando: ci vuole qualche minuto, la " +

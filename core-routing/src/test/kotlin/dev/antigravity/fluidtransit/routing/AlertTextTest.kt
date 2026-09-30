@@ -186,6 +186,16 @@ class AlertTextTest {
     }
 
     @Test
+    fun `la nota di una scheda nomina gli avvisi`() {
+        val alle8 = java.time.ZonedDateTime.of(2026, 9, 30, 8, 5, 0, 0, Ftb.ROME).toEpochSecond()
+        val alle14 = alle8 + (5 * 60 + 55) * 60
+        assertEquals(
+            "Avvisi aggiornati oggi alle 08:05: adesso non riusciamo a scaricarli",
+            AlertText.staleCard(alle8, alle14),
+        )
+    }
+
+    @Test
     fun `un controllo di ieri sera dice ieri e l'ora, non una data nuda`() {
         // Il download fallisce alle 00:20 e l'ultimo riuscito era delle 23:50:
         // e' mezz'ora, e "aggiornati 30 settembre" la faceva leggere come un

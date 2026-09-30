@@ -45,8 +45,10 @@ class OriginTextTest {
     }
 
     @Test
-    fun `nessun viaggio dal centro della mappa non consiglia di cambiare orario`() {
-        assertFalse(OriginText.noJourneyDetail(fromMapCenter = true).contains("orario"))
+    fun `nessun viaggio dal centro della mappa dice prima la partenza e poi anche l'orario`() {
+        val frase = OriginText.noJourneyDetail(fromMapCenter = true)
+        assertTrue(frase.contains("centro della mappa"))
+        assertTrue(frase.contains("cambiare orario"))
         assertTrue(OriginText.noJourneyDetail(fromMapCenter = false).contains("orario"))
     }
 

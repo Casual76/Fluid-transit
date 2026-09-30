@@ -81,7 +81,10 @@ internal object SheetAlerts {
         val lista = feed.alerts ?: return View(null, null)
         return View(
             rows = rows(lista, lines, nowEpoch, withLineNames, maxBodyChars),
-            staleNote = feed.staleSinceEpoch?.let { AlertText.stale(it, nowEpoch) },
+            // Con il soggetto: dentro una scheda la frase e' una riga sola, e
+            // con la lista vuota e' l'unica. "Aggiornati alle 14:10" senza dire
+            // cosa, letto da TalkBack, non dice se ci sono avvisi o no.
+            staleNote = feed.staleSinceEpoch?.let { AlertText.staleCard(it, nowEpoch) },
         )
     }
 
@@ -148,7 +151,15 @@ internal fun rememberSheetAlertsFeed(app: FluidTransitApp, active: Boolean): Sta
     val feed = remember { mutableStateOf<SheetAlerts.Feed?>(null) }
     val owner = LocalLifecycleOwner.current
     LaunchedEffect(active) {
-        if (!active) return@LaunchedEffect
+        // Chiusa l'ultima scheda si dimentica la lista: il `remember` sopravvive
+        // alla chiusura, e alla riapertura le righe si ricavavano subito dal
+        // giro di ore prima, senza nota, come se fossero la situazione di
+        // adesso — fino alla fine del primo download, che su rete mobile lenta
+        // sono secondi. Ogni apertura riparte da "non ancora scaricati".
+        if (!active) {
+            feed.value = null
+            return@LaunchedEffect
+        }
         owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) {
                 val lista = app.realtime.fetchAlertsOrNull()

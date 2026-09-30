@@ -1503,11 +1503,14 @@ fun MapScreen(
             return@produceState
         }
         // Un ricalcolo per dati live nuovi non fa sparire l'elenco: la stessa
-        // domanda, con ritardi piu' freschi, sostituisce i viaggi man mano
-        // che arrivano. Blank-are a ogni arrivo di ritardi farebbe tornare
-        // "Cerco i prossimi viaggi..." ogni minuto su una lista che si sta
-        // leggendo. Una domanda diversa (partenza, orario, bundle) azzera come
-        // prima.
+        // domanda, con ritardi piu' freschi, sostituisce i viaggi UNA volta
+        // sola, a calcolo finito. Non se ne mostrano i parziali: sono
+        // cumulativi dalla prima scansione, quindi la prima consegna ha uno o
+        // due viaggi e la lista di cinque che si stava leggendo crollava e
+        // risaliva ogni minuto, con "Cerco anche i prossimi..." in fondo
+        // (misurato fino a venti secondi sull'emulatore). Se il ricalcolo
+        // fallisce si tiene la lista buona di prima. Una domanda diversa
+        // (partenza, orario, bundle) azzera come prima.
         val firma = listOf(to.lat, to.lon, from, journeyTimeMode, journeyTimeEpoch, ready?.buildId, nowRefresh)
         val stessaDomanda = firma == journeysSig && value != null
         journeysSig = firma
@@ -1543,7 +1546,7 @@ fun MapScreen(
             live = app.departureBoards.live(),
         )
         journeysFailed = false
-        journeysSearching = true
+        journeysSearching = !stessaDomanda
         // I viaggi si mostrano mentre arrivano.
         //
         // Un piano sono fino a otto scansioni in fila, e sull'emulatore da
@@ -1557,6 +1560,8 @@ fun MapScreen(
             List<dev.antigravity.fluidtransit.routing.Raptor.Journey>,
             >(kotlinx.coroutines.channels.Channel.CONFLATED)
         val mostraParziali = launch {
+            // Ricalcolo per soli dati live: niente parziali, vedi sopra.
+            if (stessaDomanda) return@launch
             for (p in parziali) {
                 val ui = withContext(Dispatchers.Default) {
                     val liveTrips = rtNow?.delayByTrip?.keys.orEmpty()
@@ -1590,13 +1595,13 @@ fun MapScreen(
 
                 "depart" -> raptor.plan(
                     fromPlace, toPlace, Instant.ofEpochSecond(journeyTimeEpoch), liveData,
-                    onPartial = { parziali.trySend(it) },
+                    onPartial = if (stessaDomanda) null else { { parziali.trySend(it) } },
                     shouldStop = abbandonato,
                 )
 
                 else -> raptor.plan(
                     fromPlace, toPlace, Instant.now(), liveData,
-                    onPartial = { parziali.trySend(it) },
+                    onPartial = if (stessaDomanda) null else { { parziali.trySend(it) } },
                     shouldStop = abbandonato,
                 )
             }
@@ -1615,20 +1620,37 @@ fun MapScreen(
         mostraParziali.join()
         journeysSearching = false
         if (raw == null) {
+            // Un ricalcolo che non riesce non butta la lista buona: i ritardi
+            // restano quelli di un minuto fa, che e' meglio di "non sono
+            // riuscito" su viaggi che c'erano.
+            if (stessaDomanda) return@produceState
             journeysFailed = true
             value = emptyList()
             return@produceState
         }
-        value = withContext(Dispatchers.Default) {
+        val nuovi = withContext(Dispatchers.Default) {
             // Le corse davvero seguite dal feed: serve per distinguere
             // "monitorata e puntuale" da "non se ne sa niente".
             val liveTrips = rtNow?.delayByTrip?.keys.orEmpty()
-            runCatching { raw.map { UiJourney.of(reader, it, liveTrips) } }
-                .getOrElse {
-                    journeysFailed = true
-                    emptyList()
-                }
+            runCatching { raw.map { UiJourney.of(reader, it, liveTrips) } }.getOrNull()
         }
+        if (nuovi == null) {
+            if (!stessaDomanda) {
+                journeysFailed = true
+                value = emptyList()
+            }
+            return@produceState
+        }
+        // Col dettaglio di un viaggio aperto l'elenco non cambia: il dettaglio
+        // punta a una riga per indice, e un elenco rifatto gli metterebbe sotto
+        // un altro viaggio (il ricalcolo puo' essere partito prima del tocco).
+        // Si dimentica la firma dei ritardi, cosi' quando si torna all'elenco
+        // il ricalcolo riparte.
+        if (stessaDomanda && panel is Panel.JourneyDetail) {
+            journeysLiveSig = null
+            return@produceState
+        }
+        value = nuovi
     }
 
     // I ritardi nuovi rifanno l'elenco, al massimo una volta al minuto e solo
@@ -2283,6 +2305,7 @@ fun MapScreen(
                 // MAI: cercare "via Bolognese 12" e ricercarla il giorno dopo
                 // erano due ricerche identiche e complete.
                 recents = recentSuggestions.filter { it.kind != "route" },
+                plannerMode = plannerField != null,
                 nearby = nearby,
                 recentLines = if (plannerField != null) {
                     emptyList()

@@ -71,6 +71,9 @@ class DeeplinkTest {
         assertNull(vecchio.epochDay)
         // Un giorno illeggibile e' "nessun giorno", non un link rotto.
         assertNull((Deeplink.parse("fluidtransit://journey/7?day=ieri") as Deeplink.Journey).epochDay)
+        // Il link e' esportato: un giorno enorme farebbe lanciare `ofEpochDay`.
+        assertNull((Deeplink.parse("fluidtransit://journey/7?day=9999999999999999") as Deeplink.Journey).epochDay)
+        assertNull((Deeplink.parse("fluidtransit://journey/7?day=-5") as Deeplink.Journey).epochDay)
     }
 
     @Test

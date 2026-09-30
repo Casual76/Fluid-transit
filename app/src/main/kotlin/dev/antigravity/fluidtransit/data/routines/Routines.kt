@@ -45,7 +45,17 @@ class Routines(private val file: File) {
          * zero: vedi [RoutineText].
          */
         val lastComputeEpoch: Long = 0,
-    )
+    ) {
+        /**
+         * La stessa routine, acceso o spento. `Routine` non e' una data class
+         * e chi la ricostruiva a mano campo per campo dimenticava
+         * `lastComputeEpoch`: dopo una pausa "calcolato alle 06:40" spariva.
+         */
+        fun withEnabled(enabled: Boolean) = Routine(
+            id, label, fromLat, fromLon, toLat, toLon, toName, days, anchor,
+            anchorMinutes, enabled, lastAdviceEpoch, lastAdviceText, lastComputeEpoch,
+        )
+    }
 
     val version = MutableStateFlow(0)
 

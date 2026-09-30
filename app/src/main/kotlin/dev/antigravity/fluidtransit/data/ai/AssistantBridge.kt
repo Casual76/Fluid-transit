@@ -398,15 +398,9 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
             true
         }
         is AssistantAction.SetRoutineEnabled -> {
-            // `Routine` non e' una data class: si ricostruisce a mano, campo per campo.
-            app.routines.update(action.id) { r ->
-                Routines.Routine(
-                    id = r.id, label = r.label, fromLat = r.fromLat, fromLon = r.fromLon,
-                    toLat = r.toLat, toLon = r.toLon, toName = r.toName, days = r.days,
-                    anchor = r.anchor, anchorMinutes = r.anchorMinutes, enabled = action.enabled,
-                    lastAdviceEpoch = r.lastAdviceEpoch, lastAdviceText = r.lastAdviceText,
-                )
-            }
+            // Come da Oggi: spegnere toglie l'avviso e la sveglia, riaccendere ne arma una.
+            dev.antigravity.fluidtransit.data.routines.RoutineScheduler
+                .setEnabled(app, action.id, action.enabled)
             true
         }
         is AssistantAction.RemoveRoutine -> {

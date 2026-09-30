@@ -99,7 +99,7 @@ sealed interface Deeplink {
             return when (host) {
                 "stop" -> hex(arg)?.let { Stop(it, param(query, "name")) }
                 "route" -> hex(arg)?.let { Route(it) }
-                "journey" -> arg.toLongOrNull()?.let { Journey(it, param(query, "day").toLongOrNull()) }
+                "journey" -> arg.toLongOrNull()?.let { Journey(it, day(param(query, "day"))) }
                 "nav" -> Nav
                 "today" -> Today
                 "alerts" -> Alerts
@@ -107,6 +107,20 @@ sealed interface Deeplink {
                 else -> null
             }
         }
+
+        /**
+         * Un giorno in giorni da epoch, o niente. Il link e' esportato e
+         * apribile da qualunque pagina: `LocalDate.ofEpochDay` lancia fuori
+         * da circa +/-365 miliardi di giorni, e un `day=9999999999999999`
+         * faceva cadere l'app. Un giorno fuori da una finestra ragionevole
+         * vale "nessun giorno", come uno illeggibile.
+         */
+        private fun day(s: String): Long? =
+            s.toLongOrNull()?.takeIf { it in MIN_EPOCH_DAY..MAX_EPOCH_DAY }
+
+        /** 2020-01-01 e 2100-01-01. */
+        private const val MIN_EPOCH_DAY = 18_262L
+        private const val MAX_EPOCH_DAY = 47_482L
 
         /**
          * Un hash a 64 bit in esadecimale, o niente.

@@ -63,12 +63,15 @@ object RoutineScheduler {
      */
     fun rescheduleAll(context: Context) {
         for (r in storeOf(context).list()) {
+            // Col riavvio la tendina e' vuota: il "gia' avvisato" ricordato
+            // sarebbe falso, e la prima rifinitura non ripubblicherebbe.
+            runCatching { alarmPrefs(context).edit().remove(notifiedKey(r.id)).apply() }
             if (r.enabled) scheduleNextCompute(context, r) else cancel(context, r.id)
         }
     }
 
     /**
-     * Riarma solo cio' che manca: per l'avvio del processo.
+     * Riarma solo cio' che serve: per l'avvio del processo.
      *
      * Prima `onCreate` riarmava tutto senza guardare, e quando era proprio la
      * sveglia a far nascere il processo — alle 07:15, "parti alle 08:00" —
@@ -77,7 +80,7 @@ object RoutineScheduler {
      * a meta' fra bundle, rete e RAPTOR: la seconda partenza rifaceva tutto e
      * "Esci tra 45 min" suonava due volte. Per un "arriva entro" la stessa
      * sveglia in piu' era una rifinitura, che ripubblica la notifica anche
-     * dopo che l'avevi tolta. Vedi [RoutineTiming.shouldRearmAtStart].
+     * dopo che l'avevi tolta. Vedi [RoutineTiming.atStart].
      */
     fun rescheduleMissing(context: Context) {
         val now = Instant.now().epochSecond
@@ -87,16 +90,56 @@ object RoutineScheduler {
                 continue
             }
             val armed = armedOf(context, r.id)
-            // Una sveglia ancora davanti a noi deve avere anche il suo
-            // PendingIntent: dopo un "termina forzatamente" il sistema butta
-            // via le une e gli altri, e il ricordo scritto resterebbe a
-            // dire una cosa falsa.
-            val exists = armed != null && armed.atEpoch > now &&
-                pending(context, r.id, armed.phase, noCreate = true) != null
-            if (RoutineTiming.shouldRearmAtStart(armed, now, exists)) {
-                scheduleNextCompute(context, r)
+            when (RoutineTiming.atStart(armed, now)) {
+                RoutineTiming.StartAction.LEAVE -> Unit
+                RoutineTiming.StartAction.REARM_NEXT -> scheduleNextCompute(context, r)
+                RoutineTiming.StartAction.REARM_SAME ->
+                    setAlarm(
+                        context, r.id, armed!!.phase,
+                        RoutineTiming.rearmAt(armed, now) * 1000, armed.day!!,
+                    )
             }
         }
+    }
+
+    /**
+     * Il ricevitore segna lo scatto PRIMA di avviare il giro: da qui si
+     * misura se un giro e' "ancora in corso". L'ora programmata non basta,
+     * perche' una sveglia in ritardo (Doze, inesatta su Android 12 senza
+     * permesso) nasce quando quell'ora e' gia' lontana.
+     */
+    internal fun markFired(context: Context, id: Long, phase: String, day: LocalDate) {
+        val now = Instant.now().epochSecond
+        runCatching {
+            val at = armedOf(context, id)?.takeIf { it.phase == phase }?.atEpoch ?: now
+            alarmPrefs(context).edit()
+                .putString(id.toString(), RoutineTiming.Armed(phase, at, day, now).format())
+                .apply()
+        }
+    }
+
+    private fun notifiedKey(id: Long) = "notified:$id"
+
+    /** L'avviso di questa occorrenza e' stato pubblicato (e da allora non riavviato il telefono)? */
+    private fun wasNotified(context: Context, id: Long, day: LocalDate): Boolean =
+        runCatching { alarmPrefs(context).getLong(notifiedKey(id), Long.MIN_VALUE) == day.toEpochDay() }
+            .getOrDefault(false)
+
+    private fun markNotified(context: Context, id: Long, day: LocalDate) {
+        runCatching { alarmPrefs(context).edit().putLong(notifiedKey(id), day.toEpochDay()).apply() }
+    }
+
+    /**
+     * Pausa e riattivazione, per Oggi e per l'assistente. Stava in Oggi, e
+     * l'assistente cambiava solo il flag: l'avviso restava in tendina, la
+     * sveglia gia' armata suonava a vuoto senza riarmarsi, e "riattivala" non
+     * armava niente.
+     */
+    fun setEnabled(context: Context, id: Long, enabled: Boolean) {
+        val store = storeOf(context)
+        store.update(id) { it.withEnabled(enabled) }
+        val updated = store.list().firstOrNull { it.id == id } ?: return
+        if (updated.enabled) scheduleNextCompute(context, updated) else cancel(context, id)
     }
 
     private fun alarmPrefs(context: Context) =
@@ -143,7 +186,9 @@ object RoutineScheduler {
         val am = context.getSystemService(AlarmManager::class.java)
         am.cancel(pending(context, id, RoutineTiming.COMPUTE))
         am.cancel(pending(context, id, RoutineTiming.REFINE))
-        runCatching { alarmPrefs(context).edit().remove(id.toString()).apply() }
+        runCatching {
+            alarmPrefs(context).edit().remove(id.toString()).remove(notifiedKey(id)).apply()
+        }
         // Anche l'avviso gia' in tendina: una routine messa in pausa o
         // eliminata lasciava "Esci tra 25 min" sullo schermo, e toccarlo
         // (per una routine cancellata) non faceva niente.
@@ -159,7 +204,7 @@ object RoutineScheduler {
         // appena suonata che ha fatto nascere il processo".
         runCatching {
             alarmPrefs(context).edit()
-                .putString(id.toString(), RoutineTiming.Armed(phase, atMillis / 1000).format())
+                .putString(id.toString(), RoutineTiming.Armed(phase, atMillis / 1000, day).format())
                 .apply()
         }
         // Da Android 12 la sveglia esatta e' un permesso che puo' mancare:
@@ -178,17 +223,7 @@ object RoutineScheduler {
         }
     }
 
-    private fun pending(context: Context, id: Long, phase: String, day: LocalDate? = null): PendingIntent =
-        pending(context, id, phase, day, noCreate = false)!!
-
-    /** Con [noCreate] si chiede solo se esiste: null vuol dire "nessuna sveglia registrata". */
-    private fun pending(
-        context: Context,
-        id: Long,
-        phase: String,
-        day: LocalDate? = null,
-        noCreate: Boolean,
-    ): PendingIntent? {
+    private fun pending(context: Context, id: Long, phase: String, day: LocalDate? = null): PendingIntent {
         val intent = Intent(context, RoutineReceiver::class.java)
             .setAction(ACTION)
             .putExtra("id", id)
@@ -203,8 +238,7 @@ object RoutineScheduler {
         val code = (id * 2 + if (phase == RoutineTiming.REFINE) 1 else 0).toInt()
         return PendingIntent.getBroadcast(
             context, code, intent,
-            (if (noCreate) PendingIntent.FLAG_NO_CREATE else PendingIntent.FLAG_UPDATE_CURRENT) or
-                PendingIntent.FLAG_IMMUTABLE,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
     }
 
@@ -416,8 +450,13 @@ object RoutineScheduler {
         val ancoraInTendina = runCatching {
             nm.activeNotifications.any { it.id == id.toInt() }
         }.getOrDefault(true)
-        if (phase != RoutineTiming.REFINE || ancoraInTendina) {
+        // ...ma solo se l'ha tolto qualcuno. Se la tendina e' vuota perche' il
+        // telefono si e' riavviato, o il processo e' morto fra il salvataggio
+        // e la notifica, l'avviso di questa occorrenza non e' mai stato
+        // pubblicato e la rifinitura e' l'unica che puo' farlo.
+        if (phase != RoutineTiming.REFINE || ancoraInTendina || !wasNotified(app, id, day)) {
             runCatching { nm.notify(id.toInt(), notification) }
+                .onSuccess { markNotified(app, id, day) }
         }
 
         // Le rifiniture: si ricalcola avvicinandosi all'uscita, coi ritardi
@@ -483,6 +522,7 @@ class RoutineReceiver : BroadcastReceiver() {
         } else {
             LocalDate.now(Ftb.ROME)
         }
+        RoutineScheduler.markFired(context, id, phase, day)
         val pending = goAsync()
         RoutineScheduler.runComputation(context, id, phase, day) { pending.finish() }
     }

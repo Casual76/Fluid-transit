@@ -80,16 +80,37 @@ object RoutineTiming {
         return null
     }
 
-    /** La sveglia armata per una routine, come la ricorda lo scheduler. */
-    data class Armed(val phase: String, val atEpoch: Long) {
-        fun format(): String = "$phase|$atEpoch"
+    /**
+     * La sveglia di una routine, come la ricorda lo scheduler.
+     *
+     * [atEpoch] e' quando DOVEVA suonare; [firedEpoch] quando e' suonata
+     * davvero (0 = non ancora), scritto dal ricevitore prima di avviare il
+     * giro. Il margine del "giro in corso" si misura da li': con la sveglia
+     * in ritardo (Doze, ripiego sull'inesatta su Android 12 senza permesso)
+     * l'ora programmata e' gia' lontana quando il processo nasce, e contarla
+     * dall'ora programmata faceva riarmare un giro a meta' — due "Esci tra
+     * 45 min". [day] e' il giorno della routine, per poter riarmare la
+     * STESSA sveglia senza ricalcolarla.
+     */
+    data class Armed(
+        val phase: String,
+        val atEpoch: Long,
+        val day: LocalDate? = null,
+        val firedEpoch: Long = 0L,
+    ) {
+        fun format(): String = "$phase|$atEpoch|${day?.toEpochDay() ?: ""}|$firedEpoch"
 
         companion object {
             fun parse(s: String?): Armed? {
                 val parts = s?.split('|') ?: return null
-                if (parts.size != 2) return null
+                if (parts.size != 2 && parts.size != 4) return null
                 val at = parts[1].toLongOrNull() ?: return null
-                return Armed(parts[0], at)
+                if (parts.size == 2) return Armed(parts[0], at)
+                val day = parts[2].takeIf { it.isNotEmpty() }
+                    ?.let { d -> d.toLongOrNull() ?: return null }
+                    ?.let { d -> runCatching { LocalDate.ofEpochDay(d) }.getOrNull() ?: return null }
+                val fired = parts[3].toLongOrNull() ?: return null
+                return Armed(parts[0], at, day, fired)
             }
         }
     }
@@ -101,29 +122,51 @@ object RoutineTiming {
      */
     const val IN_FLIGHT_GRACE_SECONDS = 3 * 60L
 
-    /**
-     * All'avvio del processo: serve riarmare la routine?
-     *
-     * @param armed cio' che lo scheduler ricorda di aver armato (null: niente).
-     * @param pendingExists vero se il sistema ha ancora il PendingIntent di
-     *   quella sveglia. Conta solo per una sveglia nel futuro: dopo un
-     *   "termina forzatamente" sparisce, mentre per una gia' suonata resta
-     *   (e' il PendingIntent a sopravvivere alla sveglia, non il contrario).
-     *
-     * - niente ricordato: si arma;
-     * - sveglia nel futuro: si lascia stare, se il sistema la ha davvero;
-     * - sveglia appena suonata: e' quella che ha fatto nascere il processo e
-     *   il suo giro e' ancora in corso. Riarmare qui faceva partire una
-     *   seconda sveglia a cinque secondi, e "Esci tra 45 min" suonava due
-     *   volte di seguito;
-     * - sveglia suonata da un pezzo e mai sostituita: il giro e' morto, si
-     *   riarma.
-     */
-    fun shouldRearmAtStart(armed: Armed?, nowEpoch: Long, pendingExists: Boolean): Boolean {
-        if (armed == null) return true
-        if (armed.atEpoch > nowEpoch) return !pendingExists
-        return nowEpoch - armed.atEpoch > IN_FLIGHT_GRACE_SECONDS
+    /** Cosa fare di una routine quando il processo nasce. */
+    enum class StartAction {
+        /** C'e' un giro in corso: riarmare lo farebbe suonare due volte. */
+        LEAVE,
+
+        /** La sveglia ricordata si rimette com'era, senza ricalcolare. */
+        REARM_SAME,
+
+        /** Si decide da capo con [next]. */
+        REARM_NEXT,
     }
+
+    /**
+     * All'avvio del processo: che fare di una routine?
+     *
+     * - niente ricordato: si decide da capo;
+     * - sveglia suonata da poco (misurata dallo scatto reale, non dall'ora
+     *   programmata): e' quella che ha fatto nascere il processo e il suo
+     *   giro e' ancora in corso. Riarmare qui faceva partire una seconda
+     *   sveglia a cinque secondi, e "Esci tra 45 min" suonava due volte;
+     * - sveglia suonata da un pezzo e mai sostituita: il giro e' morto, si
+     *   decide da capo;
+     * - sveglia mai suonata (futura, o in ritardo): si rimette la STESSA.
+     *   Non ci si fida che il sistema la abbia ancora: il PendingIntent
+     *   sopravvive anche quando le sveglie vengono cancellate (un permesso
+     *   delle sveglie esatte revocato su Android 12), e rimettere la stessa e'
+     *   idempotente perche' il PendingIntent e' lo stesso.
+     */
+    fun atStart(armed: Armed?, nowEpoch: Long): StartAction {
+        if (armed == null) return StartAction.REARM_NEXT
+        if (armed.firedEpoch > 0) {
+            return if (nowEpoch - armed.firedEpoch > IN_FLIGHT_GRACE_SECONDS) {
+                StartAction.REARM_NEXT
+            } else {
+                StartAction.LEAVE
+            }
+        }
+        // Un ricordo senza giorno non si puo' rimettere com'era.
+        if (armed.day == null) return StartAction.REARM_NEXT
+        return StartAction.REARM_SAME
+    }
+
+    /** Quando rimettere la sveglia di [atStart] `REARM_SAME`: mai nel passato. */
+    fun rearmAt(armed: Armed, nowEpoch: Long): Long =
+        maxOf(armed.atEpoch, nowEpoch + NOW_DELAY_SECONDS)
 
     /**
      * Il consiglio salvato e' di questa occorrenza della routine?

@@ -145,7 +145,7 @@ private fun AppShell(app: FluidTransitApp) {
                             .journeyIntent(
                                 r,
                                 java.time.Instant.now().epochSecond,
-                                link.epochDay?.let { java.time.LocalDate.ofEpochDay(it) },
+                                link.epochDay?.let { runCatching { java.time.LocalDate.ofEpochDay(it) }.getOrNull() },
                             ),
                     )
                 }

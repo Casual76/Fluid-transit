@@ -1,5 +1,6 @@
 package dev.antigravity.fluidtransit.data.routines
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -35,7 +36,10 @@ class RoutineCreatedTextTest {
             .atZone(dev.antigravity.fluidtransit.routing.Ftb.ROME).toEpochSecond()
         val testo = RoutineText.busGone(leave)
         assertTrue(testo, testo.contains("07:45"))
-        assertTrue(testo, testo.contains(RoutineText.NESSUN_BUS))
+        assertTrue(testo, testo.contains("L'uscita delle 07:45 non c'e' piu'"))
+        assertTrue(testo, testo.contains("oggi nessun bus utile"))
+        // Niente maiuscola dopo i due punti: la frase di Oggi non e' incollata qui.
+        assertFalse(testo, testo.contains(": Oggi"))
         assertTrue(RoutineText.busGoneTitle("Al lavoro").contains("Al lavoro"))
     }
 
@@ -49,5 +53,27 @@ class RoutineCreatedTextTest {
     @Test
     fun `le due frasi sono diverse`() {
         assertNotEquals(RoutineText.created(true), RoutineText.created(false))
+    }
+
+    @Test
+    fun `una routine in pausa non ha un consiglio ne' per Oggi ne' per l'assistente`() {
+        val oggi = java.time.LocalDate.of(2026, 9, 30)
+        val uscita = oggi.atTime(7, 25).atZone(dev.antigravity.fluidtransit.routing.Ftb.ROME).toEpochSecond()
+        val r = Routines.Routine(
+            id = 1, label = "Al lavoro", fromLat = 43.0, fromLon = 11.0,
+            toLat = 43.1, toLon = 11.1, toName = "Ufficio", days = setOf(3),
+            anchor = "depart", anchorMinutes = 8 * 60, enabled = true,
+            lastAdviceEpoch = uscita, lastAdviceText = "Esci alle 07:25",
+            lastComputeEpoch = uscita - 2700,
+        )
+        val adesso = uscita - 600
+        assertTrue(RoutineText.today(r, oggi, adesso) != null)
+        assertTrue(RoutineText.assistant(r, oggi, adesso) != null)
+        val spenta = r.withEnabled(false)
+        assertEquals(null, RoutineText.today(spenta, oggi, adesso))
+        assertEquals(null, RoutineText.assistant(spenta, oggi, adesso))
+        // E la pausa non si dimentica di quando era stato calcolato.
+        assertEquals(r.lastComputeEpoch, spenta.lastComputeEpoch)
+        assertEquals(r.lastAdviceText, spenta.lastAdviceText)
     }
 }

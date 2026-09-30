@@ -422,9 +422,9 @@ fun TodayTab(
                         // bastava che il consiglio fosse di oggi, e alle
                         // dieci del mattino la riga diceva ancora "Esci alle
                         // 07:25".
-                        // In pausa niente consiglio: la riga diceva "Esci
-                        // alle 07:25" di una routine che non avvisa piu'.
-                        val rigaDiOggi = if (isToday && r.enabled) {
+                        // (Una routine in pausa non ha consiglio: lo tace
+                        // `RoutineText.today`, non questa schermata.)
+                        val rigaDiOggi = if (isToday) {
                             dev.antigravity.fluidtransit.data.routines.RoutineText.today(
                                 r,
                                 java.time.Instant.ofEpochSecond(adesso)
@@ -476,21 +476,7 @@ fun TodayTab(
                                             "Riattiva"
                                         },
                                         onClick = {
-                                            app.routines.update(r.id) {
-                                                Routines.Routine(
-                                                    it.id, it.label, it.fromLat, it.fromLon,
-                                                    it.toLat, it.toLon, it.toName, it.days,
-                                                    it.anchor, it.anchorMinutes, !it.enabled,
-                                                    it.lastAdviceEpoch, it.lastAdviceText,
-                                                )
-                                            }
-                                            val updated = app.routines.list()
-                                                .first { it.id == r.id }
-                                            if (updated.enabled) {
-                                                RoutineScheduler.scheduleNextCompute(app, updated)
-                                            } else {
-                                                RoutineScheduler.cancel(app, r.id)
-                                            }
+                                            RoutineScheduler.setEnabled(app, r.id, !r.enabled)
                                         },
                                     ),
                                     FluidContextAction(

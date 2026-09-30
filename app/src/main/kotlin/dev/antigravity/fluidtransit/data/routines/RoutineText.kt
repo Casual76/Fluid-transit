@@ -150,9 +150,9 @@ object RoutineText {
         )
     }
 
-    /** La riga sotto la routine nella scheda Oggi; null se non c'e' niente da dire. */
+    /** La riga sotto la routine nella scheda Oggi; null se non c'e' niente da dire (o e' in pausa). */
     fun today(r: Routines.Routine, day: LocalDate, nowEpoch: Long): String? =
-        when (Routines.adviceState(r, day, nowEpoch)) {
+        if (!r.enabled) null else when (Routines.adviceState(r, day, nowEpoch)) {
             AdviceState.GOOD -> r.lastAdviceText.ifEmpty { null }
             AdviceState.NO_BUS ->
                 "$NESSUN_BUS (calcolato alle ${Times.hhmm(r.lastComputeEpoch)})"
@@ -162,11 +162,13 @@ object RoutineText {
 
     /**
      * Cosa l'assistente puo' riferire del consiglio; null se non ce n'e' uno
-     * di oggi. Prima riceveva il testo salvato qualunque fosse la sua eta', e
+     * di oggi, o se la routine e' in pausa (la regola sta qui, non nella
+     * schermata: "spenta - Esci alle 07:25" faceva ripetere a voce un avviso
+     * che non arriva piu'). Prima riceveva il testo salvato qualunque fosse la sua eta', e
      * ripeteva "Esci alle 07:25" alle dieci del mattino come un consiglio.
      */
     fun assistant(r: Routines.Routine, day: LocalDate, nowEpoch: Long): String? =
-        when (Routines.adviceState(r, day, nowEpoch)) {
+        if (!r.enabled) null else when (Routines.adviceState(r, day, nowEpoch)) {
             AdviceState.GOOD ->
                 r.lastAdviceText.ifEmpty { null }?.let { "$it (${calcolato(r)})" }
             AdviceState.NO_BUS ->
@@ -203,7 +205,7 @@ object RoutineText {
 
     /** [leaveEpoch] e' l'ora di uscita che l'avviso di prima aveva dato. */
     fun busGone(leaveEpoch: Long): String =
-        "Il consiglio delle ${Times.hhmm(leaveEpoch)} non vale piu': $NESSUN_BUS. " +
+        "L'uscita delle ${Times.hhmm(leaveEpoch)} non c'e' piu': oggi nessun bus utile. " +
             "Tocca per le alternative."
 
     /**

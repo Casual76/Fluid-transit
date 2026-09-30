@@ -150,44 +150,77 @@ class RoutineTimingTest {
 
     // --- all'avvio del processo ----------------------------------------
 
+    private fun armata(fired: Long = 0, at: Long = alle(mercoledi, 7, 15)) =
+        RoutineTiming.Armed(RoutineTiming.COMPUTE, at, mercoledi, fired)
+
     @Test
     fun `se la sveglia appena suonata ha fatto nascere il processo non si riarma`() {
         // "Parti alle 08:00": la sveglia delle 07:15 avvia il processo, e
         // onCreate gira mentre il giro vero e' ancora in corso. Riarmare
         // dava una seconda sveglia a cinque secondi e due "Esci tra 45 min".
-        val armata = RoutineTiming.Armed(RoutineTiming.COMPUTE, alle(mercoledi, 7, 15))
         val adesso = alle(mercoledi, 7, 15) + 2
-        assertEquals(false, RoutineTiming.shouldRearmAtStart(armata, adesso, pendingExists = true))
-        assertEquals(false, RoutineTiming.shouldRearmAtStart(armata, adesso, pendingExists = false))
+        val a = armata(fired = alle(mercoledi, 7, 15) + 1)
+        assertEquals(RoutineTiming.StartAction.LEAVE, RoutineTiming.atStart(a, adesso))
     }
 
     @Test
-    fun `una sveglia suonata da un pezzo e mai sostituita si riarma`() {
-        val armata = RoutineTiming.Armed(RoutineTiming.COMPUTE, alle(mercoledi, 7, 15))
-        val adesso = alle(mercoledi, 7, 15) + RoutineTiming.IN_FLIGHT_GRACE_SECONDS + 1
-        assertEquals(true, RoutineTiming.shouldRearmAtStart(armata, adesso, pendingExists = true))
+    fun `una sveglia in ritardo di un quarto d'ora e' comunque un giro in corso`() {
+        // Doze, o l'inesatta su Android 12 senza permesso: doveva suonare alle
+        // 07:15 e suona alle 07:30. Il margine parte dallo scatto, non
+        // dall'ora programmata (quindici minuti fa).
+        val scatto = alle(mercoledi, 7, 30)
+        val a = armata(fired = scatto)
+        assertEquals(RoutineTiming.StartAction.LEAVE, RoutineTiming.atStart(a, scatto + 3))
     }
 
     @Test
-    fun `una sveglia nel futuro resta se il sistema la ha, si riarma se e' sparita`() {
-        val armata = RoutineTiming.Armed(RoutineTiming.COMPUTE, alle(mercoledi, 7, 15))
-        val adesso = alle(mercoledi, 6)
-        assertEquals(false, RoutineTiming.shouldRearmAtStart(armata, adesso, pendingExists = true))
-        // Dopo "termina forzatamente": il ricordo dice futuro, il sistema no.
-        assertEquals(true, RoutineTiming.shouldRearmAtStart(armata, adesso, pendingExists = false))
+    fun `una sveglia suonata da un pezzo e mai sostituita si decide da capo`() {
+        val scatto = alle(mercoledi, 7, 15)
+        val adesso = scatto + RoutineTiming.IN_FLIGHT_GRACE_SECONDS + 1
+        assertEquals(
+            RoutineTiming.StartAction.REARM_NEXT,
+            RoutineTiming.atStart(armata(fired = scatto), adesso),
+        )
     }
 
     @Test
-    fun `senza niente di ricordato si arma`() {
-        assertEquals(true, RoutineTiming.shouldRearmAtStart(null, alle(mercoledi, 6), false))
+    fun `una sveglia nel futuro si rimette sempre, anche se il sistema pare averla`() {
+        // Il PendingIntent sopravvive alla revoca del permesso delle sveglie
+        // esatte (Android 12): fidarsene lasciava la routine muta.
+        val a = armata()
+        assertEquals(RoutineTiming.StartAction.REARM_SAME, RoutineTiming.atStart(a, alle(mercoledi, 6)))
+        assertEquals(a.atEpoch, RoutineTiming.rearmAt(a, alle(mercoledi, 6)))
+    }
+
+    @Test
+    fun `una sveglia mai scattata e gia' in ritardo si rimette fra pochi secondi`() {
+        val a = armata()
+        val adesso = alle(mercoledi, 7, 20)
+        assertEquals(RoutineTiming.StartAction.REARM_SAME, RoutineTiming.atStart(a, adesso))
+        assertEquals(adesso + RoutineTiming.NOW_DELAY_SECONDS, RoutineTiming.rearmAt(a, adesso))
+    }
+
+    @Test
+    fun `senza niente di ricordato, o senza giorno, si decide da capo`() {
+        assertEquals(RoutineTiming.StartAction.REARM_NEXT, RoutineTiming.atStart(null, alle(mercoledi, 6)))
+        val senzaGiorno = RoutineTiming.Armed(RoutineTiming.COMPUTE, alle(mercoledi, 7, 15))
+        assertEquals(
+            RoutineTiming.StartAction.REARM_NEXT,
+            RoutineTiming.atStart(senzaGiorno, alle(mercoledi, 6)),
+        )
     }
 
     @Test
     fun `il ricordo della sveglia va e torna come testo`() {
-        val a = RoutineTiming.Armed(RoutineTiming.REFINE, 1_790_000_000L)
+        val a = RoutineTiming.Armed(RoutineTiming.REFINE, 1_790_000_000L, mercoledi, 1_790_000_005L)
         assertEquals(a, RoutineTiming.Armed.parse(a.format()))
+        val senzaGiorno = RoutineTiming.Armed(RoutineTiming.REFINE, 1_790_000_000L)
+        assertEquals(senzaGiorno, RoutineTiming.Armed.parse(senzaGiorno.format()))
+        // Il formato a due campi dei ricordi piu' vecchi si legge ancora.
+        assertEquals(senzaGiorno, RoutineTiming.Armed.parse("refine|1790000000"))
         assertEquals(null, RoutineTiming.Armed.parse(null))
         assertEquals(null, RoutineTiming.Armed.parse("rotto"))
         assertEquals(null, RoutineTiming.Armed.parse("compute|domani"))
+        assertEquals(null, RoutineTiming.Armed.parse("compute|1|ieri|0"))
     }
 }

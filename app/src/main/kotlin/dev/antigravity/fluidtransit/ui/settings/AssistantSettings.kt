@@ -3,6 +3,8 @@ package dev.antigravity.fluidtransit.ui.settings
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -14,6 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -22,6 +25,7 @@ import dev.antigravity.fluidengine.ui.fluid.FluidSwitch
 import dev.antigravity.fluidengine.ui.theme.FluidListGroup
 import dev.antigravity.fluidengine.ui.theme.FluidListRow
 import dev.antigravity.fluidtransit.FluidTransitApp
+import dev.antigravity.fluidtransit.ai.keys.KeyHelp
 import dev.antigravity.fluidtransit.ai.keys.KeyState
 import dev.antigravity.fluidtransit.ai.keys.VerifyResult
 import dev.antigravity.fluidtransit.ai.provider.ProviderId
@@ -60,11 +64,13 @@ fun AssistantSettingsGroup(app: FluidTransitApp) {
         val titoloAttiva = "Attiva l'assistente"
         FluidListRow(
             title = titoloAttiva,
-            subtitle = if (states.values.any { it.verified }) {
-                "Chiedi a voce o scrivendo: cerca, calcola viaggi, dice dove sono i bus"
-            } else {
-                "Serve la chiave di almeno un servizio, qui sotto"
-            },
+            // Dipende da chiave E interruttore: con la chiave verificata e l'interruttore
+            // spento il sottotitolo prometteva l'assistente, e il microfono restava quello
+            // di sistema senza che nessuno dicesse perche'.
+            subtitle = KeyHelp.enableSubtitle(
+                anyKeyVerified = states.values.any { it.verified },
+                enabled = settings.enabled,
+            ),
             badge = {
                 FluidSwitch(
                     checked = settings.enabled,
@@ -131,13 +137,26 @@ fun AssistantSettingsGroup(app: FluidTransitApp) {
             onDismissRequest = { editing = null },
             title = { Text(target.label) },
             text = {
-                Column {
-                    Text(
-                        "Incolla la tua chiave. Non lascia il telefono: viaggia solo verso " +
-                            "${target.label}, e qui dentro sta cifrata.",
-                    )
-                    Spacer(Modifier.padding(top = 10.dp))
-                    Text(hintFor(target))
+                // Scorre: con le spiegazioni il dialogo non sta piu' in uno schermo basso
+                // o a carattere grande, e il campo e i tasti devono restare raggiungibili.
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(KeyHelp.WHAT_IS_A_KEY)
+                    Spacer(Modifier.padding(top = 8.dp))
+                    Text(KeyHelp.STEPS)
+                    // Il sito del servizio: si apre con un tocco, cosi' non serve ricopiarlo.
+                    val uriHandler = LocalUriHandler.current
+                    TextButton(onClick = {
+                        runCatching { uriHandler.openUri(KeyHelp.url(target)) }
+                    }) { Text("Apri ${KeyHelp.host(target)}") }
+                    if (KeyHelp.recommended(target)) {
+                        Text("Consigliato per cominciare: e' il piu' veloce dei tre.")
+                        Spacer(Modifier.padding(top = 8.dp))
+                    }
+                    // Cosa parte verso il servizio, detto chiaro e a parte dalla chiave: la
+                    // garanzia sulla chiave si leggeva come "non esce niente", e non e' vero.
+                    Text(KeyHelp.whatIsSent(target))
+                    Spacer(Modifier.padding(top = 8.dp))
+                    Text(KeyHelp.keyStaysHere(target))
                     Spacer(Modifier.padding(top = 10.dp))
                     // Una chiave e' una password: non si mostra, e la tastiera
                     // non la impara.
@@ -183,7 +202,9 @@ fun AssistantSettingsGroup(app: FluidTransitApp) {
                         // Provarla adesso: scoprire che e' sbagliata alla
                         // prima domanda sarebbe il momento peggiore.
                         when (val result = assistant.verifier.verify(target)) {
-                            is VerifyResult.Ok -> Unit
+                            // La chiave funziona: si accende l'assistente, se l'utente non ha
+                            // mai scelto. Senza, restava spento con "ok" accanto alla chiave.
+                            is VerifyResult.Ok -> assistant.settings.enableIfNeverChosen()
                             is VerifyResult.Failed -> {
                                 lastError = result.error?.message
                                     ?: "Il servizio non ha risposto. Riprova fra poco."
@@ -209,11 +230,7 @@ fun AssistantSettingsGroup(app: FluidTransitApp) {
     }
 }
 
-private fun hintFor(provider: ProviderId): String = when (provider) {
-    ProviderId.GROQ -> "Gratis su console.groq.com — il piu' veloce dei tre"
-    ProviderId.GEMINI -> "Gratis su aistudio.google.com"
-    ProviderId.OPENROUTER -> "openrouter.ai: un unico accesso a molti modelli"
-}
+private fun hintFor(provider: ProviderId): String = KeyHelp.rowHint(provider)
 
 private fun placeholderFor(provider: ProviderId): String = when (provider) {
     ProviderId.GROQ -> "gsk_…"

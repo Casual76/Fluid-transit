@@ -8,11 +8,8 @@ import dev.antigravity.fluidtransit.routing.Ftb
 import dev.antigravity.fluidtransit.routing.DepartureText
 import dev.antigravity.fluidtransit.routing.Times
 import dev.antigravity.fluidtransit.routing.WhenText
-import java.time.DayOfWeek
-import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.temporal.ChronoUnit
 import kotlinx.serialization.json.JsonObject
 
 private const val NO_DATA = "errore: gli orari non sono ancora scaricati"
@@ -20,34 +17,6 @@ private const val NO_DATA = "errore: gli orari non sono ancora scaricati"
 /** Il nome di una linea come lo legge la gente: il numero, o il nome lungo se il numero manca. */
 private fun BundleReader.lineName(routeIndex: Int): String =
   routeShortName(routeIndex).ifEmpty { routeLongName(routeIndex) }
-
-/** I giorni della settimana come li scrive il modello: "lun", "lunedi", "1", "feriali". */
-private fun parseDays(raw: List<String>): Set<Int> = raw.flatMap { item ->
-  when (val t = item.lowercase().trim().trim('\'')) {
-    "feriali", "lun-ven", "settimana" -> listOf(1, 2, 3, 4, 5)
-    "weekend", "fine settimana" -> listOf(6, 7)
-    "tutti", "ogni giorno", "sempre" -> listOf(1, 2, 3, 4, 5, 6, 7)
-    else -> listOfNotNull(
-      when {
-        t.startsWith("lun") -> 1
-        t.startsWith("mar") -> 2
-        t.startsWith("mer") -> 3
-        t.startsWith("gio") -> 4
-        t.startsWith("ven") -> 5
-        t.startsWith("sab") -> 6
-        t.startsWith("dom") -> 7
-        else -> t.toIntOrNull()?.takeIf { it in 1..7 }
-      },
-    )
-  }
-}.toSet()
-
-private fun daysLabel(days: Set<Int>): String = when {
-  days.isEmpty() -> "mai"
-  days == setOf(1, 2, 3, 4, 5) -> "dal lunedi' al venerdi'"
-  days.size == 7 -> "tutti i giorni"
-  else -> days.sorted().joinToString(", ") { DayOfWeek.of(it).getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ITALIAN) }
-}
 
 /** Le fermate intorno a un punto: la domanda "da dove parto?" prima ancora degli orari. */
 class NearbyStopsTool : AiTool {
@@ -68,15 +37,26 @@ class NearbyStopsTool : AiTool {
       ?: return "errore: non so dove ti trovi"
     val radius = (args.int("raggio_metri") ?: 700).toDouble()
     val limit = args.int("quante") ?: 5
-    val near = reader.stopsNear(point.lat, point.lon, radius)
+    val poles = reader.stopsNear(point.lat, point.lon, radius)
       .map { it to BundleReader.haversine(point.lat, point.lon, reader.stopLat(it), reader.stopLon(it)) }
       .sortedBy { it.second }
-      .take(limit)
+    // Una fermata vera e' un gruppo di pali (le due direzioni, le due
+    // banchine): elencati uno per uno, tre luoghi con lo stesso nome si
+    // prendevano i cinque posti e il resto spariva. Si tiene il palo piu'
+    // vicino di ogni gruppo e si tagliano i GRUPPI, non i pali.
+    val groups = LinkedHashMap<List<Int>, Pair<Int, Double>>()
+    for ((stop, distance) in poles) {
+      val key = ctx.transit.siblings(stop).sorted().ifEmpty { listOf(stop) }
+      groups.putIfAbsent(key, stop to distance)
+    }
+    val near = groups.entries.take(limit)
     if (near.isEmpty()) return "nessuna fermata entro ${radius.toInt()} metri da ${point.name}"
     return ToolText.build {
       line("intorno a", point.name)
-      near.forEach { (stop, distance) ->
-        val lines = reader.patternsAtStop(stop).map { reader.patternRoute(it) }.distinct().map { reader.lineName(it) }.filter { it.isNotBlank() }.distinct()
+      near.forEach { (members, nearest) ->
+        val (stop, distance) = nearest
+        val lines = members.flatMap { reader.patternsAtStop(it).toList() }
+          .map { reader.patternRoute(it) }.distinct().map { reader.lineName(it) }.filter { it.isNotBlank() }.distinct()
         line("${reader.stopName(stop)} · ${distance.toInt()} m" + (if (lines.isEmpty()) "" else " · linee ${lines.sorted().joinToString(", ")}"))
       }
     }
@@ -93,7 +73,10 @@ class StopLinesTool : AiTool {
   override suspend fun run(args: JsonObject, ctx: ToolContext): String {
     val reader = ctx.transit.reader ?: return NO_DATA
     val stop = Resolve.stopIndex(ctx, args.str("fermata")) ?: return Resolve.stopNotFound(ctx, args.str("fermata"), "non trovo la fermata")
-    val patterns = reader.patternsAtStop(stop)
+    // Tutte le banchine della fermata: il palo trovato dalla ricerca e' uno,
+    // e da quello solo si vede una direzione (o nessuna linea, se e' un palo
+    // dove si scende e basta).
+    val patterns = ctx.transit.siblings(stop).flatMap { reader.patternsAtStop(it).toList() }.distinct()
     if (patterns.isEmpty()) return "da ${reader.stopName(stop)} non risulta passare nessuna linea"
     val byRoute = patterns.groupBy { reader.patternRoute(it) }
     return ToolText.build {
@@ -159,22 +142,13 @@ class StopDayScheduleTool : AiTool {
   override suspend fun run(args: JsonObject, ctx: ToolContext): String {
     val reader = ctx.transit.reader ?: return NO_DATA
     val stop = Resolve.stopIndex(ctx, args.str("fermata")) ?: return Resolve.stopNotFound(ctx, args.str("fermata"), "non trovo la fermata")
-    val today = Instant.ofEpochMilli(ctx.nowMillis).atZone(ctx.zone).toLocalDate()
-    val date = when (val raw = args.str("giorno")?.lowercase()?.trim()) {
-      null, "oggi" -> today
-      "domani" -> today.plusDays(1)
-      "dopodomani" -> today.plusDays(2)
-      else -> runCatching { LocalDate.parse(raw) }.getOrNull() ?: return "errore: giorno non capito (oggi, domani, o aaaa-mm-gg)"
-    }
+    val today = Resolve.today(ctx)
+    val date = Resolve.parseDay(today, args.str("giorno"))
+      ?: return "errore: giorno non capito (oggi, domani, un giorno della settimana, o aaaa-mm-gg)"
     // Un giorno fuori dal bundle non e' un giorno senza corse: `nextDepartures` lo salta e
     // tornerebbe una lista vuota, cioe' "non passa niente" detto come un fatto del mondo mentre
     // e' un buco dei nostri dati.
-    val dayIndex = ChronoUnit.DAYS.between(reader.feedStart, date)
-    if (dayIndex < 0 || dayIndex >= reader.dayCount) {
-      val ultimo = reader.feedStart.plusDays(reader.dayCount - 1L)
-      return "errore: gli orari scaricati coprono dal ${Times.dateLabel(reader.feedStart, today, relative = false)} " +
-        "al ${Times.dateLabel(ultimo, today, relative = false)}, per quel giorno non so cosa passa"
-    }
+    Resolve.coverageError(reader, date, today)?.let { return it }
     // Una fascia non capita si dice, non si sostituisce con un'altra: rispondere su un'ora diversa
     // da quella chiesta e' peggio che chiedere di riprovare.
     val window = DayWindow.parse(
@@ -195,7 +169,14 @@ class StopDayScheduleTool : AiTool {
     // giorno dopo e' quello che si e' chiesto e resta.
     val mezzanotteDopo = date.plusDays(1).atStartOfDay(ctx.zone).toInstant()
     val soloIlGiorno = args.str("alle") == null
-    val departures = reader.nextDepartures(stop, start, limit = Int.MAX_VALUE, horizonSeconds = window.horizonSeconds, zone = ctx.zone)
+    // Tutte le banchine della fermata, come fa il tabellone: da un palo solo "il primo bus di
+    // domani" e "l'ultimo" erano quelli di una direzione. Una corsa che tocca due pali dello
+    // stesso gruppo (il capolinea: arriva su uno, riparte dall'altro) si conta una volta, per
+    // (corsa, giorno di servizio) come `Departures.merged`.
+    val departures = ctx.transit.siblings(stop).toList().ifEmpty { listOf(stop) }
+      .flatMap { reader.nextDepartures(it, start, limit = Int.MAX_VALUE, horizonSeconds = window.horizonSeconds, zone = ctx.zone) }
+      .sortedBy { it.instant }
+      .distinctBy { it.tripIndex to it.serviceDate }
       .filter { lineFilter == null || it.routeIndex == lineFilter }
       .filter { !soloIlGiorno || it.serviceDate == date || it.instant < mezzanotteDopo }
     // Il giorno con le parole di `Times.dateLabel`: al modello serve sapere che "domani" e' il 1
@@ -258,10 +239,15 @@ class NextBusForTool : AiTool {
     // Lo stesso tabellone delle schermate. Qui si diceva "orario previsto" e
     // "dal vivo": due terzi di un terzo vocabolario, su numeri calcolati a
     // parte che potevano non coincidere con quelli della scheda fermata.
+    ctx.transit.ensureLive(vehicles = false)
     val board = ctx.transit.board(stop, 40, 3 * 3600) ?: return NO_DATA
+    // La destinazione e' una fermata con due direzioni: il bus che ci va la tocca al palo della
+    // SUA direzione, che e' quello trovato dalla ricerca solo una volta su due. Si cercano tutte
+    // le banchine, o "non parte niente verso Piazza Dalmazia" era detto con il bus li'.
+    val targetStops = target?.let { ctx.transit.siblings(it.stopIndex).toSet().ifEmpty { setOf(it.stopIndex) } }.orEmpty()
     val matching = board.rows.filter { d ->
       d.destination.lowercase().contains(wanted) ||
-        target != null && passesThrough(reader, d.patternIndex, d.positionInPattern, target.stopIndex)
+        targetStops.isNotEmpty() && passesThrough(reader, d.patternIndex, d.positionInPattern, targetStops)
     }
     if (matching.isEmpty()) {
       val destinations = board.rows.map { it.destination }.filter { it.isNotBlank() }.distinct()
@@ -281,9 +267,9 @@ class NextBusForTool : AiTool {
     }
   }
 
-  /** Vero se il percorso, dopo la fermata di salita, tocca la fermata cercata. */
-  private fun passesThrough(reader: BundleReader, pattern: Int, from: Int, stopIndex: Int): Boolean =
-    ((from + 1) until reader.patternStopCount(pattern)).any { reader.patternStop(pattern, it) == stopIndex }
+  /** Vero se il percorso, dopo la fermata di salita, tocca una delle banchine della fermata cercata. */
+  private fun passesThrough(reader: BundleReader, pattern: Int, from: Int, stopIndexes: Set<Int>): Boolean =
+    ((from + 1) until reader.patternStopCount(pattern)).any { reader.patternStop(pattern, it) in stopIndexes }
 }
 
 /** Se i dati dal vivo stanno arrivando: la differenza fra "il bus è in ritardo" e "non lo so". */
@@ -309,6 +295,7 @@ class WhenToLeaveTool : AiTool {
       "a" to Schema.place,
       "entro" to Schema.str("l'ora di arrivo, es. 08:30"),
       "da" to Schema.place,
+      "giorno" to Schema.str("il giorno dell'arrivo: oggi, domani, dopodomani, un giorno della settimana (sabato) o una data aaaa-mm-gg; vuoto = la prossima volta che quell'ora viene"),
     ),
     required = listOf("a", "entro"),
   )
@@ -318,7 +305,16 @@ class WhenToLeaveTool : AiTool {
     val from = args.str("da")?.let { Resolve.target(ctx, it)?.point }
       ?: ctx.reference?.let { NamedPoint("qui", "", it.first, it.second) }
       ?: return "errore: non so da dove parti"
-    val arriveBy = Resolve.timeToday(ctx, args.str("entro")) ?: return "errore: ora di arrivo non capita (es. 08:30)"
+    // Il giorno, come in come_arrivo: senza "giorno" l'ora e' la prossima volta che viene.
+    val today = Resolve.today(ctx)
+    val dayText = args.str("giorno")
+    val day = if (dayText == null) null else Resolve.parseDay(today, dayText)
+      ?: return "errore: giorno non capito (oggi, domani, un giorno della settimana, o aaaa-mm-gg)"
+    val arriveBy = Resolve.timeOn(ctx, day, args.str("entro")) ?: return "errore: ora di arrivo non capita (es. 08:30)"
+    if (day != null) {
+      ctx.transit.reader?.let { r -> Resolve.coverageError(r, day, today)?.let { return it } }
+    }
+    if (day == null || day == today) ctx.transit.ensureLive(vehicles = false)
     val journeys = ctx.transit.plan(from.lat, from.lon, to.lat, to.lon, departAtEpoch = null, arriveByEpoch = arriveBy)
     if (journeys.isEmpty()) {
       val giorno = WhenText.dayWord(arriveBy, ctx.nowEpoch, ctx.zone)?.let { " ($it)" }.orEmpty()

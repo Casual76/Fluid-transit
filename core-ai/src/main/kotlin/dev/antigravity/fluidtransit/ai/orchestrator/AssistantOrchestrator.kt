@@ -371,7 +371,7 @@ class AssistantOrchestrator(
             if (tool == null) {
               "errore: strumento sconosciuto \"${call.name}\""
             } else {
-              val timeout = minOf(TOOL_TIMEOUT_MILLIS, (budget.remainingMillis - 5_000).coerceAtLeast(3_000))
+              val timeout = toolTimeoutMillis(tool.group, budget.remainingMillis)
               withTimeoutOrNull(timeout) {
                 runCatching { tool.run(call.arguments, ctx) }.getOrElse { e ->
                   if (e is CancellationException) throw e
@@ -391,6 +391,30 @@ class AssistantOrchestrator(
   }
 
   companion object {
+    /**
+     * Il tetto di un singolo strumento.
+     *
+     * Quelli che scrivono (gruppi APP e ROUTINE) aspettano dentro `perform()` il tocco
+     * dell'utente, che ha i suoi sessanta secondi: con il tetto di venti dei tool di sola
+     * lettura la scheda Conferma/Annulla spariva a meta', un tocco tardivo veniva ignorato e il
+     * modello riceveva "lo strumento non ha risposto in tempo" invece di "nessuna conferma".
+     * `stato_dati aggiorna` e' il caso peggiore: conferma piu' i venti secondi d'attesa
+     * dell'aggiornamento non stavano mai nei venti totali. Per questi il tetto e' la finestra di
+     * conferma piu' l'attesa piu' lunga dello strumento, sempre dentro quello che resta del
+     * budget della domanda (meno la riserva per scrivere la risposta).
+     */
+    fun toolTimeoutMillis(group: ToolGroup, budgetRemainingMillis: Long): Long =
+      if (group == ToolGroup.APP || group == ToolGroup.ROUTINE) {
+        minOf(
+          AssistantSession.CONFIRMATION_TIMEOUT_MILLIS + WRITE_TOOL_WAIT_MILLIS,
+          (budgetRemainingMillis - TimeBudget.FINAL_RESERVE_MILLIS).coerceAtLeast(3_000),
+        )
+      } else {
+        minOf(TOOL_TIMEOUT_MILLIS, (budgetRemainingMillis - 5_000).coerceAtLeast(3_000))
+      }
+
+    /** L'attesa che uno strumento che scrive si prende DOPO la conferma (l'aggiornamento dei dati: 20 s). */
+    const val WRITE_TOOL_WAIT_MILLIS = 25_000L
     const val MAX_ROUNDS = 6
     const val MAX_MORE_TOOLS = 2
     const val MAX_OUTPUT_TOKENS = 1_200

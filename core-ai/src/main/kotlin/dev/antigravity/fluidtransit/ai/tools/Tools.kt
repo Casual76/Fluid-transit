@@ -162,8 +162,41 @@ interface TransitBridge {
      */
     val searchAvailable: Boolean get() = true
 
-    /** I mezzi vivi di una linea, gia' risolti contro il bundle. */
-    fun vehiclesOfRoute(routeIndex: Int): List<LiveVehicle>
+    /**
+     * Le banchine della stessa fermata, [stopIndex] compresa.
+     *
+     * Le due direzioni di una fermata sono due stop diversi nel feed (zero
+     * `parent_station`: il 53% dei nomi e' condiviso), e la ricerca per nome
+     * ne restituisce UNO, il rappresentante del gruppo. Uno strumento che
+     * guarda solo quello vede meta' della fermata: "il prossimo per Piazza
+     * Dalmazia" rispondeva "non parte niente" quando il bus si fermava al
+     * palo di fronte, e "che linee passano da qui" elencava una direzione.
+     * Senza gruppi (l'indice non c'e' ancora) la fermata e' da sola.
+     */
+    fun siblings(stopIndex: Int): IntArray = intArrayOf(stopIndex)
+
+    /**
+     * Fa in modo che il tempo reale sia fresco prima di rispondere.
+     *
+     * Chiamato dagli strumenti che parlano di "adesso" (passaggi, dove sono
+     * i bus, itinerari). Con l'app chiusa o in secondo piano nessuno scarica
+     * i feed, e uno strumento che legge lo snapshot senza chiedere rispondeva
+     * "da tabella" o con posizioni di ore fa come se fossero di adesso.
+     * Il default non fa niente: chi ha un feed lo implementa, con un tetto di
+     * tempo, e non fallisce mai (un feed che non risponde lascia le cose
+     * come stanno, e le risposte lo dicono con la loro provenienza).
+     */
+    suspend fun ensureLive(vehicles: Boolean) {}
+
+    /**
+     * I mezzi vivi di una linea, gia' risolti contro il bundle.
+     *
+     * Null quando NON si puo' sapere: niente snapshot dei veicoli, o uno
+     * troppo vecchio per dire dove sono adesso. Una lista vuota e' un'altra
+     * cosa — il feed e' fresco e quella linea non ha mezzi in viaggio — e
+     * letta dal modello vale "nessun bus", cioe' un'affermazione sul mondo.
+     */
+    fun vehiclesOfRoute(routeIndex: Int): List<LiveVehicle>?
 
     fun savedPlaces(): List<NamedPoint>
     fun favouriteStops(): List<NamedPoint>

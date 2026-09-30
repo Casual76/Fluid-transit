@@ -204,6 +204,43 @@ fun AssistantOverlay(
             }
         }
 
+        // --- a riposo: tre domande da cui cominciare -------------------------
+        //
+        // "Chiedimi qualcosa" a vuoto non dice cosa l'assistente sa fare, e chi
+        // ha appena messo la chiave non lo scopre: tre esempi, toccabili.
+        if (state is AssistantState.Idle && draft.isBlank()) {
+            FluidHairline(modifier = Modifier.padding(horizontal = 20.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    text = "Per esempio",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 2.dp),
+                )
+                for (esempio in dev.antigravity.fluidtransit.ai.orchestrator.AssistantHints.EXAMPLES) {
+                    Text(
+                        text = esempio,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .minimumInteractiveComponentSize()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                role = Role.Button,
+                                onClick = { session.askText(esempio) },
+                            )
+                            .padding(vertical = 6.dp),
+                    )
+                }
+            }
+        }
+
         // --- i posti che ha nominato, da aprire con un tocco ----------------
         val chips = (state as? AssistantState.Done)?.chips.orEmpty()
             .filterIsInstance<dev.antigravity.fluidtransit.ai.orchestrator.AnswerChip.Place>()
@@ -433,19 +470,11 @@ private fun answerText(state: AssistantState): String = when (state) {
     else -> ""
 }
 
-/** L'azione, detta all'utente prima di chiedergli di confermarla. */
+/**
+ * L'azione, detta all'utente prima di chiedergli di confermarla: la frase e'
+ * di `:core-ai` ([ActionText]), esaustiva, cosi' nessuna azione ricade in un
+ * "Confermi?" che non dice cosa sta per succedere.
+ */
 private fun actionLabel(
     action: dev.antigravity.fluidtransit.ai.tools.AssistantAction,
-): String = when (action) {
-    is dev.antigravity.fluidtransit.ai.tools.AssistantAction.StartNavigation ->
-        "Avvio la navigazione verso ${action.to.name}?"
-    is dev.antigravity.fluidtransit.ai.tools.AssistantAction.SavePlace ->
-        "Salvo ${action.point.name} come \"${action.label}\"?"
-    is dev.antigravity.fluidtransit.ai.tools.AssistantAction.StarStop ->
-        "Metto la stella alla fermata ${action.name}?"
-    is dev.antigravity.fluidtransit.ai.tools.AssistantAction.StarRoute ->
-        "Metto la stella alla linea ${action.shortName}?"
-    is dev.antigravity.fluidtransit.ai.tools.AssistantAction.CreateRoutine ->
-        "Creo una routine per ${action.to.name}?"
-    else -> "Confermi?"
-}
+): String = dev.antigravity.fluidtransit.ai.tools.ActionText.confirm(action)

@@ -186,7 +186,9 @@ class TransitToolHostProvider : AiToolHostProvider<ToolContext>() {
 /** Le azioni chieste da fuori: gia' confermate. Quelle che vogliono la mappa la portano davanti. */
 private class BridgeActionSink(private val app: FluidTransitApp, private val context: Context) : ActionSink {
   override suspend fun perform(action: AssistantAction): ActionOutcome {
-    val done = app.assistantBridge.execute(action)
+    // Prima si porta l'app davanti, poi si esegue: l'azione della mappa ha bisogno che la mappa
+    // sia in ascolto, e il ponte aspetta qualche secondo che lo sia. Fatto dopo, con l'app
+    // chiusa, l'azione trovava la mappa assente e falliva sempre.
     if (action is AssistantAction.ShowPlace || action is AssistantAction.ShowStop || action is AssistantAction.ShowRoute ||
       action is AssistantAction.ShowJourneys || action is AssistantAction.StartNavigation
     ) {
@@ -194,6 +196,7 @@ private class BridgeActionSink(private val app: FluidTransitApp, private val con
         runCatching { context.startActivity(it) }
       }
     }
-    return if (done) ActionOutcome.DONE else ActionOutcome.UNAVAILABLE
+    // L'esito vero, con la sua ragione: "fatto" solo se e' stato fatto.
+    return app.assistantBridge.execute(action)
   }
 }

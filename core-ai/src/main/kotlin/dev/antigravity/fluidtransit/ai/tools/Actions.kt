@@ -45,7 +45,16 @@ sealed interface AssistantAction {
         override val needsConfirmation = true
     }
 
-    class SavePlace(val label: String, val point: NamedPoint) : AssistantAction {
+    class SavePlace(
+        val label: String,
+        val point: NamedPoint,
+        /**
+         * Il nome con cui esiste gia' un posto con questa etichetta: salvarlo
+         * di nuovo lo SPOSTA, e chi conferma deve saperlo prima, non scoprirlo
+         * quando "Casa" e' finita altrove.
+         */
+        val replaces: String? = null,
+    ) : AssistantAction {
         override val needsConfirmation = true
     }
 
@@ -108,7 +117,41 @@ sealed interface AssistantAction {
     }
 }
 
-enum class ActionOutcome { DONE, REJECTED, TIMEOUT, UNAVAILABLE }
+/**
+ * Com'e' andata un'azione.
+ *
+ * Le ragioni di un fallimento sono distinte perche' il modello le riferisce
+ * all'utente: con un solo "non disponibile" ogni guasto diventava "le azioni
+ * sono disattivate nelle impostazioni", che e' falso quando la navigazione
+ * non parte perche' di notte non ci sono bus, e fa cercare il rimedio nel
+ * posto sbagliato.
+ */
+enum class ActionOutcome {
+    DONE,
+    REJECTED,
+    TIMEOUT,
+
+    /** Le azioni sono spente, o nessuno in grado di eseguirla: vedi [ACTIONS_OFF]. */
+    UNAVAILABLE,
+
+    /** La mappa non e' aperta (o non ha risposto): le azioni che la riguardano non hanno dove atterrare. */
+    NO_MAP,
+
+    /** Qualcosa si e' rotto mentre si eseguiva: l'azione non e' andata. */
+    FAILED,
+
+    /** Non c'e' un itinerario adesso, quindi la navigazione non parte. */
+    NO_ITINERARY,
+
+    /** Non si sa da dove parte la persona: niente posizione e nessuna partenza detta. */
+    NO_ORIGIN,
+
+    /** Gli orari non sono ancora scaricati. */
+    NO_DATA,
+
+    /** L'oggetto dell'azione non c'e' piu' (una routine tolta nel frattempo). */
+    NOT_FOUND,
+}
 
 interface ActionSink {
     suspend fun perform(action: AssistantAction): ActionOutcome
@@ -127,6 +170,17 @@ internal fun outcomeText(outcome: ActionOutcome, done: String): String = when (o
     ActionOutcome.REJECTED -> "l'utente ha annullato"
     ActionOutcome.TIMEOUT -> "nessuna conferma dall'utente: non fatto"
     ActionOutcome.UNAVAILABLE -> ACTIONS_OFF
+    ActionOutcome.NO_MAP ->
+        "non fatto: la mappa non ha risposto (non e' aperta, o e' occupata); l'utente puo' farlo a mano"
+    ActionOutcome.FAILED -> "non fatto: c'e' stato un errore nell'app; l'utente puo' farlo a mano"
+    ActionOutcome.NO_ITINERARY ->
+        "non fatto: adesso non c'e' nessun itinerario con i mezzi verso quel posto " +
+            "(di notte capita), quindi la navigazione non parte"
+    ActionOutcome.NO_ORIGIN ->
+        "non fatto: non so da dove parti, la posizione non e' disponibile: " +
+            "chiedi all'utente da dove parte o di accendere la posizione"
+    ActionOutcome.NO_DATA -> "non fatto: gli orari non sono ancora scaricati"
+    ActionOutcome.NOT_FOUND -> "non fatto: non c'e' piu', e' stato tolto nel frattempo"
 }
 
 /**

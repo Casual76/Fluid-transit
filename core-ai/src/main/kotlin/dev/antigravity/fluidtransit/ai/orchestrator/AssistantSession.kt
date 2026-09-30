@@ -26,6 +26,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** Un'azione che deve fare la UI (aprire una pagina): la sessione la chiede, la shell la esegue. */
@@ -37,10 +39,13 @@ sealed interface UiCommand {
  * Chi esegue davvero le azioni: la mappa, i preferiti, le routine.
  *
  * La sessione si occupa della conferma e degli stati; toccare l'app e'
- * lavoro di chi l'app ce l'ha in mano. Ritorna true se l'azione e' andata.
+ * lavoro di chi l'app ce l'ha in mano. Ritorna com'e' andata, con la ragione
+ * quando non e' andata: un semplice true/false faceva dire all'assistente
+ * "fatto" appena l'azione era stata messa in coda, anche se la mappa poi non
+ * faceva niente (navigazione senza itinerario, routine senza partenza).
  */
 fun interface ActionExecutor {
-    suspend fun execute(action: AssistantAction): Boolean
+    suspend fun execute(action: AssistantAction): ActionOutcome
 }
 
 /** Lo stato dell'app che il prompt racconta al modello. */
@@ -336,22 +341,21 @@ class AssistantSession(
 
     // ------------------------------------------------------------- ActionSink
 
+    /**
+     * Una scheda di conferma per volta.
+     *
+     * Il prompt invita a chiamare piu' strumenti insieme, e "togli la stella a X e alla linea 6"
+     * produce due azioni nello stesso giro: la seconda sostituiva `pending` e lo stato della
+     * prima, che non riceveva mai la sua scheda e restava ad aspettare; quando si confermava la
+     * seconda, il suo `finally` rimetteva lo stato vecchio e l'intestazione restava su
+     * "Confermi?" senza bottoni. Con il lucchetto le azioni si chiedono in fila, ognuna con la
+     * sua scheda e la sua finestra di sessanta secondi.
+     */
+    private val confirmation = Mutex()
+
     override suspend fun perform(action: AssistantAction): ActionOutcome {
         if (!action.needsConfirmation) return execute(action)
-        val request = PendingAction(ids.getAndIncrement(), action, CompletableDeferred())
-        val previous = stateFlow.value
-        pending.value = request
-        stateFlow.value = AssistantState.AwaitingConfirmation(
-            previous.questionOrNull().orEmpty(),
-            action,
-            (previous as? AssistantState.Working)?.provider ?: ProviderId.GROQ,
-        )
-        val confirmed = try {
-            withTimeoutOrNull(CONFIRMATION_TIMEOUT_MILLIS) { request.answer.await() }
-        } finally {
-            if (pending.value?.id == request.id) pending.value = null
-            if (stateFlow.value is AssistantState.AwaitingConfirmation) stateFlow.value = previous
-        }
+        val confirmed = confirmation.withLock { askConfirmation(action) }
         return when (confirmed) {
             null -> ActionOutcome.TIMEOUT
             false -> ActionOutcome.REJECTED
@@ -359,8 +363,27 @@ class AssistantSession(
         }
     }
 
-    private suspend fun execute(action: AssistantAction): ActionOutcome =
-        if (executor.execute(action)) ActionOutcome.DONE else ActionOutcome.UNAVAILABLE
+    private suspend fun askConfirmation(action: AssistantAction): Boolean? {
+        val request = PendingAction(ids.getAndIncrement(), action, CompletableDeferred())
+        val previous = stateFlow.value
+        pending.value = request
+        val own = AssistantState.AwaitingConfirmation(
+            previous.questionOrNull().orEmpty(),
+            action,
+            (previous as? AssistantState.Working)?.provider ?: ProviderId.GROQ,
+        )
+        stateFlow.value = own
+        return try {
+            withTimeoutOrNull(CONFIRMATION_TIMEOUT_MILLIS) { request.answer.await() }
+        } finally {
+            if (pending.value?.id == request.id) pending.value = null
+            // Lo stato si rimette solo se e' ancora il MIO: se nel frattempo e' arrivato altro
+            // (una cancellazione, un errore) non lo si calpesta con uno vecchio.
+            if (stateFlow.value === own) stateFlow.value = previous
+        }
+    }
+
+    private suspend fun execute(action: AssistantAction): ActionOutcome = executor.execute(action)
 
     private fun AssistantState.questionOrNull(): String? = when (this) {
         is AssistantState.Classifying -> question

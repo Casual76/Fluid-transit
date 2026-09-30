@@ -238,12 +238,21 @@ class FluidTransitApp : Application() {
             bundleReady = ready != null,
             placesReady = placesManager.state.value is
                 dev.antigravity.fluidtransit.data.places.PlacesManager.State.Ready,
-            realtimeState = when (rt.source) {
-                dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.SCHEDULE_ONLY ->
+            realtimeState = when {
+                // In un processo appena nato il realtime e' a SCHEDULE_ONLY perche' nessuno ha
+                // ancora chiesto, non perche' non ci sia: lo dicevamo al modello come "non
+                // disponibili", e lui lo riferiva all'utente prima ancora che uno strumento
+                // provasse a scaricare i feed.
+                rt.source == dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.SCHEDULE_ONLY &&
+                    rt.lastSuccessAt == null && rt.lastError == null ->
+                    "non ancora controllate in questa sessione: gli strumenti le chiedono quando servono"
+                rt.source == dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.SCHEDULE_ONLY ->
                     "non disponibili: solo orari programmati"
                 else -> "disponibili"
             },
-            feedAgeSeconds = rt.feedAgeSeconds?.toInt(),
+            // L'eta' di ADESSO: quella dello stato e' del momento dell'ultimo poll, e con l'app
+            // in secondo piano restava "40 secondi" per ore.
+            feedAgeSeconds = assistantBridge.feedAgeNow(rt)?.toInt(),
         )
     }
 

@@ -10,8 +10,10 @@ import dev.antigravity.fluidtransit.routing.Times
 import dev.antigravity.fluidtransit.routing.WhenText
 import dev.antigravity.fluidtransit.routing.Words
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZonedDateTime
+import java.time.temporal.ChronoUnit
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -99,18 +101,100 @@ internal object Resolve {
         return null
     }
 
-    /** "8:30", "08:30", "20.15" → l'epoch di oggi (o domani se e' gia' passata). */
-    fun timeToday(ctx: ToolContext, text: String?): Long? {
-        val t = text?.trim()?.replace('.', ':') ?: return null
-        val parts = t.split(':')
-        val h = parts.getOrNull(0)?.toIntOrNull() ?: return null
-        val m = parts.getOrNull(1)?.toIntOrNull() ?: 0
-        if (h !in 0..23 || m !in 0..59) return null
+    /**
+     * "8:30", "08:30", "20.15", "8" -> ore e minuti, o null.
+     *
+     * Tutto il testo deve essere un'ora. Prima "8:30 di sera" dava le 08:00
+     * (i minuti non capiti diventavano zero in silenzio) e il viaggio veniva
+     * calcolato su un'ora che nessuno aveva detto.
+     */
+    fun clockOf(text: String?): LocalTime? {
+        val m = CLOCK.matchEntire(text?.trim().orEmpty()) ?: return null
+        val h = m.groupValues[1].toInt()
+        val min = m.groupValues[2].ifEmpty { "0" }.toInt()
+        if (h !in 0..23 || min !in 0..59) return null
+        return LocalTime.of(h, min)
+    }
+
+    private val CLOCK = Regex("""(\d{1,2})(?:[:.h](\d{1,2}))?(?::\d{2})?""")
+
+    /** "8:30", "08:30", "20.15" -> l'epoch di oggi (o domani se e' gia' passata). */
+    fun timeToday(ctx: ToolContext, text: String?): Long? = timeOn(ctx, null, text)
+
+    /**
+     * L'epoch di un'ora in un giorno.
+     *
+     * Con [date] nullo e' "oggi, o domani se l'ora e' gia' passata da piu' di
+     * cinque minuti": e' quello che si intende dicendo "alle 8" senza altro.
+     * Con un giorno detto e' quel giorno e basta: "domani alle 8:30" alle 07:10
+     * si calcolava sulle 08:30 di OGGI, e la risposta non diceva il giorno
+     * perche' per oggi non si dice.
+     */
+    fun timeOn(ctx: ToolContext, date: LocalDate?, text: String?): Long? {
+        val clock = clockOf(text) ?: return null
+        if (date != null) return date.atTime(clock).atZone(ctx.zone).toEpochSecond()
         val now = ZonedDateTime.ofInstant(Instant.ofEpochMilli(ctx.nowMillis), ctx.zone)
-        var at = now.with(LocalTime.of(h, m))
+        var at = now.with(clock)
         if (at.isBefore(now.minusMinutes(5))) at = at.plusDays(1)
         return at.toEpochSecond()
     }
+
+    /** Il giorno di oggi nel fuso del contesto. */
+    fun today(ctx: ToolContext): LocalDate =
+        Instant.ofEpochMilli(ctx.nowMillis).atZone(ctx.zone).toLocalDate()
+
+    /**
+     * "oggi", "domani", "dopodomani", "sabato", "2026-10-05" -> la data; null
+     * se il testo non e' un giorno. Senza testo e' oggi.
+     *
+     * Un nome di giorno della settimana e' la prima volta che cade da oggi
+     * compreso: "sabato" detto di sabato e' oggi.
+     */
+    fun parseDay(today: LocalDate, raw: String?): LocalDate? {
+        val t = raw?.lowercase()?.trim()?.replace('ì', 'i') ?: return today
+        if (t.isEmpty()) return today
+        val weekday = WEEKDAYS[t.removeSuffix("'")]
+        return when {
+            t == "oggi" -> today
+            t == "domani" -> today.plusDays(1)
+            t == "dopodomani" -> today.plusDays(2)
+            weekday != null -> today.plusDays(((weekday - today.dayOfWeek.value + 7) % 7).toLong())
+            else -> runCatching { LocalDate.parse(t) }.getOrNull()
+        }
+    }
+
+    private val WEEKDAYS = mapOf(
+        "lunedi" to 1, "martedi" to 2, "mercoledi" to 3, "giovedi" to 4,
+        "venerdi" to 5, "sabato" to 6, "domenica" to 7,
+    )
+
+    /**
+     * Un giorno fuori dal bundle non e' un giorno senza corse: e' un buco dei
+     * nostri dati, e si dice. Null se il giorno e' coperto.
+     */
+    fun coverageError(reader: BundleReader, date: LocalDate, today: LocalDate): String? {
+        val dayIndex = ChronoUnit.DAYS.between(reader.feedStart, date)
+        if (dayIndex >= 0 && dayIndex < reader.dayCount) return null
+        val ultimo = reader.feedStart.plusDays(reader.dayCount - 1L)
+        return "errore: gli orari scaricati coprono dal ${Times.dateLabel(reader.feedStart, today, relative = false)} " +
+            "al ${Times.dateLabel(ultimo, today, relative = false)}, per quel giorno non so cosa passa"
+    }
+
+    /**
+     * "qui", "questo posto", "la tua posizione": il modello scrive queste
+     * parole dove lo schema dice "vuoto per dove si trova adesso". Sono la
+     * posizione, non un nome da cercare (cercato, "qui" risponde "non trovo").
+     */
+    fun isHere(text: String?): Boolean {
+        val t = text?.lowercase()?.trim()?.trimEnd('.', '!', '?', ' ') ?: return true
+        return t.isEmpty() || t in HERE_WORDS
+    }
+
+    private val HERE_WORDS = setOf(
+        "qui", "qua", "qui dove sono", "dove sono", "questo posto", "questo luogo",
+        "la mia posizione", "la tua posizione", "posizione attuale", "la posizione attuale",
+        "dove mi trovo", "dove sono adesso", "qui adesso",
+    )
 
     fun distanceLabel(ctx: ToolContext, lat: Double, lon: Double): String? {
         val ref = ctx.reference ?: return null
@@ -206,6 +290,7 @@ class NextDeparturesTool : AiTool {
         // Lo stesso tabellone delle schermate, non un calcolo parallelo:
         // altrimenti chiedere "quando passa il 6" e guardare la scheda della
         // stessa fermata poteva dare due minuti diversi.
+        ctx.transit.ensureLive(vehicles = false)
         val board = ctx.transit.board(stopIndex, wanted, 3 * 3600)
             ?: return "errore: gli orari non sono ancora scaricati"
         if (board.rows.isEmpty()) {
@@ -337,7 +422,13 @@ class LiveBusesTool : AiTool {
         val q = args.str("linea") ?: return "errore: manca la linea"
         val hit = ctx.transit.findRoutes(q, 1).firstOrNull()
             ?: return Resolve.notFound(ctx, "non trovo una linea che si chiami \"$q\"")
+        ctx.transit.ensureLive(vehicles = true)
+        // Null non e' "nessun mezzo": e' "non lo so". Con l'app appena
+        // svegliata, o il feed fermo da ore, una lista vuota si riferiva come
+        // "la linea non ha bus" e le posizioni vecchie come "sono qui".
         val buses = ctx.transit.vehiclesOfRoute(hit.routeIndex)
+            ?: return "non so dove sono i mezzi della linea ${hit.shortName} adesso: " +
+                "i dati dal vivo non sono disponibili o sono troppo vecchi (vedi stato_rete)"
         if (buses.isEmpty()) {
             // Mai dire "cancellata": l'assenza dal feed non e' prova
             // dell'assenza del bus, la copertura AVL non e' uniforme.
@@ -393,6 +484,10 @@ class JourneyTool : AiTool {
             "da" to Schema.str("da dove si parte; vuoto per dove si trova adesso"),
             "parti_alle" to Schema.str("ora di partenza, formato 8:30; vuoto per adesso"),
             "arriva_entro" to Schema.str("ora entro cui arrivare, formato 8:30"),
+            "giorno" to Schema.str(
+                "il giorno dell'ora: oggi, domani, dopodomani, un giorno della settimana " +
+                    "(sabato) o una data aaaa-mm-gg; vuoto = oggi",
+            ),
         ),
         required = listOf("a"),
     )
@@ -411,9 +506,37 @@ class JourneyTool : AiTool {
                 Resolve.notFound(ctx, "non trovo il punto di partenza \"$fromArg\"")
             }
 
-        val departAt = Resolve.timeToday(ctx, args.str("parti_alle"))
-        val arriveBy = Resolve.timeToday(ctx, args.str("arriva_entro"))
+        // Il giorno: senza, l'ora e' "oggi o la prossima volta che viene". Con un
+        // giorno detto e' quel giorno, e se e' un altro da oggi la risposta lo
+        // scrive (alle 07:10 "domani alle 8:30" si calcolava sulle 08:30 di
+        // oggi, senza una parola che lo dicesse).
+        val today = Resolve.today(ctx)
+        val dayText = args.str("giorno")
+        val day = if (dayText == null) null else Resolve.parseDay(today, dayText)
+            ?: return "errore: giorno non capito (oggi, domani, un giorno della settimana, o aaaa-mm-gg)"
+        val partiText = args.str("parti_alle")
+        val arrivaText = args.str("arriva_entro")
+        // Un'ora detta e non capita ("8 e mezza", "domani mattina") non e'
+        // "parti adesso": si dice, come fa quando_uscire.
+        val departAt = Resolve.timeOn(ctx, day, partiText)
+        if (partiText != null && departAt == null) {
+            return "errore: ora di partenza non capita (es. 08:30)"
+        }
+        val arriveBy = Resolve.timeOn(ctx, day, arrivaText)
+        if (arrivaText != null && arriveBy == null) {
+            return "errore: ora di arrivo non capita (es. 08:30)"
+        }
+        if (day != null && day != today && departAt == null && arriveBy == null) {
+            return "errore: per un altro giorno serve anche l'ora (parti_alle o arriva_entro)"
+        }
+        if (day != null) {
+            ctx.transit.reader?.let { r ->
+                Resolve.coverageError(r, day, today)?.let { return it }
+            }
+        }
 
+        // Il tempo reale conta solo per un viaggio di oggi.
+        if (day == null || day == today) ctx.transit.ensureLive(vehicles = false)
         val journeys = ctx.transit.plan(
             from.point.lat, from.point.lon,
             to.point.lat, to.point.lon,
@@ -437,6 +560,9 @@ class JourneyTool : AiTool {
         return ToolText.build {
             line("da", from.point.name)
             line("a", to.point.name)
+            if (day != null && day != today) {
+                line("per il giorno", Times.dateLabel(day, today))
+            }
             for (j in journeys.take(3)) {
                 val rides = j.legs.filterIsInstance<Raptor.Leg.Ride>()
                 val lines = rides.joinToString(" poi ") { r ->

@@ -4,6 +4,7 @@ import dev.antigravity.fluidtransit.ai.tools.Args.bool
 import dev.antigravity.fluidtransit.ai.tools.Args.int
 import dev.antigravity.fluidtransit.ai.tools.Args.list
 import dev.antigravity.fluidtransit.ai.tools.Args.str
+import dev.antigravity.fluidtransit.routing.DaysText
 import kotlinx.serialization.json.JsonObject
 
 /** Lo stato dell'orario offline, e con `aggiorna` lo riscarica (chiede conferma: consuma rete). */
@@ -57,10 +58,27 @@ class UnstarTool : AiTool {
   override suspend fun run(args: JsonObject, ctx: ToolContext): String {
     if (!ctx.actionsEnabled) return ACTIONS_OFF
     val query = args.str("cosa")?.lowercase()?.trim() ?: return "errore: dimmi cosa"
-    ctx.transit.starredStops().firstOrNull { it.name.lowercase().contains(query) }?.let { stop ->
+    val stops = ctx.transit.starredStops()
+    val routes = ctx.transit.starredRoutes()
+    // Prima il nome esatto, poi la sottostringa, e se la sottostringa ne prende piu' di una si
+    // chiede quale: "togli la stella a Stazione" toglieva la prima fermata che conteneva la
+    // parola, e sulla scheda di conferma c'era solo quel nome da leggere.
+    val exactStops = stops.filter { it.name.lowercase() == query }
+    val exactRoutes = routes.filter { it.shortName.lowercase() == query }
+    // Un nome esatto vince anche se altre cose lo contengono.
+    val (stopCandidates, routeCandidates) = if (exactStops.isNotEmpty() || exactRoutes.isNotEmpty()) {
+      exactStops to exactRoutes
+    } else {
+      stops.filter { it.name.lowercase().contains(query) } to routes.filter { it.shortName.lowercase().contains(query) }
+    }
+    if (stopCandidates.size + routeCandidates.size > 1) {
+      val names = stopCandidates.map { it.name } + routeCandidates.map { "linea ${it.shortName}" }
+      return "\"$query\" puo' essere piu' di una cosa con la stella: ${names.joinToString(", ")}. Chiedi all'utente quale"
+    }
+    stopCandidates.firstOrNull()?.let { stop ->
       return outcomeText(ctx.actions.perform(AssistantAction.UnstarStop(stop.idHashHex, stop.name)), "fatto: stella tolta a ${stop.name}")
     }
-    ctx.transit.starredRoutes().firstOrNull { it.shortName.lowercase() == query || it.shortName.lowercase().contains(query) }?.let { route ->
+    routeCandidates.firstOrNull()?.let { route ->
       return outcomeText(ctx.actions.perform(AssistantAction.UnstarRoute(route.idHashHex, route.shortName)), "fatto: stella tolta alla linea ${route.shortName}")
     }
     val have = (ctx.transit.starredStops().map { it.name } + ctx.transit.starredRoutes().map { it.shortName })
@@ -114,7 +132,7 @@ class RoutineListTool : AiTool {
       line("routine", routines.size)
       routines.forEach { r ->
         line(
-          "#${r.id} ${r.label} → ${r.destination} · ${daysWords(r.days)} · ${if (r.anchor == "arrive") "arrivo" else "partenza"} alle ${"%02d:%02d".format(r.anchorMinutes / 60, r.anchorMinutes % 60)}" +
+          "#${r.id} ${r.label} → ${r.destination} · ${DaysText.label(r.days)} · ${if (r.anchor == "arrive") "arrivo" else "partenza"} alle ${"%02d:%02d".format(r.anchorMinutes / 60, r.anchorMinutes % 60)}" +
             (if (r.enabled) "" else " · spenta") + (r.lastAdvice?.takeIf { it.isNotBlank() }?.let { " · ultimo consiglio: $it" } ?: ""),
         )
       }
@@ -169,13 +187,6 @@ private fun find(raw: String?, ctx: ToolContext): RoutineInfo? {
   val lower = key.lowercase()
   return routines.firstOrNull { it.label.lowercase() == lower }
     ?: routines.firstOrNull { it.label.lowercase().contains(lower) || it.destination.lowercase().contains(lower) }
-}
-
-private fun daysWords(days: Set<Int>): String = when {
-  days.isEmpty() -> "mai"
-  days == setOf(1, 2, 3, 4, 5) -> "dal lunedi' al venerdi'"
-  days.size == 7 -> "tutti i giorni"
-  else -> days.sorted().joinToString(", ") { java.time.DayOfWeek.of(it).getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ITALIAN) }
 }
 
 fun appExtraTools(): List<AiTool> = listOf(

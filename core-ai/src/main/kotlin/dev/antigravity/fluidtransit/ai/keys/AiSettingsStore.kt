@@ -103,6 +103,16 @@ class AiSettingsStore(private val store: DataStore<Preferences>) {
 
   suspend fun setEnabled(enabled: Boolean) = edit { it[Enabled] = enabled }
 
+  /**
+   * Accende l'assistente solo se l'utente non ha mai scelto.
+   *
+   * `enabled` parte da false, e una chiave verificata non accendeva niente: chi incollava la chiave
+   * vedeva "ok" e tornava sulla mappa col microfono di sistema, senza sapere che mancava
+   * l'interruttore. Il valore assente e' "mai scelto" (il Boolean gia' risolto non lo distingue da
+   * "spento"): chi l'ha spento una volta lo trova spento.
+   */
+  suspend fun enableIfNeverChosen() = edit { if (Enabled !in it) it[Enabled] = true }
+
   suspend fun setChatOrder(order: List<ProviderId>) =
     edit { it[ChatOrder] = order.joinToString(",") { p -> p.id } }
 

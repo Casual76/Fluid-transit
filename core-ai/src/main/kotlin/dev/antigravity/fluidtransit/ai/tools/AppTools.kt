@@ -58,21 +58,38 @@ class SavePlaceTool : AiTool {
     override val name = "salva_posto"
     override val group = ToolGroup.APP
     override val description =
-        "Salva un posto con un'etichetta (Casa, Lavoro, Scuola o un nome libero). Chiede conferma."
+        "Salva un posto con un'etichetta (Casa, Lavoro, Scuola o un nome libero). " +
+            "Senza `dove` salva il posto in cui si trova l'utente adesso. Chiede conferma."
     override val parameters = Schema.obj(
         mapOf(
             "nome" to Schema.str("l'etichetta con cui salvarlo"),
             "dove" to Schema.place,
         ),
-        required = listOf("nome", "dove"),
+        // `dove` non e' obbligatorio: lo schema stesso dice che vuoto vale "dove si trova
+        // adesso", e "salva questo posto come Casa" e' proprio quel caso.
+        required = listOf("nome"),
     )
 
     override suspend fun run(args: JsonObject, ctx: ToolContext): String {
         val label = args.str("nome") ?: return "errore: manca l'etichetta"
-        val q = args.str("dove") ?: return "errore: manca il posto"
-        val t = Resolve.target(ctx, q) ?: return Resolve.notFound(ctx, "non trovo \"$q\"")
+        val q = args.str("dove")?.takeUnless { Resolve.isHere(it) }
+        val point = if (q == null) {
+            // "Qui" e' la posizione e basta. Non si ripiega sul centro della mappa, come fa
+            // Resolve.target: salverebbe un punto che l'utente stava solo guardando con il
+            // nome "La tua posizione", e "Casa" finirebbe dove non abita.
+            val here = ctx.transit.here
+                ?: return "errore: non so dove ti trovi (la posizione non e' disponibile): " +
+                    "chiedi all'utente un indirizzo o una fermata"
+            NamedPoint("la tua posizione", "", here.first, here.second)
+        } else {
+            (Resolve.target(ctx, q) ?: return Resolve.notFound(ctx, "non trovo \"$q\"")).point
+        }
+        // Un'etichetta esiste una volta sola: salvarla di nuovo sposta quella che c'e', e la
+        // scheda di conferma lo deve dire.
+        val replaces = ctx.transit.savedPlaces()
+            .firstOrNull { it.name.equals(label, ignoreCase = true) }?.name
         return outcomeText(
-            ctx.actions.perform(AssistantAction.SavePlace(label, t.point)),
+            ctx.actions.perform(AssistantAction.SavePlace(label, point, replaces)),
             "salvato come \"$label\"",
         )
     }
@@ -123,9 +140,14 @@ class CreateRoutineTool : AiTool {
     override suspend fun run(args: JsonObject, ctx: ToolContext): String {
         val toText = args.str("a") ?: return "errore: manca la destinazione"
         val to = Resolve.target(ctx, toText) ?: return Resolve.notFound(ctx, "non trovo \"$toText\"")
-        val from = args.str("da")?.let { Resolve.target(ctx, it) }
-        val days = parseDays(args.str("giorni"))
-        if (days.isEmpty()) return "non ho capito in che giorni: dimmi \"feriali\", \"tutti\" o l'elenco"
+        // Una partenza detta e non trovata non diventa "dove ti trovi": la routine partirebbe
+        // da un posto che nessuno ha nominato, e la conferma direbbe "da dove ti trovi".
+        val fromText = args.str("da")?.takeUnless { Resolve.isHere(it) }
+        val from = fromText?.let {
+            Resolve.target(ctx, it) ?: return Resolve.notFound(ctx, "non trovo il punto di partenza \"$it\"")
+        }
+        val days = parseRoutineDays(args.str("giorni"))
+        if (days.isEmpty()) return "non ho capito in che giorni: dimmi \"feriali\", \"tutti\", \"weekend\" o l'elenco"
         val timeText = args.str("ora") ?: return "errore: manca l'ora"
         val minutes = parseMinutes(timeText) ?: return "non ho capito l'ora \"$timeText\""
         val anchor = if (args.str("tipo") == "parti") "depart" else "arrive"
@@ -144,27 +166,66 @@ class CreateRoutineTool : AiTool {
         )
     }
 
-    private fun parseDays(text: String?): Set<Int> {
-        val t = text?.lowercase()?.trim() ?: return emptySet()
-        return when {
-            t.contains("ferial") -> setOf(1, 2, 3, 4, 5)
-            t.contains("tutti") || t.contains("ogni giorno") -> setOf(1, 2, 3, 4, 5, 6, 7)
-            t.contains("weekend") || t.contains("fine settimana") -> setOf(6, 7)
+    // La stessa lettura dell'ora di tutti gli strumenti: "8:30 di sera" non e' le 08:00.
+    private fun parseMinutes(text: String): Int? =
+        Resolve.clockOf(text)?.let { it.hour * 60 + it.minute }
+}
+
+/**
+ * I giorni di una routine come li scrive il modello.
+ *
+ * Le parole si SOMMANO: "feriali e sabato" e' dal lunedi' al sabato. Prima la
+ * prima parola che combaciava vinceva e le altre si perdevano, e chi dettava
+ * "feriali e sabato" confermava una routine da lunedi' a venerdi' senza
+ * accorgersene. Si leggono parole intere (non sottostringhe: "domani" non e'
+ * la domenica, "giorno" non e' il giovedi'); una parola che non si capisce fa
+ * tornare l'insieme vuoto e lo strumento chiede di ripetere, invece di creare
+ * una routine su una parte soltanto di cio' che e' stato detto.
+ */
+internal fun parseRoutineDays(text: String?): Set<Int> {
+    val t = text?.lowercase()?.replace('ì', 'i')?.trim() ?: return emptySet()
+    val words = t.split(Regex("[^a-z]+")).filter { it.isNotEmpty() }
+    if (words.isEmpty()) return emptySet()
+    val out = mutableSetOf<Int>()
+    // Gli intervalli prima: "dal lunedi al venerdi", "lun-ven". Le parole dei
+    // due estremi si rileggono poi da sole, e sono gia' dentro.
+    val dayWord = "(lun|mar|mer|gio|ven|sab|dom)[a-z]*"
+    Regex("(?:dal? )?$dayWord\\s*(?:-|al? )\\s*$dayWord").findAll(t).forEach { m ->
+        val from = ROUTINE_DAY_PREFIX.getValue(m.groupValues[1])
+        val to = ROUTINE_DAY_PREFIX.getValue(m.groupValues[2])
+        if (from <= to) out += from..to
+    }
+    var i = 0
+    while (i < words.size) {
+        val w = words[i]
+        when {
+            w.startsWith("ferial") -> out += 1..5
+            w == "tutti" || w == "tutte" || w == "sempre" -> out += 1..7
+            w == "ogni" && words.getOrNull(i + 1)?.startsWith("giorn") == true -> {
+                out += 1..7
+                i++
+            }
+            w == "weekend" || w == "festivi" -> out += 6..7
+            w == "fine" && words.getOrNull(i + 1) == "settimana" -> {
+                out += 6..7
+                i++
+            }
+            w in ROUTINE_FILLER -> Unit
             else -> {
-                val map = mapOf(
-                    "lun" to 1, "mar" to 2, "mer" to 3, "gio" to 4,
-                    "ven" to 5, "sab" to 6, "dom" to 7,
-                )
-                map.filterKeys { t.contains(it) }.values.toSet()
+                val day = ROUTINE_DAY_FULL.indexOfFirst { w.length >= 3 && it.startsWith(w) }
+                if (day < 0) return emptySet()
+                out += day + 1
             }
         }
+        i++
     }
-
-    private fun parseMinutes(text: String): Int? {
-        val parts = text.replace('.', ':').split(':')
-        val h = parts.getOrNull(0)?.trim()?.toIntOrNull() ?: return null
-        val m = parts.getOrNull(1)?.trim()?.toIntOrNull() ?: 0
-        if (h !in 0..23 || m !in 0..59) return null
-        return h * 60 + m
-    }
+    return out
 }
+
+private val ROUTINE_DAY_PREFIX = mapOf(
+    "lun" to 1, "mar" to 2, "mer" to 3, "gio" to 4, "ven" to 5, "sab" to 6, "dom" to 7,
+)
+private val ROUTINE_DAY_FULL =
+    listOf("lunedi", "martedi", "mercoledi", "giovedi", "venerdi", "sabato", "domenica")
+private val ROUTINE_FILLER =
+    setOf("dal", "al", "a", "e", "i", "il", "le", "la", "di", "giorni", "giorno", "mattine", "ogni")

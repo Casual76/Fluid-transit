@@ -1326,125 +1326,115 @@ fun MapScreen(
     //
     // rememberUpdatedState tiene ferma la sottoscrizione e fresco il corpo.
     val handleAction by rememberUpdatedState<
-        suspend (dev.antigravity.fluidtransit.ai.tools.AssistantAction) -> Unit,
+        suspend (dev.antigravity.fluidtransit.ai.tools.AssistantAction) ->
+        dev.antigravity.fluidtransit.ai.tools.ActionOutcome,
         > { action ->
         val reader = ready?.reader
-            when (action) {
-                is dev.antigravity.fluidtransit.ai.tools.AssistantAction.ShowPlace -> {
-                    assistantOpen = false
-                    showPlace(
-                        PlaceRef(
-                            action.point.name, action.point.context,
-                            action.point.lat, action.point.lon,
-                        ),
-                    )
-                }
+        // Ogni ramo torna com'e' andata: prima il corpo era un `Unit` e l'assistente
+        // diceva "fatto" appena l'azione era in coda, anche quando qui non partiva niente.
+        when (action) {
+            is dev.antigravity.fluidtransit.ai.tools.AssistantAction.ShowPlace -> {
+                assistantOpen = false
+                showPlace(
+                    PlaceRef(
+                        action.point.name, action.point.context,
+                        action.point.lat, action.point.lon,
+                    ),
+                )
+                dev.antigravity.fluidtransit.ai.tools.ActionOutcome.DONE
+            }
 
-                is dev.antigravity.fluidtransit.ai.tools.AssistantAction.ShowStop -> {
-                    assistantOpen = false
-                    panel = Panel.Stop(StopTap(action.idHashHex, action.name))
-                    val hash = action.idHashHex.toULongOrNull(16)?.toLong()
-                    val s = if (reader != null && hash != null) reader.findStopByIdHash(hash) else -1
-                    if (reader != null && s >= 0) {
-                        controller.flyTo(reader.stopLat(s), reader.stopLon(s), 16.0)
-                    }
+            is dev.antigravity.fluidtransit.ai.tools.AssistantAction.ShowStop -> {
+                assistantOpen = false
+                panel = Panel.Stop(StopTap(action.idHashHex, action.name))
+                val hash = action.idHashHex.toULongOrNull(16)?.toLong()
+                val s = if (reader != null && hash != null) reader.findStopByIdHash(hash) else -1
+                if (reader != null && s >= 0) {
+                    controller.flyTo(reader.stopLat(s), reader.stopLon(s), 16.0)
                 }
+                dev.antigravity.fluidtransit.ai.tools.ActionOutcome.DONE
+            }
 
-                is dev.antigravity.fluidtransit.ai.tools.AssistantAction.ShowRoute -> {
-                    assistantOpen = false
-                    showRoute(action.routeIndex)
+            is dev.antigravity.fluidtransit.ai.tools.AssistantAction.ShowRoute -> {
+                assistantOpen = false
+                showRoute(action.routeIndex)
+                dev.antigravity.fluidtransit.ai.tools.ActionOutcome.DONE
+            }
+
+            is dev.antigravity.fluidtransit.ai.tools.AssistantAction.ShowJourneys -> {
+                originRef = action.from?.let {
+                    PlaceRef(it.name, it.context, it.lat, it.lon)
                 }
-
-                is dev.antigravity.fluidtransit.ai.tools.AssistantAction.ShowJourneys -> {
-                    originRef = action.from?.let {
-                        PlaceRef(it.name, it.context, it.lat, it.lon)
-                    }
-                    destRef = PlaceRef(
-                        action.to.name, action.to.context, action.to.lat, action.to.lon,
-                    )
-                    journeyTimeMode = when {
-                        action.arriveByEpoch != null -> "arrive"
-                        action.departAtEpoch != null -> "depart"
-                        else -> "now"
-                    }
-                    journeyTimeEpoch = action.arriveByEpoch ?: action.departAtEpoch ?: 0L
-                    plannerOpen = true
-                    runPlanner()
+                destRef = PlaceRef(
+                    action.to.name, action.to.context, action.to.lat, action.to.lon,
+                )
+                journeyTimeMode = when {
+                    action.arriveByEpoch != null -> "arrive"
+                    action.departAtEpoch != null -> "depart"
+                    else -> "now"
                 }
+                journeyTimeEpoch = action.arriveByEpoch ?: action.departAtEpoch ?: 0L
+                plannerOpen = true
+                runPlanner()
+                dev.antigravity.fluidtransit.ai.tools.ActionOutcome.DONE
+            }
 
-                is dev.antigravity.fluidtransit.ai.tools.AssistantAction.StartNavigation -> {
-                    val origin = controller.lastLocation() ?: controller.cameraCenter()
-                    if (reader != null && origin != null) {
+            is dev.antigravity.fluidtransit.ai.tools.AssistantAction.StartNavigation -> {
+                val origin = controller.lastLocation() ?: controller.cameraCenter()
+                when {
+                    reader == null -> dev.antigravity.fluidtransit.ai.tools.ActionOutcome.NO_DATA
+                    origin == null -> dev.antigravity.fluidtransit.ai.tools.ActionOutcome.NO_ORIGIN
+                    else -> {
                         val js = app.assistantBridge.plan(
                             origin.first, origin.second,
                             action.to.lat, action.to.lon, null, null,
                         )
                         val j = js.firstOrNull()
-                        if (j != null) {
+                        if (j == null) {
+                            // Di notte, o verso un posto che non si raggiunge coi mezzi: nessuna
+                            // navigazione parte, e il "navigazione avviata" non si deve dire.
+                            dev.antigravity.fluidtransit.ai.tools.ActionOutcome.NO_ITINERARY
+                        } else {
                             assistantOpen = false
                             avviaNavigazione(buildNavPlan(reader, j, action.to.name))
+                            dev.antigravity.fluidtransit.ai.tools.ActionOutcome.DONE
                         }
                     }
                 }
-
-                is dev.antigravity.fluidtransit.ai.tools.AssistantAction.SavePlace -> {
-                    app.savedPlaces.add(action.label, action.point.lat, action.point.lon)
-                    savedVersion++
-                }
-
-                is dev.antigravity.fluidtransit.ai.tools.AssistantAction.StarStop ->
-                    app.favorites.toggleStop(action.idHashHex, action.name)
-
-                is dev.antigravity.fluidtransit.ai.tools.AssistantAction.StarRoute -> {
-                    if (reader != null) {
-                        app.favorites.toggleRoute(
-                            java.lang.Long.toHexString(reader.routeIdHash(action.routeIndex)),
-                            action.shortName,
-                            reader.routeDisplayColor(action.routeIndex),
-                        )
-                    }
-                }
-
-                is dev.antigravity.fluidtransit.ai.tools.AssistantAction.CreateRoutine -> {
-                    val origin = action.from
-                        ?: controller.lastLocation()?.let {
-                            dev.antigravity.fluidtransit.ai.tools.NamedPoint(
-                                "La tua posizione", "", it.first, it.second,
-                            )
-                        }
-                    if (origin != null) {
-                        val routine = dev.antigravity.fluidtransit.data.routines.Routines.Routine(
-                            id = System.currentTimeMillis(),
-                            label = action.label,
-                            fromLat = origin.lat,
-                            fromLon = origin.lon,
-                            toLat = action.to.lat,
-                            toLon = action.to.lon,
-                            toName = action.to.name,
-                            days = action.days,
-                            anchor = action.anchor,
-                            anchorMinutes = action.anchorMinutes,
-                            enabled = true,
-                        )
-                        app.routines.add(routine)
-                        dev.antigravity.fluidtransit.data.routines.RoutineScheduler
-                            .scheduleNextCompute(context, routine)
-                        // Anche una routine creata a voce vive dell'avviso: la
-                        // strada manuale chiedeva le notifiche, questa no, e
-                        // chi la dettava trovava la routine "attiva" in Oggi
-                        // con la notifica che non sarebbe mai arrivata.
-                        chiediNotifiche(NotifMotivo.ROUTINE)
-                    }
-                }
-
-                // Le altre azioni (togliere una stella, spegnere una routine, fermare la
-                // navigazione) non hanno bisogno della mappa: le esegue il ponte da se', anche
-                // quando a chiedere e' un assistente esterno e questa schermata non esiste.
-                else -> Unit
             }
+
+            // Posti salvati, stelle, routine, fermare la navigazione, aggiornare i dati: non
+            // hanno bisogno della mappa e le esegue il ponte da se', anche quando a chiedere e'
+            // un assistente esterno e questa schermata non esiste. Qui non ci dovrebbero arrivare.
+            else -> dev.antigravity.fluidtransit.ai.tools.ActionOutcome.UNAVAILABLE
+        }
     }
     LaunchedEffect(Unit) {
-        app.assistantBridge.actions.collect { handleAction(it) }
+        app.assistantBridge.requests.collect { request ->
+            // La risposta va sempre data, anche se l'azione si rompe o la mappa esce di scena a
+            // meta': chi aspetta non deve restare appeso fino al timeout.
+            val outcome = try {
+                handleAction(request.action)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                request.result.complete(dev.antigravity.fluidtransit.ai.tools.ActionOutcome.NO_MAP)
+                throw e
+            } catch (e: Exception) {
+                dev.antigravity.fluidtransit.ai.tools.ActionOutcome.FAILED
+            }
+            request.result.complete(outcome)
+        }
+    }
+    // Quello che il ponte scrive da solo (routine, posti, stelle) arriva alla mappa come notizia.
+    LaunchedEffect(Unit) {
+        app.assistantBridge.routineCreated.collect {
+            // Anche una routine creata a voce vive dell'avviso: la strada manuale chiedeva le
+            // notifiche, questa no, e chi la dettava trovava la routine "attiva" in Oggi con la
+            // notifica che non sarebbe mai arrivata.
+            chiediNotifiche(NotifMotivo.ROUTINE)
+        }
+    }
+    LaunchedEffect(Unit) {
+        app.assistantBridge.dataChanged.collect { savedVersion++ }
     }
 
     val journeysTarget = when (val p = panel) {

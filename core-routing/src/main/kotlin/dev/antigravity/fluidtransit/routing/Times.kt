@@ -205,6 +205,5 @@ object Times {
         return if (mode == "depart") "Parti ${giorno}alle $ora" else "Arrivi ${giorno}entro le $ora"
     }
 
-    private fun nomeMese(date: java.time.LocalDate): String =
-        date.month.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.ITALIAN)
+    private fun nomeMese(date: java.time.LocalDate): String = Words.month(date.month)
 }

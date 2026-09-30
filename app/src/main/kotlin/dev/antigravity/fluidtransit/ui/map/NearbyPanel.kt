@@ -243,11 +243,10 @@ fun NearbyPanelContent(
         )
     }
 
-    fun etichettaFermata(row: dev.antigravity.fluidtransit.routing.NextDeparture): String {
-        if (row.stopName.isEmpty()) return ""
-        val m = distanceOf(row.stopIndex) ?: return row.stopName
-        return row.stopName + " · a " +
-            dev.antigravity.fluidtransit.routing.Words.distance(m)
+    fun distanzaFermata(row: dev.antigravity.fluidtransit.routing.NextDeparture): String? {
+        if (row.stopName.isEmpty()) return null
+        val m = distanceOf(row.stopIndex) ?: return null
+        return "a " + dev.antigravity.fluidtransit.routing.Words.distance(m)
     }
 
     when {
@@ -299,7 +298,8 @@ fun NearbyPanelContent(
                         // distanza, sapere da quale fermata parte aiuta solo
                         // chi conosce gia' la zona, e "qui intorno" serve
                         // soprattutto a chi non la conosce.
-                        stopLabel = etichettaFermata(row),
+                        stopLabel = row.stopName,
+                        stopDistance = distanzaFermata(row),
                         onLineTap = { onRouteTap(row.routeIndex) },
                         onSupportTap = { rect -> onWhyTap(row, rect) },
                         modifier = Modifier.clickable(

@@ -105,4 +105,17 @@ class WordsTest {
         assertTrue(Words.age(cinquantaseiAnni).first().isDigit())
         assertEquals("0s", Words.age(-5L))
     }
+
+    @Test
+    fun `mesi e giorni minuscoli, qualunque sia il telefono`() {
+        // Su un Galaxy S25 la piattaforma scriveva "Settembre": qui i nomi
+        // non passano piu' da lei.
+        assertEquals("settembre", Words.month(java.time.Month.SEPTEMBER))
+        assertEquals("gennaio", Words.month(java.time.Month.JANUARY))
+        assertEquals("dicembre", Words.month(java.time.Month.DECEMBER))
+        assertEquals("lunedì", Words.weekday(java.time.DayOfWeek.MONDAY))
+        assertEquals("domenica", Words.weekday(java.time.DayOfWeek.SUNDAY))
+        val oggi = java.time.LocalDate.of(2026, 9, 30)
+        assertEquals("20 ottobre", Times.dateLabel(java.time.LocalDate.of(2026, 10, 20), oggi))
+    }
 }

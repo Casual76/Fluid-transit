@@ -13,6 +13,28 @@ package dev.antigravity.fluidtransit.routing
  */
 object Words {
 
+    /**
+     * Il nome di un mese, minuscolo come si scrive dentro una frase.
+     *
+     * Si chiedeva alla piattaforma (`Month.getDisplayName`), e la piattaforma
+     * non e' una sola: sulla JVM dei test "settembre", su un Galaxy S25
+     * "Settembre" — Stato dei dati diceva "Validi dal 30 Settembre al 20
+     * Ottobre", e nessun test poteva vederlo. Dodici parole scritte qui non
+     * cambiano da un telefono all'altro.
+     */
+    fun month(m: java.time.Month): String = MESI[m.value - 1]
+
+    /** Il nome di un giorno della settimana: stessa ragione di [month]. */
+    fun weekday(d: java.time.DayOfWeek): String = GIORNI[d.value - 1]
+
+    private val MESI = listOf(
+        "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
+        "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre",
+    )
+    private val GIORNI = listOf(
+        "lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica",
+    )
+
     /** `count(1, "fermata", "fermate")` -> "1 fermata"; con 3 -> "3 fermate". */
     fun count(n: Int, one: String, many: String): String =
         if (n == 1) "$n $one" else "$n $many"

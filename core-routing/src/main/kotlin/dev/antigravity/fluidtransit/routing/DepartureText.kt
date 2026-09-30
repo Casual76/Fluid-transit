@@ -330,9 +330,13 @@ object DepartureText {
                 title = "Questo numero lo stimiamo noi",
                 lines = listOf(
                     "Nessuna previsione del feed copre questa fermata.",
+                    // "consumandone un pezzo verso il capolinea: in orario"
+                    // si leggeva sul telefono con un ritardo zero: di un
+                    // ritardo che non c'e' non si consuma niente. Il come
+                    // e il risultato stanno in due frasi.
                     "Partiamo dall'ultimo ritardo che il feed ha dichiarato per " +
-                        "questa corsa e lo portiamo avanti, consumandone un pezzo " +
-                        "verso il capolinea: $scarto.",
+                        "questa corsa e lo portiamo fino a questa fermata, facendolo " +
+                        "calare un po' verso il capolinea. Il risultato, qui: $scarto.",
                     tabella,
                     mostrato,
                     "Puo' non combaciare con le app ufficiali, ed e' per questo che " +

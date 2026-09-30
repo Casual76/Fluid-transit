@@ -57,6 +57,15 @@ fun DepartureRowUi(
      * fin li' o aspettare il prossimo qui.
      */
     stopLabel: String? = null,
+    /**
+     * Quanto e' lontana quella fermata, accanto al nome: "a 370 m".
+     *
+     * Separata dal nome perche' e' lei che non si deve tagliare. Stava in
+     * coda allo stesso testo, e su un telefono vero "REPUBBLICA PRIMO
+     * SETTEMBRE · a ..." perdeva proprio la distanza, cioe' il dato con cui
+     * si decide se ci si arriva a piedi.
+     */
+    stopDistance: String? = null,
     /** Un'azione a destra del testo, per esempio "vola sul bus". */
     trailing: @Composable (() -> Unit)? = null,
     /**
@@ -101,13 +110,25 @@ fun DepartureRowUi(
         // tutta la riga.
         Column(modifier = Modifier.weight(1f)) {
             if (!stopLabel.isNullOrEmpty()) {
-                Text(
-                    text = stopLabel,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row {
+                    Text(
+                        text = stopLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (!stopDistance.isNullOrEmpty()) {
+                        Text(
+                            text = " · $stopDistance",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
+                    }
+                }
             }
             Text(
                 text = row.destination,

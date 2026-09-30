@@ -484,7 +484,19 @@ fun TodayTab(
         // linee, mentre la schermata li mostra tutti: il caso "niente sulle
         // tue, ma qualcosa in giro" e' esattamente quello in cui la porta
         // serve di piu'.
-        item { FluidSectionTitle(eyebrow = "Avvisi", title = "Sulle tue linee") }
+        // Senza preferiti "le tue linee" non esistono ancora, e "Nessun
+        // avviso sulle tue linee" — letto su un telefono appena installato —
+        // era un'affermazione su un insieme vuoto: vera per forza, e quindi
+        // inutile, e letta come "non c'e' niente in giro". Finche' non hai
+        // linee tue la sezione parla di tutta la Toscana e dice come
+        // diventare personale.
+        val senzaLinee = mine.isEmpty()
+        item {
+            FluidSectionTitle(
+                eyebrow = "Avvisi",
+                title = if (senzaLinee) "In Toscana" else "Sulle tue linee",
+            )
+        }
         if (esitoAvvisi == null) {
             item { dev.antigravity.fluidengine.ui.fluid.FluidLoadingBlock() }
         } else if (esitoAvvisi?.isFailure == true) {
@@ -502,12 +514,21 @@ fun TodayTab(
             item {
                 FluidListGroup {
                     FluidListRow(
-                        title = "Nessun avviso sulle tue linee",
+                        title = if (senzaLinee) {
+                            "Deviazioni, scioperi e lavori"
+                        } else {
+                            "Nessun avviso sulle tue linee"
+                        },
                         // Detto con la data, se e' di prima: "nessun avviso"
                         // di mezz'ora fa non e' "nessun avviso" adesso.
                         subtitle = avvisiVecchiDa?.let {
                             dev.antigravity.fluidtransit.routing.AlertText.stale(it, adesso)
-                        } ?: "Apri per vedere quelli di tutta la Toscana",
+                        } ?: if (senzaLinee) {
+                            "Apri per vederli. Stella una fermata e qui compaiono " +
+                                "quelli delle sue linee"
+                        } else {
+                            "Apri per vedere quelli di tutta la Toscana"
+                        },
                         onClick = onOpenAlerts,
                     )
                 }

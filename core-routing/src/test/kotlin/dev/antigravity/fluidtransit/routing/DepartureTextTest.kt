@@ -426,6 +426,15 @@ class DepartureTextTest {
     }
 
     @Test
+    fun `una stima in orario non consuma un ritardo che non c'e'`() {
+        // Letto su un telefono: "consumandone un pezzo verso il capolinea:
+        // in orario". Il risultato sta in una frase sua.
+        val zero = DepartureText.why(row(300, delay = 0, certainty = Certainty.ESTIMATED), now)
+        assertTrue(zero.lines.none { it.contains("consumandone") }, "${zero.lines}")
+        assertTrue(zero.lines.any { it.endsWith("Il risultato, qui: in orario.") }, "${zero.lines}")
+    }
+
+    @Test
     fun `propagata spiega da dove arriva il numero`() {
         // E' il caso che l'utente non puo' indovinare: il numero e' del feed,
         // ma non e' di questa fermata.

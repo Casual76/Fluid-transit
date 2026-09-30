@@ -3,7 +3,6 @@ package dev.antigravity.fluidtransit.routing
 import java.time.Instant
 import java.time.ZonedDateTime
 import java.time.temporal.ChronoUnit
-import java.util.Locale
 
 /**
  * Quando vale un avviso di servizio, detto come lo direbbe una persona.
@@ -132,11 +131,9 @@ object AlertText {
         }
     }
 
-    private fun nomeGiorno(t: ZonedDateTime): String =
-        t.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, Locale.ITALIAN)
+    private fun nomeGiorno(t: ZonedDateTime): String = Words.weekday(t.dayOfWeek)
 
-    private fun nomeMese(t: ZonedDateTime): String =
-        t.month.getDisplayName(java.time.format.TextStyle.FULL, Locale.ITALIAN)
+    private fun nomeMese(t: ZonedDateTime): String = Words.month(t.month)
     /**
      * Il testo di un avviso, senza le code del posto da cui viene.
      *

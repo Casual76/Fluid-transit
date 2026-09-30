@@ -138,6 +138,17 @@ eccezione dell'altro errore, che indica il posto sbagliato.
 memoria: 40 richieste su 64 erano riletture degli stessi 525 byte. Il rimedio
 sta in `MapHttp.kt`, che serve i primi 16 kB dalla memoria.
 
+**Una `GeoJsonSource` si crea con una collezione vuota, non senza dati.**
+`GeoJsonSource(id)` e `GeoJsonSource(id, FeatureCollection.fromFeatures(
+emptyArray()))` sembrano la stessa cosa e non lo sono: la prima resta senza
+dati finche' qualcuno non gliene da', e i layer che ci stanno sopra possono
+portare giu' l'intero disegno della mappa — basemap compresa. Si presenta
+come uno schermo del colore del tema, senza eccezioni in logcat e con le
+tile che continuano a scaricarsi: sembra un problema di GPU
+dell'emulatore, e non lo e'. Chi scrive `pushXxx` poi si affida a
+`style.isFullyLoaded`, che durante il callback dello stile puo' essere
+ancora falso — quindi la prima consegna dei dati puo' non avvenire mai.
+
 ## Numeri misurati, non stimati
 
 Servono prima di progettare, e sono costati tempo: qui per non rimisurarli.

@@ -153,10 +153,13 @@ class BundleManager(
      * bundle non e' installato. Su rete a consumo non fa niente - il bundle
      * di ieri e' ancora valido e la domanda non vale la pena.
      */
-    private fun refreshSilently() {
+    private suspend fun refreshSilently() {
         val current = state.value as? BundleState.Ready ?: return
         val cm = context.getSystemService(ConnectivityManager::class.java)
-        if (cm.isActiveNetworkMetered) return
+        // Solo su una rete che sappiamo non a consumo: "non lo so ancora"
+        // all'avvio si aspetta un attimo invece di saltare il giro, perche'
+        // il prossimo controllo e' fra un'ora (vedi Metered).
+        if (dev.antigravity.fluidtransit.data.net.Metered.await(cm) != false) return
         runCatching {
             val index = fetchIndex()
             if (index.buildId == java.lang.Long.toHexString(current.buildId)) {
@@ -185,9 +188,15 @@ class BundleManager(
         val cm = context.getSystemService(ConnectivityManager::class.java)
         if (wifiCallback != null) return
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                if (cm.isActiveNetworkMetered) return
-                cm.unregisterNetworkCallback(this)
+            // Le capacita' della rete, non la domanda "la rete attiva e' a
+            // consumo?": in onAvailable le capacita' possono non essere
+            // ancora note, e la risposta di ripiego e' "si'" — il Wi-Fi
+            // appena agganciato veniva scartato e non se ne aspettava un
+            // altro.
+            override fun onCapabilitiesChanged(network: Network, caps: android.net.NetworkCapabilities) {
+                if (dev.antigravity.fluidtransit.data.net.Metered.isMetered(caps)) return
+                if (wifiCallback !== this) return
+                runCatching { cm.unregisterNetworkCallback(this) }
                 wifiCallback = null
                 scope.launch(Dispatchers.IO) { mutex.withLock { requestDownload(userApprovedMetered = false) } }
             }
@@ -200,9 +209,15 @@ class BundleManager(
         scope.launch(Dispatchers.IO) { mutex.withLock { requestDownload(userApprovedMetered = true) } }
     }
 
-    private fun requestDownload(userApprovedMetered: Boolean) {
+    private suspend fun requestDownload(userApprovedMetered: Boolean) {
         val cm = context.getSystemService(ConnectivityManager::class.java)
-        if (!userApprovedMetered && cm.isActiveNetworkMetered) {
+        // Si chiede solo davanti a una rete che SAPPIAMO a consumo. Senza
+        // rete ancora aperta si prova: se davvero non c'e', il download
+        // fallisce e lo dice con le sue parole, che sono vere; "Sei su rete
+        // mobile" su un Wi-Fi non lo era.
+        if (!userApprovedMetered &&
+            dev.antigravity.fluidtransit.data.net.Metered.await(cm) == true
+        ) {
             _state.value = BundleState.AskMetered(EXPECTED_BYTES)
             return
         }

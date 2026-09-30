@@ -78,16 +78,19 @@ class PlacesManager(
     }
 
     /** Scarica la versione dell'indice se diversa da quella in tasca. */
-    private fun refresh() {
+    private suspend fun refresh() {
+        val cm = context.getSystemService(ConnectivityManager::class.java)
+        // Come per il bundle: all'avvio "a consumo?" puo' non avere ancora
+        // risposta, e la vecchia domanda diceva si' e saltava il giro.
+        val consumo = dev.antigravity.fluidtransit.data.net.Metered.await(cm)
         runCatching {
-            val cm = context.getSystemService(ConnectivityManager::class.java)
             // Undici megabyte non si scaricano sui dati mobili senza
             // chiedere: i luoghi sono un di piu', e possono aspettare il
             // Wi-Fi — che e' esattamente quello che lo Stato dei dati
             // promette all'utente. Prima il controllo valeva solo a file
             // gia' presente, quindi al primo avvio in mobilita' partiva
             // comunque.
-            if (cm.isActiveNetworkMetered) return
+            if (consumo != false) return
             val index = JSONObject(httpGetText(BundleManager.INDEX_URL))
             val url = index.optString("placesUrl").takeIf { it.isNotEmpty() } ?: return
             val sha = index.optString("placesSha256")

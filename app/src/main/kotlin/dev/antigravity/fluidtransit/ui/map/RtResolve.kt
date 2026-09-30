@@ -20,6 +20,12 @@ class ResolvedRt(
     val vehicleByTrip: Map<Int, Int>,
     /** Percentuale di trip_id del feed riconosciuti nel bundle: diagnostica. */
     val resolvedPercent: Int?,
+    /**
+     * Il bundle contro cui e' stato risolto. Gli indici di corsa qui sopra
+     * valgono solo li': dopo uno scambio, `vehicleByTrip` letto con l'indice
+     * di un altro bundle da' il bus di un'altra corsa.
+     */
+    val buildId: Long = 0L,
 )
 
 class BusMeta(
@@ -212,5 +218,6 @@ fun resolveRt(reader: BundleReader, vehicles: RtVehicles, delays: RtDelays?): Re
         canceledTrips = canceled,
         vehicleByTrip = vehicleByTrip,
         resolvedPercent = if (withTripId > 0) resolved * 100 / withTripId else null,
+        buildId = reader.buildId,
     )
 }

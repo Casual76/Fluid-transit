@@ -268,6 +268,29 @@ class BusOverlay {
         return out
     }
 
+    /**
+     * Dove sta DISEGNATO adesso il mezzo [vehKey], senza far avanzare
+     * niente. (lat, lon), oppure null se quel mezzo non e' in scena.
+     *
+     * La navigazione taglia la scia grigia qui e non all'ultimo dato del
+     * feed: fra un rilevamento e l'altro passano ~2 minuti, e in due minuti
+     * un bus fa un chilometro — la coda sarebbe finita visibilmente dietro
+     * al marker che la persona sta guardando.
+     *
+     * Non chiama [poses] apposta: quella fa avanzare la simulazione, e
+     * chiederle "dove sei" a 1 Hz mentre il disegno gira a 8 Hz vorrebbe
+     * dire muovere i mezzi due volte.
+     */
+    fun drawnPosition(vehKey: Int, nowMs: Long): DoubleArray? {
+        val t = tracks[vehKey] ?: return null
+        // La stessa regola di [poses]: un mezzo muto da troppo non e' in
+        // scena, e la scia non si taglia su un marker che nessuno vede.
+        // Prima la coda restava agganciata a un bus sparito da minuti.
+        if (nowMs - t.lastSeenMs > HIDE_MS) return null
+        val (lat, lon) = t.currentPosition(nowMs, scratch)
+        return doubleArrayOf(lat, lon)
+    }
+
     fun clear() {
         tracks.clear()
     }

@@ -116,6 +116,59 @@ class PathIndex private constructor(
         return -1
     }
 
+    /** Il pezzo di tratta fra due ascisse, pronto da disegnare. */
+    class Slice(val lat: DoubleArray, val lon: DoubleArray) {
+        val size: Int get() = lat.size
+    }
+
+    /**
+     * I vertici fra [fromS] e [toS], con gli estremi INTERPOLATI.
+     *
+     * E' il mattone di tutto cio' che si disegna di una corsa: la tratta da
+     * dove sali a dove scendi e' `slice(stopS[salita], stopS[discesa])`, la
+     * scia di quello che il bus ha gia' fatto e' `slice(stopS[salita], sBus)`,
+     * il tratto che gli manca per arrivare da te e' `slice(sBus, stopS[salita])`.
+     *
+     * Gli estremi si interpolano invece di appoggiarsi al vertice piu'
+     * vicino perche' altrimenti la coda grigia finirebbe fino a un isolato
+     * dietro il marker del bus — e il marker e' l'unica cosa che l'occhio
+     * guarda davvero.
+     *
+     * Null quando il taglio non ha lunghezza: una linea da zero vertici
+     * disegnata e' un artefatto, e chiedere "quanto ha gia' fatto" a un bus
+     * fermo alla partenza e' il caso normale, non un errore.
+     */
+    fun slice(fromS: Double, toS: Double): Slice? {
+        val a = fromS.coerceIn(0.0, length)
+        val b = toS.coerceIn(0.0, length)
+        if (b - a < MIN_SLICE_M) return null
+        val first = segmentAt(a)
+        val last = segmentAt(b)
+        val outLat = DoubleArray(last - first + 2)
+        val outLon = DoubleArray(last - first + 2)
+        val p = DoubleArray(3)
+        var n = 0
+        sample(a, p)
+        outLat[n] = p[0]
+        outLon[n] = p[1]
+        n++
+        for (i in (first + 1)..last) {
+            // I vertici che cadono sopra un estremo si saltano: ci sono gia'
+            // come punto interpolato, e due punti coincidenti di fila fanno
+            // sbavare il giunto delle linee tratteggiate.
+            if (cum[i] <= a + JOIN_EPS_M) continue
+            if (cum[i] >= b - JOIN_EPS_M) break
+            outLat[n] = lat[i]
+            outLon[n] = lon[i]
+            n++
+        }
+        sample(b, p)
+        outLat[n] = p[0]
+        outLon[n] = p[1]
+        n++
+        return Slice(outLat.copyOf(n), outLon.copyOf(n))
+    }
+
     // --------------------------------------------------------------- interni
 
     private fun segmentAt(s: Double): Int {
@@ -187,6 +240,12 @@ class PathIndex private constructor(
 
         /** Entro questo raggio una fermata si considera raggiunta. */
         const val STOP_REACHED_M = 15.0
+
+        /** Sotto questa lunghezza un taglio non e' una linea: e' un punto. */
+        private const val MIN_SLICE_M = 1.0
+
+        /** Quanto vicino a un estremo un vertice si considera lo stesso punto. */
+        private const val JOIN_EPS_M = 0.5
 
         /**
          * Costruisce l'indice per il pattern [p]. Decodifica qualche migliaio

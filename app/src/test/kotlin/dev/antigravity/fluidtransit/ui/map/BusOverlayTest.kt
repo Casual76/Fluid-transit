@@ -117,6 +117,20 @@ class BusOverlayTest {
     }
 
     @Test
+    fun `la posizione disegnata di un mezzo muto da troppo non c'e'`() {
+        // La navigazione taglia la scia su `drawnPosition`. Un mezzo che non
+        // manda dati da tre minuti non si disegna piu', e la coda restava
+        // agganciata a lui: un taglio su un marker che nessuno vedeva.
+        val overlay = BusOverlay().apply { paths = Paths() }
+        val now = 1_000L
+        overlay.setTargets(listOf(render(lat0, pattern = -1)), now)
+        assertTrue(overlay.drawnPosition(7, now + 1_000) != null, "appena visto c'e'")
+        val tardi = now + BusOverlay.HIDE_MS + 1_000
+        assertTrue(overlay.poses(tardi).isEmpty(), "il disegno lo ha gia' nascosto")
+        assertTrue(overlay.drawnPosition(7, tardi) == null, "e la scia non lo segue piu'")
+    }
+
+    @Test
     fun `un mezzo senza geometria dall'inizio non parte dal nulla`() {
         val overlay = BusOverlay().apply { paths = Paths() }
         var now = 1_000L

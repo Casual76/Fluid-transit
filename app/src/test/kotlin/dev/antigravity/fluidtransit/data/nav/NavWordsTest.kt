@@ -42,11 +42,19 @@ class NavWordsTest {
     }
 
     @Test
-    fun `una durata quasi zero si dice a parole`() {
-        // Le camminate di pochi passi e le discese imminenti finivano in
-        // "0 min", che e' la stessa frase vuota di "parte tra 0 min".
-        assertEquals("meno di un minuto", NavigationService.attesaBreve(0))
-        assertEquals("meno di un minuto", NavigationService.attesaBreve(20))
-        assertEquals("2 min", NavigationService.attesaBreve(100))
+    fun `una fermata sola non si dice "a una fermata"`() {
+        // E' tecnicamente giusto e non lo dice nessuno: chi aspetta alla
+        // fermata dice "e' alla fermata prima", e da li' si guarda in fondo
+        // alla strada invece di guardare il telefono.
+        assertEquals("e' alla fermata prima", NavigationService.dove(1))
+        assertEquals("e' a 3 fermate", NavigationService.dove(3))
+    }
+
+    @Test
+    fun `zero fermate non e' "a 0 fermate" ma il momento di alzarsi`() {
+        assertEquals("e' alla tua fermata", NavigationService.dove(0))
+        // Il bus appena sfuggito arriva qui come zero, non come negativo —
+        // ma se ci arrivasse, non deve uscire "a -2 fermate".
+        assertEquals("e' alla tua fermata", NavigationService.dove(-2))
     }
 }

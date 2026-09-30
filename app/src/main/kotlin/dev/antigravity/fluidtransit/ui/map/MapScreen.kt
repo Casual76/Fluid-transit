@@ -55,6 +55,7 @@ import dev.antigravity.fluidengine.ui.fluid.FluidTabBarDefaults
 import dev.antigravity.fluidengine.ui.fluid.GlassBackdropState
 import dev.antigravity.fluidengine.ui.fluid.glassBackdropSource
 import dev.antigravity.fluidtransit.FluidTransitApp
+import dev.antigravity.fluidtransit.ui.nav.NavOverlay
 import dev.antigravity.fluidtransit.data.bundle.BundleManager.BundleState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -150,6 +151,12 @@ fun MapScreen(
     // La modalita' linea (e la scheda corsa, che vive nello stesso posto)
     // prende il posto della tab bar: la shell lo sa da qui.
     var navActive by remember { mutableStateOf(false) }
+
+    /** In navigazione: l'utente ha spanato la mappa e adesso comanda lui. */
+    var navManuale by remember { mutableStateOf(false) }
+
+    /** Quanto e' alta la card del viaggio: la camera ci lascia lo spazio. */
+    var navCardHeight by remember { mutableStateOf(0) }
     LaunchedEffect(panel, navActive) {
         onTabBarHidden(
             navActive ||
@@ -349,7 +356,15 @@ fun MapScreen(
         searchOpen = false
         showPlace(PlaceRef("Punto sulla mappa", "", lat, lon), fly = false)
     }
-    controller.onGesture = { if (follow != FollowMode.FREE) follow = FollowMode.FREE }
+    controller.onGesture = {
+        // In navigazione spanare la mappa non e' un incidente: e' il modo in
+        // cui si guarda avanti sul percorso. Prima il tracking riprendeva
+        // subito il sopravvento e non c'era nessun tasto per uscirne, quindi
+        // l'unico modo di guardare dove si stava andando era terminare il
+        // viaggio.
+        if (navActive) navManuale = true
+        if (follow != FollowMode.FREE) follow = FollowMode.FREE
+    }
 
     // Il tap sulla pillola di una linea: la mappa si pulisce (resta la
     // tratta accesa e le SUE fermate), la camera inquadra tutto, e il
@@ -391,11 +406,23 @@ fun MapScreen(
     // --- la navigazione a bordo (Fase 7) -----------------------------------
     val navState by app.navigation.state.collectAsStateWithLifecycle()
     LaunchedEffect(navState) { navActive = navState != null }
-    // In navigazione la mappa passa da sola a 3D-bussola, come deciso in
-    // Fase 2; e ne esce quando la navigazione finisce.
-    LaunchedEffect(navState != null) {
-        if (navState != null && locationGranted) follow = FollowMode.COMPASS
-        if (navState == null && follow == FollowMode.COMPASS) follow = FollowMode.FOLLOW
+    // La card del viaggio aperta o ridotta. Sta qui e non nella card, che
+    // esce di scena quando si apre un pannello; e si riapre a ogni viaggio
+    // nuovo, perche' chi ha appena premuto Parti vuole vedere cosa fare.
+    var navEsteso by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
+    LaunchedEffect(navState == null) { if (navState == null) navEsteso = true }
+    // La mano dell'utente batte l'inseguimento finche' non tocca il tasto
+    // per tornare a seguire. Si riarma a ogni cambio di fase: dopo essere
+    // saliti sul bus, il punto di vista che serve e' un altro.
+    LaunchedEffect(navState?.phase, navState != null) { navManuale = false }
+    // A viaggio finito le inquadrature della navigazione si spengono tutte e
+    // due. Si spegneva solo la bussola: finendo il viaggio a piedi restava
+    // la camera della camminata — piatta, girata, a zoom 16 — senza piu' una
+    // card che spiegasse perche'.
+    LaunchedEffect(navState == null) {
+        if (navState == null && (follow == FollowMode.COMPASS || follow == FollowMode.NAV_CAMMINO)) {
+            follow = FollowMode.FOLLOW
+        }
     }
 
     // --- il tempo reale ---------------------------------------------------
@@ -1131,49 +1158,57 @@ fun MapScreen(
         }
     }
 
-    // Sali sul bus e la mappa ci si mette da sola: la tratta si accende, le
-    // sue fermate compaiono a qualunque zoom, e i mezzi vivi corrono sopra
-    // con la loro direzione. E' la stessa modalita' linea che si ottiene
-    // toccando un bus, solo che qui non serve toccare niente.
+    // La navigazione si prende la mappa da sola.
     //
-    // Si spegne quando scendi, e SOLO se e' stata accesa da qui: se nel
-    // frattempo hai aperto tu una scheda linea, quella resta com'e'.
-    var navLitRoute by remember { mutableStateOf(-1) }
-    LaunchedEffect(navState?.phase, navState?.rideRoute) {
-        val s = navState
-        val reader = ready?.reader
-        val route = if (s != null && s.phase == "ride") s.rideRoute else -1
-        if (route == navLitRoute) return@LaunchedEffect
-
-        if (route >= 0 && reader != null) {
-            navLitRoute = route
-            withContext(Dispatchers.Default) {
-                val hashes = LinkedHashSet<String>()
-                for (pat in reader.patternsOfRoute(route)) {
-                    val n = reader.patternStopCount(pat)
-                    for (i in 0 until n) {
-                        hashes.add(
-                            java.lang.Long.toHexString(
-                                reader.stopIdHash(reader.patternStop(pat, i)),
-                            ),
-                        )
-                    }
-                }
-                val rh = java.lang.Long.toHexString(reader.routeIdHash(route))
-                withContext(Dispatchers.Main) {
-                    controller.enterRouteMode(rh, hashes.toTypedArray())
-                }
-            }
-        } else if (navLitRoute >= 0) {
-            navLitRoute = -1
-            // Solo se non c'e' una scheda linea o corsa aperta: quella l'ha
-            // voluta l'utente e non la si spegne alle sue spalle.
-            if (panel !is Panel.RouteMini && panel !is Panel.RouteFull &&
-                panel !is Panel.TripMini && panel !is Panel.TripFull
-            ) {
-                controller.exitRouteMode()
-            }
-        }
+    // Prima qui si accendeva la "modalita' linea" — la stessa del tocco su
+    // un bus — e solo a bordo: durante la camminata e l'attesa restava in
+    // scena l'intera rete toscana, e a bordo si accendeva la linea INTERA,
+    // andata e ritorno, con tutte le fermate di tutti i suoi pattern. Il
+    // fuoco sa cose che la modalita' linea non puo' sapere: da dove salgo a
+    // dove scendo, e quali altre linee ci arrivano lo stesso.
+    val navFocus by app.navigation.focus.collectAsStateWithLifecycle()
+    // Solo se il fuoco e lo snapshot risolto parlano dello stesso bundle: fra
+    // lo scambio degli orari e il giro dopo del servizio, l'indice di corsa
+    // del fuoco letto nella risoluzione nuova dava il bus di un'altra corsa,
+    // e la scia si tagliava su di lui.
+    val navVehKey = navFocus
+        ?.takeIf { f -> resolved?.buildId == f.buildId }
+        ?.let { f -> resolved?.vehicleByTrip?.get(f.trip) }
+    // La tappa a fuoco e' gia' fatta: l'ultima camminata dopo l'ultimo bus.
+    val navFocusFinished = navFocus != null && navState != null &&
+        (navState?.phase == "arrived" || (navState?.legIndex ?: -1) > (navFocus?.legIndex ?: -1))
+    dev.antigravity.fluidtransit.ui.nav.NavMapBinding(
+        controller = controller,
+        focus = navFocus,
+        phase = navState?.phase,
+        myVehKey = navVehKey,
+        finished = navFocusFinished,
+    )
+    dev.antigravity.fluidtransit.ui.nav.NavCamera(
+        controller = controller,
+        state = navState,
+        focus = navFocus,
+        myVehKey = navVehKey,
+        locationGranted = locationGranted,
+        // Un pannello aperto e' una mano sulla mappa anche senza un gesto:
+        // chi tocca una fermata durante il viaggio vuole guardare quella, e
+        // la camera del viaggio gliela strappava al giro dopo. Chiuso il
+        // pannello, l'inseguimento riprende da solo.
+        manuale = navManuale || panel != null,
+        onFollow = { follow = it },
+        finished = navFocusFinished,
+    )
+    // Il puck si sposta in basso di quanto e' alta la card, e davanti entra
+    // in scena la strada. E' il padding della mappa, non una camera nuova:
+    // il LocationComponent lo rispetta, e cosi' non serve nessun
+    // `animateCamera` che annullerebbe il tracking.
+    //
+    // Solo quando la card si vede: con un pannello aperto la card lascia il
+    // posto al pannello, e il padding restava — il puck finiva spinto in alto
+    // da una card che non c'era.
+    val navCardVisible = navState != null && panel == null
+    LaunchedEffect(navCardHeight, navCardVisible) {
+        controller.setCameraPadding(if (navCardVisible) navCardHeight else 0)
     }
 
     // Un primo giro appena il bundle e' pronto, senza aspettare lo zoom.
@@ -1215,7 +1250,11 @@ fun MapScreen(
                         panel is Panel.TripMini || panel is Panel.TripFull ||
                         // In modalita' linea i bus della tratta si vedono da
                         // qualunque zoom: il polling deve accompagnarli.
-                        panel is Panel.RouteMini || panel is Panel.RouteFull
+                        panel is Panel.RouteMini || panel is Panel.RouteFull ||
+                        // In navigazione il mio mezzo si disegna da zoom 6:
+                        // senza il battito, l'inquadratura larga dell'attesa
+                        // lo lasciava fermo dov'era al primo dato.
+                        navFocus != null
                     )
         }
     }
@@ -1382,8 +1421,13 @@ fun MapScreen(
 
     // All'avvio, col permesso gia' in tasca, la mappa parte su di te: e' il
     // comportamento da app di navigazione che la spec chiede.
+    //
+    // Non durante un viaggio: la schermata si ricompone da capo anche a
+    // viaggio in corso (basta un cambio di tema), e questo effetto scriveva
+    // FOLLOW sopra la bussola o la camminata che la navigazione aveva appena
+    // deciso. E' NavCamera l'unica a scegliere, finche' si viaggia.
     LaunchedEffect(Unit) {
-        if (locationGranted) follow = FollowMode.FOLLOW
+        if (locationGranted && navState == null) follow = FollowMode.FOLLOW
     }
 
     // Logo e attribuzione MapLibre sopra tutto quello che c'e' in fondo.
@@ -1860,12 +1904,13 @@ fun MapScreen(
                         icon = when (follow) {
                             FollowMode.FREE -> Icons.Rounded.LocationSearching
                             FollowMode.FOLLOW -> Icons.Rounded.MyLocation
-                            FollowMode.COMPASS -> Icons.Rounded.Explore
+                            FollowMode.COMPASS, FollowMode.NAV_CAMMINO -> Icons.Rounded.Explore
                         },
                         contentDescription = when (follow) {
                             FollowMode.FREE -> "Centrati sulla mia posizione"
                             FollowMode.FOLLOW -> "Passa alla bussola"
-                            FollowMode.COMPASS -> "Torna alla vista normale"
+                            FollowMode.COMPASS, FollowMode.NAV_CAMMINO ->
+                                "Torna alla vista normale"
                         },
                         backdrop = backdrop,
                         iconRotation = { if (follow == FollowMode.COMPASS) -bearing else 0f },
@@ -1876,7 +1921,8 @@ fun MapScreen(
                                 follow = when (follow) {
                                     FollowMode.FREE -> FollowMode.FOLLOW
                                     FollowMode.FOLLOW -> FollowMode.COMPASS
-                                    FollowMode.COMPASS -> FollowMode.FOLLOW
+                                    FollowMode.COMPASS, FollowMode.NAV_CAMMINO ->
+                                        FollowMode.FOLLOW
                                 }
                             }
                         },
@@ -2442,46 +2488,65 @@ fun MapScreen(
             }
         }
 
-        // --- il mini di navigazione: al posto della tab bar mentre viaggi --
-        androidx.compose.animation.AnimatedVisibility(
-            visible = navState != null && panel == null,
-            enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it / 3 }) +
-                androidx.compose.animation.fadeIn(),
-            exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it / 3 }) +
-                androidx.compose.animation.fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding(),
-        ) {
-            navState?.let { s ->
-                BottomGlassPanel(
-                    backdrop = backdrop,
-                    shape = dev.antigravity.fluidengine.ui.fluid.FluidCapsuleShape,
-                    wholeSurfaceDrag = false,
-                    showGrabber = false,
-                    onDragDismiss = { },
-                    modifier = Modifier
-                        .padding(horizontal = FluidTabBarDefaults.HorizontalMargin)
-                        .padding(bottom = FluidTabBarDefaults.BottomMargin),
-                ) {
+        // --- la navigazione: si prende lo schermo mentre viaggi ------------
+        //
+        // Prima era una riga sola al posto della tab bar, e i numeri che il
+        // servizio calcolava — fermate che mancano, avanzamento, l'ora di
+        // arrivo — non li leggeva nessun composable: finivano solo nella
+        // notifica. Adesso la card nasce aperta e si riduce a capsula
+        // quando si vuole guardare la mappa.
+        val navPlan by app.navigation.plan.collectAsStateWithLifecycle()
+        if (panel == null) {
+            NavOverlay(
+                state = navState,
+                plan = navPlan,
+                focus = navFocus,
+                backdrop = backdrop,
+                // Il colore di una linea si chiede al bundle con l'indice del
+                // piano: se i due non sono lo stesso bundle — fase "lost", o
+                // l'istante dopo uno scambio — l'indice e' di un'altra linea,
+                // o fuori tabella. Grigio neutro, e mai un'eccezione in
+                // composizione.
+                colorOf = { route ->
                     val r = ready?.reader
-                    NavMiniContent(
-                        state = s,
-                        onStop = { app.navigation.stop(context) },
-                        line = if (s.rideRoute >= 0 && r != null) {
-                            r.routeShortName(s.rideRoute)
-                                .ifEmpty { r.routeLongName(s.rideRoute) }
-                        } else {
-                            null
-                        },
-                        colorRgb = if (s.rideRoute >= 0 && r != null) {
-                            r.routeDisplayColor(s.rideRoute)
-                        } else {
-                            0
-                        },
-                    )
-                }
-            }
+                    val altro = navPlan?.let { it.buildId != 0L && it.buildId != r?.buildId } == true
+                    if (r == null || altro || route !in 0 until r.routeCount) {
+                        0x8A8A93
+                    } else {
+                        r.routeDisplayColor(route) and 0xFFFFFF
+                    }
+                },
+                esteso = navEsteso,
+                onEsteso = { navEsteso = it },
+                onStop = { app.navigation.stop(context) },
+                onHeight = { navCardHeight = it },
+            )
+        }
+
+        // Torna a seguire il viaggio.
+        //
+        // In navigazione il mirino sparisce insieme al resto dei comandi, e
+        // finche' non c'e' stato questo tasto l'unico modo di guardare
+        // avanti sul percorso era terminare il viaggio: la mappa si poteva
+        // spanare, ma il tracking se la riprendeva subito.
+        androidx.compose.animation.AnimatedVisibility(
+            // Solo mentre c'e' qualcosa da seguire: arrivati, o persi, il
+            // tasto compariva e non faceva niente.
+            visible = navActive && navManuale &&
+                navState?.phase.let { it == "walk" || it == "wait" || it == "ride" },
+            enter = androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(14.dp),
+        ) {
+            MapCornerButton(
+                icon = Icons.Rounded.Explore,
+                contentDescription = "Torna a seguire il viaggio",
+                backdrop = backdrop,
+                onClick = { navManuale = false },
+            )
         }
 
         // --- l'assistente: un pannello appoggiato in basso, non un dialogo.

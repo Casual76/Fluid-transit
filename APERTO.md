@@ -30,6 +30,26 @@ svista e qualcuno ci ritorna sopra. — misurato e deciso il 16/09/2026
 
 ## Si vede
 
+**La navigazione a bordo: provata sull'emulatore, non ancora su un bus.**
+Il 30/09/2026 un viaggio Piazza Dalmazia -> Fiesole con un cambio (20, poi
+7) e' partito, ha mostrato la camminata, poi l'attesa e il viaggio a bordo
+con la scia tagliata sul bus, e ha retto il cambio di tema a meta' strada; a
+viaggio chiuso la camera si e' liberata. Restano da vedere dal vero tre
+cose che l'emulatore non puo' dare: la posizione (`geo fix` non arriva
+all'app, quindi la camminata e la soglia dei 300 m per "stai per arrivare"
+non sono state provate con un GPS vero), il cambio di tappa in strada, e lo
+scambio degli orari a viaggio in corso, provato solo nei test su due bundle
+di prova. — 30/09/2026
+
+**Mentre si cammina verso la fermata il bus puo' essere gia' passato, e la
+card non lo dice.** Visto sull'emulatore il 30/09: camminando verso Piazza
+Dalmazia per la 20 delle 14:00, alle 13:58 il mezzo assegnato a quella corsa
+era gia' un chilometro oltre la fermata (la scia grigia lo mostrava), e la
+card diceva ancora "Cammina verso PIAZZA DALMAZIA". Nella fase di attesa
+`NavApproach` se ne accorge; in quella a piedi nessuno guarda. Non e' chiaro
+se fosse un anticipo vero o un'assegnazione sbagliata del feed. — visto il
+30/09/2026
+
 **I colori delle linee cambiavano a ogni notte, e adesso no.** Il 16/09, con
 il primo bundle nuovo dopo giorni, alla stessa fermata quattro pastiglie su
 sette avevano cambiato tinta. Misurato fra due build a novanta minuti di
@@ -132,6 +152,17 @@ il permesso di posizione, cosi' il riferimento diventa il centro della mappa,
 e portare la mappa dove serve. — visto il 15/09/2026
 
 ## Non si vede, ma conta
+
+**Il proxy a volte vede l'origine una generazione indietro rispetto agli
+altri.** Il 30/09/2026 il banco di fedelta' su GitHub ha trovato il proxy
+indietro di 116 secondi per quattro giri di fila, circa tre minuti, e dieci
+minuti dopo `/rt/v1/health` dava ai feed 155-166 secondi mentre la stessa
+origine, letta da qui, ne aveva 36-48. Letta dieci volte di fila da qui,
+l'origine rispondeva sempre con la stessa generazione, quindi non e' provato
+che serva copie diverse a client diversi: e' solo quello che si osserva da
+Cloudflare. Il banco lo assorbe riprovando; se diventasse frequente, l'app
+passerebbe piu' spesso l'avviso "il feed della Regione e' fermo". —
+osservato il 30/09/2026
 
 **Il feed della Regione si ferma anche in piena mattina, e dopo dieci minuti
 l'app resta senza ritardi.** Misurato il 16/09 alle 10:35: `/rt/v1/health`

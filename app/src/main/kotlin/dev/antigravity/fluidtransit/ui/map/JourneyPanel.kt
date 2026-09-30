@@ -890,79 +890,26 @@ fun buildNavPlan(
                     stopNames = (leg.boardPosition..leg.alightPosition).map {
                         reader.stopName(reader.patternStop(leg.pattern, it))
                     },
+                    // Per ritrovare la tappa se gli orari si scambiano a
+                    // viaggio in corso: gli indici qui sopra non passano la
+                    // notte, gli hash si'.
+                    tripHash = reader.tripIdHash(leg.trip),
+                    boardStopHash = reader.stopIdHash(
+                        reader.patternStop(leg.pattern, leg.boardPosition),
+                    ),
+                    alightStopHash = reader.stopIdHash(
+                        reader.patternStop(leg.pattern, leg.alightPosition),
+                    ),
                 )
             }
         }
     }
-    return dev.antigravity.fluidtransit.data.nav.NavPlan("journey", destName, legs)
-}
-
-/**
- * Il mini di navigazione: prende il posto della tab bar mentre si viaggia.
- * "Scendi a X · 4 fermate · 12 min", e Termina sempre a portata.
- */
-@Composable
-fun NavMiniContent(
-    state: dev.antigravity.fluidtransit.data.nav.NavState,
-    onStop: () -> Unit,
-    /**
-     * La linea su cui sei, quando sei a bordo.
-     *
-     * Dappertutto nell'app un bus si presenta con la sua pastiglia colorata;
-     * qui c'era solo un pallino verde, e la riga diceva dove scendere senza
-     * dire da che cosa. Sul mezzo sbagliato e' l'informazione che fa
-     * accorgere dell'errore.
-     */
-    line: String? = null,
-    colorRgb: Int = 0,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(dev.antigravity.fluidengine.ui.fluid.FluidTabBarDefaults.Height)
-            .padding(start = 18.dp, end = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        if (line != null) {
-            RoutePill(text = line, colorRgb = colorRgb)
-        } else if (state.phase == "ride") {
-            LiveDot(liveGreen())
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = state.headline,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = state.detail,
-                style = MaterialTheme.typography.labelMedium,
-                color = if (state.phase == "ride") liveGreen() else MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                // Senza i puntini il nome si taglia e basta: "fino a PISANA"
-                // per PISANA MONTICELLI si legge come un'altra fermata, non
-                // come un nome accorciato.
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        androidx.compose.material3.Icon(
-            imageVector = Icons.Rounded.Close,
-            contentDescription = "Termina la navigazione",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .size(40.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    role = Role.Button,
-                    onClick = onStop,
-                )
-                .padding(8.dp),
-        )
-    }
+    return dev.antigravity.fluidtransit.data.nav.NavPlan(
+        kind = "journey",
+        destName = destName,
+        legs = legs,
+        buildId = reader.buildId,
+    )
 }
 
 /**
@@ -1008,6 +955,7 @@ fun buildBusNavPlan(
     return dev.antigravity.fluidtransit.data.nav.NavPlan(
         kind = "bus",
         destName = destName,
+        buildId = reader.buildId,
         legs = listOf(
             dev.antigravity.fluidtransit.data.nav.NavLeg.Ride(
                 trip = tripIndex,
@@ -1023,6 +971,9 @@ fun buildBusNavPlan(
                 stopNames = (boardPos until n).map {
                     reader.stopName(reader.patternStop(pattern, it))
                 },
+                tripHash = reader.tripIdHash(tripIndex),
+                boardStopHash = reader.stopIdHash(reader.patternStop(pattern, boardPos)),
+                alightStopHash = reader.stopIdHash(reader.patternStop(pattern, n - 1)),
             ),
         ),
     )

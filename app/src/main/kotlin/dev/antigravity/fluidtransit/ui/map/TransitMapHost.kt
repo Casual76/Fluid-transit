@@ -31,8 +31,35 @@ import org.maplibre.android.style.sources.VectorSource
 /** Cosa disegnare: la selezione dei chip Tutti/Urbani/Extraurbani. */
 enum class CategoryFilter { ALL, URBAN, EXTRA }
 
+// I tre pezzi della tratta in navigazione, come li nomina la feature.
+private const val NAV_RESTA = "r"
+private const val NAV_FATTO = "f"
+private const val NAV_AVVICINAMENTO = "a"
+
+/**
+ * Quante volte, e a che distanza, si riprova una consegna che ha trovato lo
+ * stile non ancora pronto: tre secondi in tutto bastano anche all'emulatore.
+ */
+private const val PUSH_RETRIES = 20
+private const val PUSH_RETRY_MS = 150L
+
 /** Come la camera segue l'utente. */
-enum class FollowMode { FREE, FOLLOW, COMPASS }
+enum class FollowMode {
+    FREE,
+    FOLLOW,
+    COMPASS,
+
+    /**
+     * Il passo d'uomo verso la fermata.
+     *
+     * La bussola della navigazione e' tarata su chi sta su un autobus:
+     * cinquantacinque gradi d'inclinazione e zoom 16.5 mostrano il
+     * marciapiede sotto i piedi e nient'altro. A piedi verso una fermata a
+     * trecento metri serve il contrario — piatta, un passo indietro, e il
+     * traguardo in vista.
+     */
+    NAV_CAMMINO,
+}
 
 class StopTap(val idHashHex: String, val name: String)
 
@@ -122,6 +149,11 @@ class TransitMapController(private val context: Context) {
 
     fun bind(map: MapLibreMap) {
         this.map = map
+        // Una mappa nuova parte senza padding, qualunque cosa avesse la
+        // vecchia. Si rimette PRIMA della camera in attesa: l'inquadratura e
+        // il puck devono gia' vedere la card del viaggio.
+        appliedBottomPad = -1
+        setCameraPadding(wantedBottomPad)
         pendingCamera?.let { it(map) }
         pendingCamera = null
         applyOrnamentMargins(map)
@@ -225,6 +257,12 @@ class TransitMapController(private val context: Context) {
                 ensureSavedLayer(style)
                 pushSavedFeatures(style)
                 applyFilter(style)
+                // Dopo i posti salvati e il viaggio, non prima: la
+                // navigazione ne spegne i layer, e spegnere un layer che non
+                // c'e' ancora non spegne niente. Ricaricare lo stile mentre
+                // si viaggia — basta che faccia buio — rimetteva in scena
+                // tutta la rete.
+                applyNavMode(style)
                 enableLocationIfAllowed(style)
                 applyFollow(follow)
             }
@@ -485,9 +523,9 @@ class TransitMapController(private val context: Context) {
     }
 
     private fun applyFilter(style: Style) {
-        // In modalita' linea comanda applyRouteMode: i chip riprendono il
-        // controllo all'uscita.
-        if (highlightedRoute != null) return
+        // In modalita' linea comanda applyRouteMode, in navigazione
+        // applyNavMode: i chip riprendono il controllo all'uscita.
+        if (highlightedRoute != null || navFocus != null) return
         // I due layer di tratte hanno gia' il filtro di categoria addosso:
         // il chip li accende e spegne per visibilita'.
         val showUrban = filter != CategoryFilter.EXTRA
@@ -517,7 +555,7 @@ class TransitMapController(private val context: Context) {
 
     private fun ensureBusLayer(style: Style) {
         if (style.getSource(MapCatalog.BUS_SOURCE) != null) return
-        style.addSource(org.maplibre.android.style.sources.GeoJsonSource(MapCatalog.BUS_SOURCE))
+        style.addSource(emptySource(MapCatalog.BUS_SOURCE))
         val layer = SymbolLayer(MapCatalog.LAYER_BUS, MapCatalog.BUS_SOURCE).apply {
             minZoom = MapCatalog.BUS_MIN_ZOOM
             setProperties(
@@ -590,8 +628,20 @@ class TransitMapController(private val context: Context) {
 
     private fun applyBusFilter(style: Style) {
         val layer = style.getLayer(MapCatalog.LAYER_BUS) as? SymbolLayer ?: return
+        val nav = navFocus
         val rh = highlightedRoute
         val expr = when {
+            // In navigazione: il mio, piu' quelli delle linee che vanno bene
+            // lo stesso. Fuori da questi, un mezzo vivo e' solo un oggetto
+            // colorato che si muove e distrae.
+            nav != null -> {
+                val ammessi = if (nav.showUseful) {
+                    nav.usefulRouteHashes
+                } else {
+                    arrayOf(nav.routeHashHex)
+                }
+                Expression.`in`(Expression.get("rh"), Expression.literal(ammessi as Array<Any>))
+            }
             // In modalita' linea si vedono solo i bus DELLA linea.
             rh != null -> Expression.eq(Expression.get("rh"), Expression.literal(rh))
             filter == CategoryFilter.URBAN ->
@@ -604,7 +654,24 @@ class TransitMapController(private val context: Context) {
         // In modalita' linea i bus DELLA linea si vedono da qualunque zoom,
         // come le sue fermate: la camera che inquadra un'extraurbana intera
         // sta spesso sotto la soglia normale.
-        if (rh != null) {
+        if (nav != null) {
+            layer.minZoom = 6f
+            // Il mio mezzo pieno, gli altri in trasparenza: e' la sola
+            // differenza che deve restare fra "quello che devo prendere" e
+            // "quello che potrei prendere".
+            layer.setProperties(
+                PropertyFactory.iconOpacity(
+                    Expression.switchCase(
+                        Expression.eq(
+                            Expression.get("rh"),
+                            Expression.literal(nav.routeHashHex),
+                        ),
+                        Expression.literal(1f),
+                        Expression.literal(MapCatalog.NAV_BUS_ALTRUI_OPACITA),
+                    ),
+                ),
+            )
+        } else if (rh != null) {
             layer.minZoom = 6f
             layer.setProperties(PropertyFactory.iconOpacity(1f))
         } else {
@@ -653,7 +720,11 @@ class TransitMapController(private val context: Context) {
     fun tickBuses() {
         val m = map ?: return
         if (busOverlay.isEmpty) return
-        if (highlightedRoute == null && m.cameraPosition.zoom < MapCatalog.BUS_MIN_ZOOM - 0.5) return
+        if (highlightedRoute == null && navFocus == null &&
+            m.cameraPosition.zoom < MapCatalog.BUS_MIN_ZOOM - 0.5
+        ) {
+            return
+        }
         val style = m.style ?: return
         pushBusFeatures(style)
     }
@@ -664,6 +735,7 @@ class TransitMapController(private val context: Context) {
 
     private var placeMarker: org.maplibre.geojson.Feature? = null
     private var journeyFeatures: org.maplibre.geojson.FeatureCollection? = null
+    private var navFeatures: org.maplibre.geojson.FeatureCollection? = null
 
     /**
      * Da forme neutre a FeatureCollection: la traduzione vive qui, che e'
@@ -693,7 +765,7 @@ class TransitMapController(private val context: Context) {
 
     private fun ensurePlaceLayers(style: Style) {
         if (style.getSource(MapCatalog.PLACE_SOURCE) == null) {
-            style.addSource(org.maplibre.android.style.sources.GeoJsonSource(MapCatalog.PLACE_SOURCE))
+            style.addSource(emptySource(MapCatalog.PLACE_SOURCE))
             // Il segnaposto: un cerchio pieno col bordo bianco, sopra tutto.
             val place = CircleLayer(MapCatalog.LAYER_PLACE, MapCatalog.PLACE_SOURCE).apply {
                 setProperties(
@@ -706,7 +778,7 @@ class TransitMapController(private val context: Context) {
             style.addLayer(place)
         }
         if (style.getSource(MapCatalog.JOURNEY_SOURCE) == null) {
-            style.addSource(org.maplibre.android.style.sources.GeoJsonSource(MapCatalog.JOURNEY_SOURCE))
+            style.addSource(emptySource(MapCatalog.JOURNEY_SOURCE))
             val casing = LineLayer(MapCatalog.LAYER_JOURNEY_CASING, MapCatalog.JOURNEY_SOURCE).apply {
                 setFilter(Expression.eq(Expression.get("t"), Expression.literal("r")))
                 setProperties(
@@ -736,15 +808,169 @@ class TransitMapController(private val context: Context) {
                 )
             }
             // Sotto il segnaposto e sotto i bus, sopra il resto.
-            style.addLayerBelow(casing, MapCatalog.LAYER_PLACE)
+            style.addLayerBelow(casing, belowBuses(style))
             style.addLayerAbove(rides, MapCatalog.LAYER_JOURNEY_CASING)
             style.addLayerAbove(walks, MapCatalog.LAYER_JOURNEY_RIDE)
         }
+        ensureNavLayers(style)
         pushPlaceAndJourney(style)
     }
 
-    private fun pushPlaceAndJourney(style: Style) {
-        if (!style.isFullyLoaded) return
+    /**
+     * I quattro layer della tratta in navigazione.
+     *
+     * Vivono su una sorgente loro e non su quella del viaggio perche' il
+     * viaggio si sceglie e la navigazione si fa: i due possono coesistere
+     * per un istante al cambio di schermata, e il taglio della scia si
+     * riscrive una volta al secondo mentre la geometria del viaggio non si
+     * tocca mai.
+     */
+    private fun ensureNavLayers(style: Style) {
+        if (style.getSource(MapCatalog.NAV_SOURCE) != null) return
+        // Con una collezione vuota, non senza dati: una sorgente GeoJSON
+        // che non ha MAI ricevuto niente non e' vuota, e' invalida — e i
+        // layer che ci stanno sopra portano giu' l'intero disegno della
+        // mappa, basemap compresa. Si vede come uno schermo color tema.
+        style.addSource(emptySource(MapCatalog.NAV_SOURCE))
+
+        fun kind(vararg k: String): Expression =
+            Expression.`in`(Expression.get("k"), Expression.literal(arrayOf<Any>(*k)))
+
+        val casing = LineLayer(MapCatalog.LAYER_NAV_CASING, MapCatalog.NAV_SOURCE).apply {
+            setFilter(kind(NAV_RESTA, NAV_FATTO))
+            setProperties(
+                PropertyFactory.lineColor(if (darkTheme) "#101014" else "#FFFFFF"),
+                PropertyFactory.lineCap("round"),
+                PropertyFactory.lineJoin("round"),
+                PropertyFactory.lineWidth(
+                    Expression.interpolate(
+                        Expression.linear(), Expression.zoom(),
+                        Expression.stop(10f, 7f),
+                        Expression.stop(16f, 12f),
+                    ),
+                ),
+                PropertyFactory.lineOpacity(0.9f),
+            )
+        }
+        // Quello che il bus ha gia' fatto: c'e', ma e' passato.
+        val fatto = LineLayer(MapCatalog.LAYER_NAV_FATTO, MapCatalog.NAV_SOURCE).apply {
+            setFilter(kind(NAV_FATTO))
+            setProperties(
+                PropertyFactory.lineColor(if (darkTheme) "#55555F" else "#B4B4BE"),
+                PropertyFactory.lineCap("round"),
+                PropertyFactory.lineJoin("round"),
+                PropertyFactory.lineWidth(
+                    Expression.interpolate(
+                        Expression.linear(), Expression.zoom(),
+                        Expression.stop(10f, 3.5f),
+                        Expression.stop(16f, 7f),
+                    ),
+                ),
+            )
+        }
+        // Quello che resta: il colore della linea, pieno.
+        val resta = LineLayer(MapCatalog.LAYER_NAV_RESTA, MapCatalog.NAV_SOURCE).apply {
+            setFilter(kind(NAV_RESTA))
+            setProperties(
+                PropertyFactory.lineColor(Expression.toColor(Expression.get("c"))),
+                PropertyFactory.lineCap("round"),
+                PropertyFactory.lineJoin("round"),
+                PropertyFactory.lineWidth(
+                    Expression.interpolate(
+                        Expression.linear(), Expression.zoom(),
+                        Expression.stop(10f, 4f),
+                        Expression.stop(16f, 8f),
+                    ),
+                ),
+            )
+        }
+        // Il tratto che il bus deve ancora fare per arrivare da me:
+        // tratteggiato, perche' non e' strada che faro' io.
+        val avvicinamento =
+            LineLayer(MapCatalog.LAYER_NAV_AVVICINAMENTO, MapCatalog.NAV_SOURCE).apply {
+                setFilter(kind(NAV_AVVICINAMENTO))
+                setProperties(
+                    PropertyFactory.lineColor(Expression.toColor(Expression.get("c"))),
+                    PropertyFactory.lineCap("round"),
+                    PropertyFactory.lineJoin("round"),
+                    PropertyFactory.lineWidth(
+                        Expression.interpolate(
+                            Expression.linear(), Expression.zoom(),
+                            Expression.stop(10f, 3f),
+                            Expression.stop(16f, 5.5f),
+                        ),
+                    ),
+                    PropertyFactory.lineOpacity(0.85f),
+                    PropertyFactory.lineDasharray(arrayOf(1.4f, 1.2f)),
+                )
+            }
+
+        // Sotto le fermate della tappa e sotto i bus: il mezzo deve restare
+        // l'oggetto piu' in alto della mappa, e i cerchi e i nomi delle mie
+        // fermate non devono sparire sotto la scia che li unisce. Si
+        // ancorava sotto i bus e basta, e la scia copriva le fermate.
+        style.addLayerBelow(casing, navAnchor(style))
+        style.addLayerAbove(fatto, MapCatalog.LAYER_NAV_CASING)
+        style.addLayerAbove(resta, MapCatalog.LAYER_NAV_FATTO)
+        style.addLayerAbove(avvicinamento, MapCatalog.LAYER_NAV_RESTA)
+    }
+
+    /**
+     * La consegna rimasta indietro, se ce n'e' una in attesa.
+     *
+     * Durante il callback dello stile `isFullyLoaded` puo' essere ancora falso
+     * (e' scritto in CLAUDE.md), e qui si usciva e basta: il segnaposto, il
+     * viaggio scelto e la tratta di navigazione restavano fuori dalla mappa
+     * finche' qualcuno non li rispediva. Dopo un cambio di tema a meta'
+     * viaggio la tratta tornava solo quando il bus si spostava di quindici
+     * metri — e senza un bus seguito dal vivo non tornava piu'.
+     */
+    private var pushRetry: Runnable? = null
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /**
+     * Il layer sotto cui mettere una tratta: quello dei bus, se c'e'.
+     *
+     * Si ancoravano sotto il segnaposto, che pero' nasce DOPO il layer dei
+     * bus e quindi sta sopra: le tratte finivano in mezzo, sopra i mezzi, e
+     * a bordo la linea colorata copriva proprio il bus che si stava seguendo.
+     */
+    /**
+     * Una sorgente GeoJSON nasce con una collezione vuota, mai senza dati.
+     *
+     * `GeoJsonSource(id)` resta senza dati finche' qualcuno non gliene da', e
+     * i layer che ci stanno sopra possono portare giu' il disegno dell'intera
+     * mappa, basemap compresa (CLAUDE.md). La sorgente della navigazione era
+     * gia' fatta cosi'; queste quattro no.
+     */
+    private fun emptySource(id: String) = org.maplibre.android.style.sources.GeoJsonSource(
+        id,
+        org.maplibre.geojson.FeatureCollection.fromFeatures(emptyArray()),
+    )
+
+    /** Sotto le fermate della linea se ci sono, altrimenti sotto i bus. */
+    private fun navAnchor(style: Style): String =
+        if (style.getLayer(MapCatalog.LAYER_FERMATE_LINEA) != null) {
+            MapCatalog.LAYER_FERMATE_LINEA
+        } else {
+            belowBuses(style)
+        }
+
+    private fun belowBuses(style: Style): String =
+        if (style.getLayer(MapCatalog.LAYER_BUS) != null) MapCatalog.LAYER_BUS else MapCatalog.LAYER_PLACE
+
+    private fun pushPlaceAndJourney(style: Style, attempt: Int = 0) {
+        if (!style.isFullyLoaded) {
+            if (pushRetry == null && attempt < PUSH_RETRIES) {
+                val r = Runnable {
+                    pushRetry = null
+                    map?.getStyle { pushPlaceAndJourney(it, attempt + 1) }
+                }
+                pushRetry = r
+                mainHandler.postDelayed(r, PUSH_RETRY_MS)
+            }
+            return
+        }
         style.getSourceAs<org.maplibre.android.style.sources.GeoJsonSource>(MapCatalog.PLACE_SOURCE)
             ?.setGeoJson(
                 placeMarker?.let { org.maplibre.geojson.FeatureCollection.fromFeature(it) }
@@ -755,7 +981,53 @@ class TransitMapController(private val context: Context) {
                 journeyFeatures
                     ?: org.maplibre.geojson.FeatureCollection.fromFeatures(emptyArray()),
             )
+        style.getSourceAs<org.maplibre.android.style.sources.GeoJsonSource>(MapCatalog.NAV_SOURCE)
+            ?.setGeoJson(
+                navFeatures
+                    ?: org.maplibre.geojson.FeatureCollection.fromFeatures(emptyArray()),
+            )
     }
+
+    /**
+     * La tratta in corso, gia' tagliata all'ascissa del mezzo.
+     *
+     * Si riscrive circa una volta al secondo: e' una sorgente da tre
+     * polilinee di un centinaio di vertici, cioe' molto meno di quello che
+     * i mezzi vivi fanno a ogni fotogramma.
+     */
+    fun setNavTrail(trail: NavTrail?) {
+        navFeatures = trail?.takeIf { !it.isEmpty }?.let { t ->
+            val out = ArrayList<org.maplibre.geojson.Feature>(3)
+            // L'ordine conta quanto i layer: il fatto sta sotto al resta,
+            // cosi' il giunto non lascia vedere il grigio sopra il colore.
+            navFeature(t.done, NAV_FATTO)?.let(out::add)
+            navFeature(t.remaining, NAV_RESTA)?.let(out::add)
+            navFeature(t.approach, NAV_AVVICINAMENTO)?.let(out::add)
+            org.maplibre.geojson.FeatureCollection.fromFeatures(out)
+        }
+        map?.getStyle { pushPlaceAndJourney(it) }
+    }
+
+    private fun navFeature(line: MapLine?, kind: String): org.maplibre.geojson.Feature? {
+        if (line == null || line.size < 2) return null
+        val pts = ArrayList<org.maplibre.geojson.Point>(line.size)
+        for (i in 0 until line.size) {
+            pts.add(org.maplibre.geojson.Point.fromLngLat(line.lon[i], line.lat[i]))
+        }
+        return org.maplibre.geojson.Feature.fromGeometry(
+            org.maplibre.geojson.LineString.fromLngLats(pts),
+        ).apply {
+            addStringProperty("k", kind)
+            addStringProperty("c", "#%06x".format(line.colorRgb and 0xFFFFFF))
+        }
+    }
+
+    /**
+     * Dove sta DISEGNATO adesso un mezzo: (lat, lon), o null se non e' in
+     * scena. E' da qui che la navigazione taglia la scia.
+     */
+    fun busPosition(vehKey: Int): DoubleArray? =
+        busOverlay.drawnPosition(vehKey, android.os.SystemClock.elapsedRealtime())
 
     fun showPlaceMarker(lat: Double, lon: Double, colorRgb: Int) {
         val f = org.maplibre.geojson.Feature.fromGeometry(
@@ -787,7 +1059,7 @@ class TransitMapController(private val context: Context) {
     private fun ensureSavedLayer(style: Style) {
         SavedIcons.ensure(style, savedAccent, context.resources.displayMetrics.density)
         if (style.getSource(MapCatalog.SAVED_SOURCE) != null) return
-        style.addSource(org.maplibre.android.style.sources.GeoJsonSource(MapCatalog.SAVED_SOURCE))
+        style.addSource(emptySource(MapCatalog.SAVED_SOURCE))
         val layer = SymbolLayer(MapCatalog.LAYER_SAVED, MapCatalog.SAVED_SOURCE).apply {
             setProperties(
                 PropertyFactory.iconImage(Expression.get("ic")),
@@ -928,8 +1200,41 @@ class TransitMapController(private val context: Context) {
                 component.tiltWhileTracking(MapCatalog.NAV_TILT)
                 component.zoomWhileTracking(maxOf(m.cameraPosition.zoom, MapCatalog.NAV_ZOOM))
             }
+            FollowMode.NAV_CAMMINO -> {
+                // Heading-up come la bussola, ma piatta e piu' larga: chi
+                // cammina deve vedere dove sta andando, non il marciapiede.
+                component.cameraMode = CameraMode.TRACKING_COMPASS
+                component.tiltWhileTracking(0.0)
+                component.zoomWhileTracking(MapCatalog.WALK_ZOOM)
+            }
         }
     }
+
+    /**
+     * Quanto spazio, in fondo, e' coperto da qualcos'altro.
+     *
+     * E' il trucco della navigazione: il `LocationComponent` rispetta il
+     * padding della mappa, quindi spostare il puck in basso e mettere in
+     * scena la strada davanti si fa cosi' — **senza** `animateCamera`, che
+     * annullerebbe il tracking.
+     */
+    fun setCameraPadding(bottomPx: Int) {
+        wantedBottomPad = bottomPx
+        val m = map ?: return
+        if (appliedBottomPad == bottomPx) return
+        appliedBottomPad = bottomPx
+        m.setPadding(0, 0, 0, bottomPx)
+    }
+
+    /**
+     * Il padding che la UI ha chiesto, e quello che la mappa di adesso ha
+     * davvero. Sono due numeri e non uno perche' la richiesta puo' arrivare
+     * prima della mappa: la card del viaggio si misura appena compare, e se
+     * la MapView si stava ancora creando (dopo un cambio di tema, per
+     * esempio) il valore si perdeva e il puck restava sotto la card.
+     */
+    private var wantedBottomPad = 0
+    private var appliedBottomPad = -1
 
     fun flyTo(lat: Double, lon: Double, zoom: Double) {
         val update = CameraUpdateFactory.newCameraPosition(
@@ -1015,6 +1320,117 @@ class TransitMapController(private val context: Context) {
         } ?: Expression.literal(false)
         (style.getLayer(MapCatalog.LAYER_FERMATE_LINEA) as? CircleLayer)?.setFilter(stopFilter)
         (style.getLayer(MapCatalog.LAYER_FERMATE_LINEA_NOMI) as? SymbolLayer)?.setFilter(stopFilter)
+        applyBusFilter(style)
+        // La navigazione ha sempre l'ultima parola sui layer, qualunque sia
+        // l'ordine in cui le due modalita' vengono accese: e' l'unica che
+        // sa cosa serve DAVVERO in questo momento.
+        applyNavMode(style)
+    }
+
+    // ------------------------------------------------------ la navigazione
+
+    private var navFocus: NavMapFocus? = null
+
+    /**
+     * La modalita' navigazione: piu' stretta della modalita' linea.
+     *
+     * La modalita' linea sa dire "questa linea intera": andata, ritorno,
+     * varianti e tutte le loro fermate. Mentre si viaggia e' ancora troppo —
+     * il verso opposto non serve a nessuno, e le fermate prima della salita
+     * e dopo la discesa sono fermate di qualcun altro.
+     */
+    fun enterNavMode(focus: NavMapFocus) {
+        navFocus = focus
+        map?.getStyle {
+            ensureNavLayers(it)
+            applyNavMode(it)
+        }
+    }
+
+    fun exitNavMode() {
+        if (navFocus == null) return
+        navFocus = null
+        navFeatures = null
+        map?.getStyle { style ->
+            applyNavMode(style)
+            // Il resto della rete torna a ubbidire a chi comandava prima:
+            // i chip, o la modalita' linea se l'utente ne aveva aperta una.
+            applyRouteMode(style)
+            applyFilter(style)
+            pushPlaceAndJourney(style)
+        }
+    }
+
+    private fun applyNavMode(style: Style) {
+        val nav = navFocus
+        val attiva = nav != null
+
+        // La rete: via tutta. Non e' un'attenuazione, e' un'assenza — chi
+        // sta viaggiando non deve scegliere niente.
+        for (id in arrayOf(MapCatalog.LAYER_LINEE_URBANE, MapCatalog.LAYER_LINEE_EXTRA)) {
+            if (attiva) style.getLayer(id)?.setProperties(PropertyFactory.visibility("none"))
+        }
+        for (id in arrayOf(MapCatalog.LAYER_FERMATE, MapCatalog.LAYER_FERMATE_NOMI)) {
+            if (attiva) style.getLayer(id)?.setProperties(PropertyFactory.visibility("none"))
+        }
+
+        // I posti salvati: Casa e Lavoro sono i punti con cui ci si orienta
+        // sulla regione, non mentre si guarda la propria fermata. In
+        // modalita' linea restavano accesi, ed e' sempre stato un difetto.
+        style.getLayer(MapCatalog.LAYER_SAVED)?.setProperties(
+            PropertyFactory.visibility(if (attiva) "none" else "visible"),
+        )
+
+        // La camminata del viaggio scelto e' una retta fra due punti che
+        // taglia palazzi e fiumi: si puo' guardare mentre si sceglie, non
+        // mentre si cammina davvero.
+        style.getLayer(MapCatalog.LAYER_JOURNEY_WALK)?.setProperties(
+            PropertyFactory.visibility(if (attiva) "none" else "visible"),
+        )
+
+        if (nav != null) {
+            // Le linee che vanno bene lo stesso prendono il posto della
+            // "linea selezionata": presenti, attenuate, e senza fermate
+            // proprie — quelle a schermo sono solo le mie.
+            // La mia linea NON sta fra quelle sbiadite: e' gia' disegnata dai
+            // layer ft-nav-*, a colori pieni e sul solo pezzo che faro'.
+            // Ridisegnarla intera sotto voleva dire rimettere in scena
+            // andata, ritorno e varianti — cioe' quello che si e' tolto.
+            val utili = if (nav.showUseful) {
+                nav.usefulRouteHashes.filter { it != nav.routeHashHex }.toTypedArray()
+            } else {
+                emptyArray()
+            }
+            (style.getLayer(MapCatalog.LAYER_LINEA_SEL) as? LineLayer)?.apply {
+                setFilter(
+                    if (utili.isEmpty()) {
+                        Expression.literal(false)
+                    } else {
+                        Expression.`in`(
+                            Expression.get("rh"),
+                            Expression.literal(utili as Array<Any>),
+                        )
+                    },
+                )
+                setProperties(
+                    PropertyFactory.visibility("visible"),
+                    PropertyFactory.lineOpacity(MapCatalog.NAV_UTILI_OPACITA),
+                )
+                minZoom = 6f
+            }
+
+            val mie = Expression.`in`(
+                Expression.get("h"),
+                Expression.literal(nav.stopHashes as Array<Any>),
+            )
+            (style.getLayer(MapCatalog.LAYER_FERMATE_LINEA) as? CircleLayer)?.setFilter(mie)
+            (style.getLayer(MapCatalog.LAYER_FERMATE_LINEA_NOMI) as? SymbolLayer)?.setFilter(mie)
+        } else {
+            // All'uscita l'opacita' piena torna: la linea selezionata e' un
+            // protagonista, le utili non lo erano.
+            (style.getLayer(MapCatalog.LAYER_LINEA_SEL) as? LineLayer)
+                ?.setProperties(PropertyFactory.lineOpacity(0.95f))
+        }
         applyBusFilter(style)
     }
 }

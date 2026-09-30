@@ -208,6 +208,39 @@ object MapCatalog {
     const val LAYER_JOURNEY_RIDE = "ft-viaggio-corse"
     const val LAYER_JOURNEY_WALK = "ft-viaggio-piedi"
 
+    // --- la navigazione ----------------------------------------------------
+
+    /**
+     * La tratta che si sta viaggiando, tagliata all'ascissa del mezzo.
+     *
+     * Non passa dalla rete del PMTiles come la modalita' linea: li' una
+     * linea e' tutti i suoi pattern insieme, e "da dove salgo a dove
+     * scendo" non si puo' dire. Qui e' una polilinea ritagliata, dove
+     * andata, ritorno e varianti non esistono per costruzione.
+     */
+    const val NAV_SOURCE = "ft-nav"
+    const val LAYER_NAV_CASING = "ft-nav-casing"
+
+    /** Il pezzo che il bus ha gia' fatto: grigio, dietro. */
+    const val LAYER_NAV_FATTO = "ft-nav-fatto"
+
+    /** Il pezzo che resta da fare: il colore della linea. */
+    const val LAYER_NAV_RESTA = "ft-nav-resta"
+
+    /** Il pezzo che il bus deve fare per arrivare da me: tratteggiato. */
+    const val LAYER_NAV_AVVICINAMENTO = "ft-nav-avvicinamento"
+
+    /**
+     * Quanto restano visibili le linee che vanno bene lo stesso.
+     *
+     * Presenti, non protagoniste: devono bastare a far dire "ah, passa
+     * anche quella" senza competere con la tratta che si sta viaggiando.
+     */
+    const val NAV_UTILI_OPACITA = 0.35f
+
+    /** E i loro mezzi: si vedono, ma non si confondono col mio. */
+    const val NAV_BUS_ALTRUI_OPACITA = 0.5f
+
     /**
      * Gli stadi di zoom decisi: niente sotto, e le tratte extraurbane —
      * lunghe, da guardare da lontano — compaiono prima delle urbane.
@@ -220,6 +253,16 @@ object MapCatalog {
     /** L'inclinazione fissa della navigazione/bussola. Non e' una preferenza. */
     const val NAV_TILT = 55.0
     const val NAV_ZOOM = 16.5
+
+    /**
+     * Lo zoom di chi cammina verso la fermata.
+     *
+     * Mezzo grado piu' largo del 16.5 della bussola, e piatto: a 16.5 con
+     * cinquantacinque gradi d'inclinazione una fermata a trecento metri sta
+     * fuori dallo schermo, e camminare verso qualcosa che non si vede e'
+     * esattamente il momento in cui si tira fuori un'altra app.
+     */
+    const val WALK_ZOOM = 16.0
 
     /** Inquadratura di partenza: la Toscana intera. */
     const val HOME_LAT = 43.35

@@ -80,6 +80,51 @@ object RoutineTiming {
         return null
     }
 
+    /** La sveglia armata per una routine, come la ricorda lo scheduler. */
+    data class Armed(val phase: String, val atEpoch: Long) {
+        fun format(): String = "$phase|$atEpoch"
+
+        companion object {
+            fun parse(s: String?): Armed? {
+                val parts = s?.split('|') ?: return null
+                if (parts.size != 2) return null
+                val at = parts[1].toLongOrNull() ?: return null
+                return Armed(parts[0], at)
+            }
+        }
+    }
+
+    /**
+     * Quanto si considera "ancora in corso" il giro di una sveglia appena
+     * suonata: otto secondi di attesa del bundle, tre giri di rete e RAPTOR,
+     * con un margine. Oltre, se nessuno ha riarmato, il giro e' morto.
+     */
+    const val IN_FLIGHT_GRACE_SECONDS = 3 * 60L
+
+    /**
+     * All'avvio del processo: serve riarmare la routine?
+     *
+     * @param armed cio' che lo scheduler ricorda di aver armato (null: niente).
+     * @param pendingExists vero se il sistema ha ancora il PendingIntent di
+     *   quella sveglia. Conta solo per una sveglia nel futuro: dopo un
+     *   "termina forzatamente" sparisce, mentre per una gia' suonata resta
+     *   (e' il PendingIntent a sopravvivere alla sveglia, non il contrario).
+     *
+     * - niente ricordato: si arma;
+     * - sveglia nel futuro: si lascia stare, se il sistema la ha davvero;
+     * - sveglia appena suonata: e' quella che ha fatto nascere il processo e
+     *   il suo giro e' ancora in corso. Riarmare qui faceva partire una
+     *   seconda sveglia a cinque secondi, e "Esci tra 45 min" suonava due
+     *   volte di seguito;
+     * - sveglia suonata da un pezzo e mai sostituita: il giro e' morto, si
+     *   riarma.
+     */
+    fun shouldRearmAtStart(armed: Armed?, nowEpoch: Long, pendingExists: Boolean): Boolean {
+        if (armed == null) return true
+        if (armed.atEpoch > nowEpoch) return !pendingExists
+        return nowEpoch - armed.atEpoch > IN_FLIGHT_GRACE_SECONDS
+    }
+
     /**
      * Il consiglio salvato e' di questa occorrenza della routine?
      * L'ora di uscita cade nelle ore prima dell'ancora (e poco dopo, per una

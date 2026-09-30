@@ -781,7 +781,7 @@ class RoutineWidget : GlanceAppWidget() {
                 palette = palette,
                 layout = layout,
                 onClick = actionStartActivity(
-                    openLink(context, todayRoutine?.let { Deeplink.journey(it.id) }),
+                    openLink(context, todayRoutine?.let { Deeplink.journey(it.id, oggi.toEpochDay()) }),
                 ),
             ) {
                 EngineWidgetHeader(

@@ -24,7 +24,7 @@ package dev.antigravity.fluidtransit.ui.nav
  * ```
  * stop/<idHashHex>?name=<nome>   una fermata
  * route/<idHashHex>              una linea
- * journey/<routineId>            il viaggio di una routine
+ * journey/<routineId>[?day=<epochDay>]  il viaggio di una routine, di quel giorno
  * nav                            la navigazione in corso
  * today                          la scheda Oggi
  * alerts                         gli avvisi di servizio
@@ -38,7 +38,7 @@ sealed interface Deeplink {
 
     class Stop(val idHashHex: String, val name: String) : Deeplink
     class Route(val idHashHex: String) : Deeplink
-    class Journey(val routineId: Long) : Deeplink
+    class Journey(val routineId: Long, val epochDay: Long? = null) : Deeplink
     data object Nav : Deeplink
     data object Today : Deeplink
     data object Alerts : Deeplink
@@ -52,7 +52,13 @@ sealed interface Deeplink {
 
         fun route(idHashHex: String): String = "$SCHEME://route/$idHashHex"
 
-        fun journey(routineId: Long): String = "$SCHEME://journey/$routineId"
+        /**
+         * [epochDay]: il giorno della routine che ha prodotto l'avviso, in
+         * giorni da epoch. Senza, chi apre il link rifa' il conto da "adesso",
+         * e dopo l'ora dell'ancora cade sul giorno dopo.
+         */
+        fun journey(routineId: Long, epochDay: Long? = null): String =
+            "$SCHEME://journey/$routineId" + if (epochDay != null) "?day=$epochDay" else ""
 
         fun nav(): String = "$SCHEME://nav"
 
@@ -93,7 +99,7 @@ sealed interface Deeplink {
             return when (host) {
                 "stop" -> hex(arg)?.let { Stop(it, param(query, "name")) }
                 "route" -> hex(arg)?.let { Route(it) }
-                "journey" -> arg.toLongOrNull()?.let { Journey(it) }
+                "journey" -> arg.toLongOrNull()?.let { Journey(it, param(query, "day").toLongOrNull()) }
                 "nav" -> Nav
                 "today" -> Today
                 "alerts" -> Alerts

@@ -62,6 +62,18 @@ class DeeplinkTest {
     }
 
     @Test
+    fun `il viaggio di una routine porta il giorno, se c'e'`() {
+        val conGiorno = Deeplink.parse(Deeplink.journey(7, 20_726)) as Deeplink.Journey
+        assertEquals(7L, conGiorno.routineId)
+        assertEquals(20_726L, conGiorno.epochDay)
+        // I link vecchi, senza giorno, continuano a valere.
+        val vecchio = Deeplink.parse("fluidtransit://journey/7") as Deeplink.Journey
+        assertNull(vecchio.epochDay)
+        // Un giorno illeggibile e' "nessun giorno", non un link rotto.
+        assertNull((Deeplink.parse("fluidtransit://journey/7?day=ieri") as Deeplink.Journey).epochDay)
+    }
+
+    @Test
     fun `le destinazioni senza argomenti`() {
         assertSame(Deeplink.Nav, Deeplink.parse(Deeplink.nav()))
         assertSame(Deeplink.Today, Deeplink.parse(Deeplink.today()))

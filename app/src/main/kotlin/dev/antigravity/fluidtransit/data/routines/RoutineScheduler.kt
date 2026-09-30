@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import dev.antigravity.fluidtransit.FluidTransitApp
 import dev.antigravity.fluidtransit.data.bundle.BundleManager
@@ -45,12 +46,65 @@ object RoutineScheduler {
         )
     }
 
+    /**
+     * L'archivio di TUTTA l'app, non una copia: `version` e' un flusso per
+     * istanza, e lo scheduler scriveva su un `Routines(app)` suo. La scheda
+     * Oggi ascolta quello dell'app, quindi il consiglio calcolato dalla
+     * sveglia delle 06:45 finiva sul file ma la riga in Oggi restava com'era
+     * (e il widget si ridisegnava solo perche' lo si chiamava a mano).
+     * Condiviso, ogni scrittura fa scattare Oggi e il widget.
+     */
+    private fun storeOf(context: Context): Routines =
+        (context.applicationContext as? FluidTransitApp)?.routines ?: Routines(context)
+
+    /**
+     * Riarma TUTTO, senza chiedersi se c'e' gia': per il riavvio del
+     * telefono, quando di sveglie non ne esiste piu' nessuna.
+     */
     fun rescheduleAll(context: Context) {
-        val store = Routines(context)
-        for (r in store.list()) {
+        for (r in storeOf(context).list()) {
             if (r.enabled) scheduleNextCompute(context, r) else cancel(context, r.id)
         }
     }
+
+    /**
+     * Riarma solo cio' che manca: per l'avvio del processo.
+     *
+     * Prima `onCreate` riarmava tutto senza guardare, e quando era proprio la
+     * sveglia a far nascere il processo — alle 07:15, "parti alle 08:00" —
+     * `RoutineTiming.next` vedeva "dentro la finestra, niente consiglio
+     * ancora" e ne armava un'altra a cinque secondi. Il giro vero era ancora
+     * a meta' fra bundle, rete e RAPTOR: la seconda partenza rifaceva tutto e
+     * "Esci tra 45 min" suonava due volte. Per un "arriva entro" la stessa
+     * sveglia in piu' era una rifinitura, che ripubblica la notifica anche
+     * dopo che l'avevi tolta. Vedi [RoutineTiming.shouldRearmAtStart].
+     */
+    fun rescheduleMissing(context: Context) {
+        val now = Instant.now().epochSecond
+        for (r in storeOf(context).list()) {
+            if (!r.enabled) {
+                cancel(context, r.id)
+                continue
+            }
+            val armed = armedOf(context, r.id)
+            // Una sveglia ancora davanti a noi deve avere anche il suo
+            // PendingIntent: dopo un "termina forzatamente" il sistema butta
+            // via le une e gli altri, e il ricordo scritto resterebbe a
+            // dire una cosa falsa.
+            val exists = armed != null && armed.atEpoch > now &&
+                pending(context, r.id, armed.phase, noCreate = true) != null
+            if (RoutineTiming.shouldRearmAtStart(armed, now, exists)) {
+                scheduleNextCompute(context, r)
+            }
+        }
+    }
+
+    private fun alarmPrefs(context: Context) =
+        context.getSharedPreferences("routine_alarms", Context.MODE_PRIVATE)
+
+    private fun armedOf(context: Context, id: Long): RoutineTiming.Armed? =
+        runCatching { RoutineTiming.Armed.parse(alarmPrefs(context).getString(id.toString(), null)) }
+            .getOrNull()
 
     /**
      * La prossima sveglia, decisa da [RoutineTiming.next].
@@ -58,7 +112,11 @@ object RoutineScheduler {
      * @param doneDay il giorno appena chiuso, che non si riprende.
      */
     fun scheduleNextCompute(context: Context, r: Routines.Routine, doneDay: LocalDate? = null) {
-        val alarm = RoutineTiming.next(r, Instant.now().epochSecond, doneDay) ?: return
+        val alarm = RoutineTiming.next(r, Instant.now().epochSecond, doneDay)
+        if (alarm == null) {
+            runCatching { alarmPrefs(context).edit().remove(r.id.toString()).apply() }
+            return
+        }
         setAlarm(context, r.id, alarm.phase, alarm.atEpoch * 1000, alarm.day)
     }
 
@@ -85,21 +143,52 @@ object RoutineScheduler {
         val am = context.getSystemService(AlarmManager::class.java)
         am.cancel(pending(context, id, RoutineTiming.COMPUTE))
         am.cancel(pending(context, id, RoutineTiming.REFINE))
+        runCatching { alarmPrefs(context).edit().remove(id.toString()).apply() }
+        // Anche l'avviso gia' in tendina: una routine messa in pausa o
+        // eliminata lasciava "Esci tra 25 min" sullo schermo, e toccarlo
+        // (per una routine cancellata) non faceva niente.
+        runCatching {
+            context.getSystemService(NotificationManager::class.java).cancel(id.toInt())
+        }
     }
 
     internal fun setAlarm(context: Context, id: Long, phase: String, atMillis: Long, day: LocalDate) {
         val am = context.getSystemService(AlarmManager::class.java)
+        // Ricordare cosa si e' armato e per quando: senza, all'avvio del
+        // processo non si distingue "sveglia che sta per suonare" da "sveglia
+        // appena suonata che ha fatto nascere il processo".
         runCatching {
+            alarmPrefs(context).edit()
+                .putString(id.toString(), RoutineTiming.Armed(phase, atMillis / 1000).format())
+                .apply()
+        }
+        // Da Android 12 la sveglia esatta e' un permesso che puo' mancare:
+        // si chiede PRIMA, invece di aspettare la SecurityException. Il
+        // manifest dichiara SCHEDULE_EXACT_ALARM fino ad Android 12L (che li'
+        // e' concesso di base) e USE_EXACT_ALARM dal 13.
+        val canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms()
+        val exact = canExact && runCatching {
             am.setExactAndAllowWhileIdle(
                 AlarmManager.RTC_WAKEUP, atMillis, pending(context, id, phase, day),
             )
-        }.onFailure {
+        }.isSuccess
+        if (!exact) {
             // Senza il permesso delle sveglie esatte: meglio in ritardo che mai.
             am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMillis, pending(context, id, phase, day))
         }
     }
 
-    private fun pending(context: Context, id: Long, phase: String, day: LocalDate? = null): PendingIntent {
+    private fun pending(context: Context, id: Long, phase: String, day: LocalDate? = null): PendingIntent =
+        pending(context, id, phase, day, noCreate = false)!!
+
+    /** Con [noCreate] si chiede solo se esiste: null vuol dire "nessuna sveglia registrata". */
+    private fun pending(
+        context: Context,
+        id: Long,
+        phase: String,
+        day: LocalDate? = null,
+        noCreate: Boolean,
+    ): PendingIntent? {
         val intent = Intent(context, RoutineReceiver::class.java)
             .setAction(ACTION)
             .putExtra("id", id)
@@ -114,7 +203,8 @@ object RoutineScheduler {
         val code = (id * 2 + if (phase == RoutineTiming.REFINE) 1 else 0).toInt()
         return PendingIntent.getBroadcast(
             context, code, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            (if (noCreate) PendingIntent.FLAG_NO_CREATE else PendingIntent.FLAG_UPDATE_CURRENT) or
+                PendingIntent.FLAG_IMMUTABLE,
         )
     }
 
@@ -135,7 +225,7 @@ object RoutineScheduler {
                 // processo. E la sveglia successiva non veniva armata da
                 // nessuno, quindi la routine moriva li'.
                 runCatching {
-                    Routines(app).list().firstOrNull { it.id == id && it.enabled }
+                    storeOf(app).list().firstOrNull { it.id == id && it.enabled }
                         ?.let { retryLater(app, it, phase, day) }
                 }
             } finally {
@@ -145,7 +235,7 @@ object RoutineScheduler {
     }
 
     private suspend fun computeAndNotify(app: FluidTransitApp, id: Long, phase: String, day: LocalDate) {
-        val store = Routines(app)
+        val store = storeOf(app)
         val r = store.list().firstOrNull { it.id == id } ?: return
         if (!r.enabled) return
 
@@ -200,7 +290,12 @@ object RoutineScheduler {
         val journey = kotlinx.coroutines.withContext(app.routingDispatcher) {
             val raptor = app.raptorFor(reader)
             if (r.anchor == "depart") {
-                raptor.plan(from, to, anchor, live).firstOrNull { !it.isWalkOnly }
+                // Mai dal passato: una sveglia in ritardo (Android 12 senza
+                // sveglie esatte, il telefono in Doze) pianificava dall'ora
+                // della routine e riproponeva il bus gia' partito, con
+                // "Esci ora" a bus andato. L'arrivo ha gia' il suo
+                // `notBefore`.
+                raptor.plan(from, to, maxOf(anchor, Instant.now()), live).firstOrNull { !it.isWalkOnly }
             } else {
                 raptor.planArriveBy(from, to, anchor, live, notBefore = Instant.now())
                     .filter { !it.isWalkOnly }
@@ -210,6 +305,13 @@ object RoutineScheduler {
 
         val nm = app.getSystemService(NotificationManager::class.java)
         if (journey == null) {
+            // Il consiglio che c'era, se c'era: lo si legge PRIMA di
+            // azzerarlo. Appartiene a questa occorrenza e non e' gia' quello
+            // di ieri (l'uscita cade nelle ore attorno all'ancora).
+            val anchorEpoch = Routines.anchorEpoch(day, r.anchorMinutes)
+            val consigliatoPrima = r.lastAdviceEpoch.takeIf {
+                RoutineTiming.adviceBelongsTo(it, anchorEpoch)
+            }
             store.update(id) {
                 Routines.Routine(
                     it.id, it.label, it.fromLat, it.fromLon, it.toLat, it.toLon, it.toName,
@@ -218,6 +320,28 @@ object RoutineScheduler {
                     lastAdviceText = RoutineText.NESSUN_BUS,
                     lastComputeEpoch = Instant.now().epochSecond,
                 )
+            }
+            // Il widget si ridisegna anche qui: in mattinata di sciopero
+            // diceva "Il consiglio arriva da solo" a chi il consiglio l'aveva
+            // gia' avuto, e cioe' che non c'e'. (Ora scatta anche dal
+            // `version` condiviso, ma non c'e' motivo di dipenderne.)
+            runCatching { dev.antigravity.fluidtransit.ui.widget.RoutineWidget().updateAll(app) }
+            // Il bus di cui la notifica parlava non c'e' piu': lo si DICE.
+            // Prima il giro finiva in silenzio e l'"Esci tra 25 min" restava
+            // in tendina per un bus cancellato. Dalla PLAN niente: non
+            // aveva notificato niente, e non c'e' nulla da ritrattare.
+            if (consigliatoPrima != null && phase != RoutineTiming.PLAN) {
+                val title = RoutineText.busGoneTitle(r.label.ifEmpty { r.toName })
+                val text = RoutineText.busGone(consigliatoPrima)
+                val n = NotificationCompat.Builder(app, CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.ic_menu_directions)
+                    .setContentTitle(title)
+                    .setContentText(text)
+                    .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                    .setContentIntent(openIntent(app, id, day))
+                    .setAutoCancel(true)
+                    .build()
+                runCatching { nm.notify(id.toInt(), n) }
             }
             scheduleNextCompute(app, r, doneDay = day)
             return
@@ -275,20 +399,7 @@ object RoutineScheduler {
                 dev.antigravity.fluidtransit.routing.Times.durationLabel(secondsToLeave) +
                 " — ${r.label.ifEmpty { r.toName }}"
         }
-        // Toccarla apre *quel* viaggio. Fino a ieri questa notifica non
-        // aveva contentIntent: toccarla non faceva assolutamente niente, e
-        // quel nulla e' peggio di un errore — sembra che l'app si sia rotta.
-        val open = PendingIntent.getActivity(
-            app, id.toInt(),
-            Intent(app, dev.antigravity.fluidtransit.MainActivity::class.java)
-                .setAction(Intent.ACTION_VIEW)
-                .setData(
-                    android.net.Uri.parse(
-                        dev.antigravity.fluidtransit.ui.nav.Deeplink.journey(id),
-                    ),
-                ),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
+        val open = openIntent(app, id, day)
         val notification = NotificationCompat.Builder(app, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_directions)
             .setContentTitle(title)
@@ -298,7 +409,16 @@ object RoutineScheduler {
             .setAutoCancel(true)
             .setOnlyAlertOnce(phase == RoutineTiming.REFINE)
             .build()
-        runCatching { nm.notify(id.toInt(), notification) }
+        // Una rifinitura aggiorna l'avviso che c'e', non lo resuscita: chi
+        // l'ha tolto dalla tendina ha detto che non lo vuole, e ripubblicarlo
+        // "solo per aggiornarlo" lo faceva risuonare (`onlyAlertOnce` non vale
+        // per una notifica che non esiste piu').
+        val ancoraInTendina = runCatching {
+            nm.activeNotifications.any { it.id == id.toInt() }
+        }.getOrDefault(true)
+        if (phase != RoutineTiming.REFINE || ancoraInTendina) {
+            runCatching { nm.notify(id.toInt(), notification) }
+        }
 
         // Le rifiniture: si ricalcola avvicinandosi all'uscita, coi ritardi
         // freschi. Dopo l'ultima, si arma il prossimo giorno buono.
@@ -318,6 +438,29 @@ object RoutineScheduler {
             scheduleNextCompute(app, r, doneDay = day)
         }
     }
+
+    /**
+     * Toccarla apre *quel* viaggio. Fino a ieri questa notifica non aveva
+     * contentIntent: toccarla non faceva assolutamente niente, e quel nulla
+     * e' peggio di un errore — sembra che l'app si sia rotta.
+     *
+     * Il giorno viaggia nell'indirizzo: la rifinitura a "esci fra 2 min" di
+     * una "parti alle 07:25" puo' cadere alle 07:27, dopo l'ancora, e senza
+     * il giorno l'app cercava "la prossima occorrenza" e apriva i viaggi di
+     * domani invece del bus della notifica.
+     */
+    private fun openIntent(app: FluidTransitApp, id: Long, day: LocalDate): PendingIntent =
+        PendingIntent.getActivity(
+            app, id.toInt(),
+            Intent(app, dev.antigravity.fluidtransit.MainActivity::class.java)
+                .setAction(Intent.ACTION_VIEW)
+                .setData(
+                    android.net.Uri.parse(
+                        dev.antigravity.fluidtransit.ui.nav.Deeplink.journey(id, day.toEpochDay()),
+                    ),
+                ),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
 
     /** Quanto si aspetta il bundle dentro il giro di una sveglia. */
     private const val BUNDLE_WAIT_MS = 8_000L

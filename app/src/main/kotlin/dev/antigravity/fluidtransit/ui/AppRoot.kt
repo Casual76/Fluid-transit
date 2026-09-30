@@ -142,7 +142,11 @@ private fun AppShell(app: FluidTransitApp) {
                 if (r != null) {
                     openOnMap(
                         dev.antigravity.fluidtransit.data.routines.Routines
-                            .journeyIntent(r, java.time.Instant.now().epochSecond),
+                            .journeyIntent(
+                                r,
+                                java.time.Instant.now().epochSecond,
+                                link.epochDay?.let { java.time.LocalDate.ofEpochDay(it) },
+                            ),
                     )
                 }
             }

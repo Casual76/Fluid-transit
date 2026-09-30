@@ -73,10 +73,16 @@ class Routines(private val file: File) {
         }
     }.getOrElse { emptyList() }
 
+    // Sincronizzati: adesso l'archivio e' uno solo per tutta l'app (lo
+    // scheduler scrive dal suo thread mentre Oggi scrive dal principale), e un
+    // leggi-modifica-scrivi interrotto a meta' perderebbe l'una o l'altra.
+    @Synchronized
     fun add(r: Routine) = write(list().filter { it.id != r.id } + r)
 
+    @Synchronized
     fun remove(id: Long) = write(list().filter { it.id != id })
 
+    @Synchronized
     fun update(id: Long, transform: (Routine) -> Routine) {
         write(list().map { if (it.id == id) transform(it) else it })
     }
@@ -185,9 +191,35 @@ class Routines(private val file: File) {
             return null
         }
 
+        /** Dopo l'ancora, per quanto un tocco ancora "e' di oggi". */
+        const val FINESTRA_TOCCO_S = 2 * 3600L
+
+        /**
+         * A che ora aprire il viaggio toccando una notifica o il widget.
+         *
+         * Con [day] (il giorno della routine che ha prodotto l'avviso) si
+         * resta su quel giorno: una "parti alle 07:25" col bus in ritardo si
+         * rifinisce alle 07:27, dopo l'ancora, e "la prossima occorrenza"
+         * era il viaggio di domani, non il bus di cui parlava la notifica.
+         * Per una "parti alle" gia' passata, da poco, si parte da adesso; per
+         * un "arriva entro" passato non c'e' niente di oggi da mostrare.
+         */
+        fun tapEpoch(r: Routine, day: java.time.LocalDate?, nowEpoch: Long): Long? {
+            if (day != null) {
+                val a = anchorEpoch(day, r.anchorMinutes)
+                if (a > nowEpoch) return a
+                if (r.anchor == "depart" && nowEpoch <= a + FINESTRA_TOCCO_S) return nowEpoch
+            }
+            return nextAnchorEpoch(r, nowEpoch)
+        }
+
         /** Il viaggio della routine, per aprirlo sulla mappa. */
-        fun journeyIntent(r: Routine, nowEpoch: Long): dev.antigravity.fluidtransit.ui.map.MapIntent.Journey {
-            val at = nextAnchorEpoch(r, nowEpoch)
+        fun journeyIntent(
+            r: Routine,
+            nowEpoch: Long,
+            day: java.time.LocalDate? = null,
+        ): dev.antigravity.fluidtransit.ui.map.MapIntent.Journey {
+            val at = tapEpoch(r, day, nowEpoch)
             return dev.antigravity.fluidtransit.ui.map.MapIntent.Journey(
                 fromLat = r.fromLat,
                 fromLon = r.fromLon,

@@ -29,6 +29,24 @@ class RoutineCreatedTextTest {
     }
 
     @Test
+    fun `quando il bus sparisce la notifica lo dice con l'ora di prima`() {
+        // 07:45 di mercoledi' 30/09/2026 a Roma = 05:45 UTC.
+        val leave = java.time.LocalDate.of(2026, 9, 30).atTime(7, 45)
+            .atZone(dev.antigravity.fluidtransit.routing.Ftb.ROME).toEpochSecond()
+        val testo = RoutineText.busGone(leave)
+        assertTrue(testo, testo.contains("07:45"))
+        assertTrue(testo, testo.contains(RoutineText.NESSUN_BUS))
+        assertTrue(RoutineText.busGoneTitle("Al lavoro").contains("Al lavoro"))
+    }
+
+    @Test
+    fun `Oggi dice dove stanno pausa ed eliminazione`() {
+        assertTrue(RoutineText.GESTIONE_TITOLO.contains("premuta"))
+        assertTrue(RoutineText.GESTIONE_DETTAGLIO.contains("pausa"))
+        assertTrue(RoutineText.GESTIONE_DETTAGLIO.contains("eliminarla"))
+    }
+
+    @Test
     fun `le due frasi sono diverse`() {
         assertNotEquals(RoutineText.created(true), RoutineText.created(false))
     }

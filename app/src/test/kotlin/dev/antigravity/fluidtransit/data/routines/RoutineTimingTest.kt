@@ -115,4 +115,79 @@ class RoutineTimingTest {
         // Una routine senza giorni si apre su "adesso".
         assertEquals("now", Routines.journeyIntent(routine("depart", 8, days = emptySet()), alle(mercoledi, 7)).timeMode)
     }
+
+    @Test
+    fun `toccare la rifinitura dopo l'ancora apre il bus di oggi, non quello di domani`() {
+        // "Parti alle 08:00", il bus ha 4 minuti di ritardo e l'avviso
+        // "esci fra 2 min" cade alle 08:03: passata l'ancora, la prossima
+        // occorrenza e' domani, ma il viaggio e' quello di oggi, da adesso.
+        val r = routine("depart", 8, leave = alle(mercoledi, 8, 4))
+        val adesso = alle(mercoledi, 8, 3)
+        val senzaGiorno = Routines.journeyIntent(r, adesso)
+        assertEquals(alle(mercoledi.plusDays(1), 8), senzaGiorno.timeEpoch)
+        val conGiorno = Routines.journeyIntent(r, adesso, mercoledi)
+        assertEquals("depart", conGiorno.timeMode)
+        assertEquals(adesso, conGiorno.timeEpoch)
+        // Prima dell'ancora il giorno non cambia niente: e' l'ancora di oggi.
+        assertEquals(
+            alle(mercoledi, 8),
+            Routines.journeyIntent(r, alle(mercoledi, 7), mercoledi).timeEpoch,
+        )
+        // Un avviso vecchio toccato dopo la finestra: si torna alla regola
+        // "prossima occorrenza", non a un viaggio nel passato.
+        assertEquals(
+            alle(mercoledi.plusDays(1), 8),
+            Routines.journeyIntent(r, alle(mercoledi, 12), mercoledi).timeEpoch,
+        )
+    }
+
+    @Test
+    fun `un arriva entro passato non apre un viaggio nel passato`() {
+        val r = routine("arrive", 9, days = setOf(3))
+        val t = Routines.tapEpoch(r, mercoledi, alle(mercoledi, 9, 10))
+        assertEquals(alle(mercoledi.plusDays(7), 9), t)
+    }
+
+    // --- all'avvio del processo ----------------------------------------
+
+    @Test
+    fun `se la sveglia appena suonata ha fatto nascere il processo non si riarma`() {
+        // "Parti alle 08:00": la sveglia delle 07:15 avvia il processo, e
+        // onCreate gira mentre il giro vero e' ancora in corso. Riarmare
+        // dava una seconda sveglia a cinque secondi e due "Esci tra 45 min".
+        val armata = RoutineTiming.Armed(RoutineTiming.COMPUTE, alle(mercoledi, 7, 15))
+        val adesso = alle(mercoledi, 7, 15) + 2
+        assertEquals(false, RoutineTiming.shouldRearmAtStart(armata, adesso, pendingExists = true))
+        assertEquals(false, RoutineTiming.shouldRearmAtStart(armata, adesso, pendingExists = false))
+    }
+
+    @Test
+    fun `una sveglia suonata da un pezzo e mai sostituita si riarma`() {
+        val armata = RoutineTiming.Armed(RoutineTiming.COMPUTE, alle(mercoledi, 7, 15))
+        val adesso = alle(mercoledi, 7, 15) + RoutineTiming.IN_FLIGHT_GRACE_SECONDS + 1
+        assertEquals(true, RoutineTiming.shouldRearmAtStart(armata, adesso, pendingExists = true))
+    }
+
+    @Test
+    fun `una sveglia nel futuro resta se il sistema la ha, si riarma se e' sparita`() {
+        val armata = RoutineTiming.Armed(RoutineTiming.COMPUTE, alle(mercoledi, 7, 15))
+        val adesso = alle(mercoledi, 6)
+        assertEquals(false, RoutineTiming.shouldRearmAtStart(armata, adesso, pendingExists = true))
+        // Dopo "termina forzatamente": il ricordo dice futuro, il sistema no.
+        assertEquals(true, RoutineTiming.shouldRearmAtStart(armata, adesso, pendingExists = false))
+    }
+
+    @Test
+    fun `senza niente di ricordato si arma`() {
+        assertEquals(true, RoutineTiming.shouldRearmAtStart(null, alle(mercoledi, 6), false))
+    }
+
+    @Test
+    fun `il ricordo della sveglia va e torna come testo`() {
+        val a = RoutineTiming.Armed(RoutineTiming.REFINE, 1_790_000_000L)
+        assertEquals(a, RoutineTiming.Armed.parse(a.format()))
+        assertEquals(null, RoutineTiming.Armed.parse(null))
+        assertEquals(null, RoutineTiming.Armed.parse("rotto"))
+        assertEquals(null, RoutineTiming.Armed.parse("compute|domani"))
+    }
 }

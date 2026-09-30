@@ -186,6 +186,27 @@ object RoutineText {
     const val NESSUN_BUS = "Oggi nessun bus utile"
 
     /**
+     * Dove stanno pausa ed eliminazione di una routine. Stanno nel menu della
+     * tenuta premuta e nessuna schermata lo diceva: il gesto che fa cose senza
+     * dirlo non lo scopre nessuno.
+     */
+    const val GESTIONE_TITOLO = "Tieni premuta una routine"
+    const val GESTIONE_DETTAGLIO = "per metterla in pausa, riattivarla o eliminarla"
+
+    /**
+     * La notifica che ritratta un "Esci tra X min": al giro successivo il
+     * bus non c'e' piu' (cancellato, o non piu' raggiungibile in tempo). Senza,
+     * l'avviso vecchio restava in tendina e chi usciva di casa per un bus
+     * sparito non lo sapeva.
+     */
+    fun busGoneTitle(routineName: String): String = "Cambio di programma — $routineName"
+
+    /** [leaveEpoch] e' l'ora di uscita che l'avviso di prima aveva dato. */
+    fun busGone(leaveEpoch: Long): String =
+        "Il consiglio delle ${Times.hhmm(leaveEpoch)} non vale piu': $NESSUN_BUS. " +
+            "Tocca per le alternative."
+
+    /**
      * Cosa si perde a notifiche spente: la routine resta, l'avviso no.
      *
      * Il pannello scriveva "ti diro' io quando uscire" appena si toccava

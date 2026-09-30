@@ -371,10 +371,13 @@ class FluidTransitApp : Application() {
         )
 
         // Le routine: canale di notifica pronto e sveglie riarmate (dopo un
-        // aggiornamento dell'app le sveglie vecchie non esistono piu').
+        // aggiornamento dell'app le sveglie vecchie non esistono piu'). Solo
+        // quelle che mancano: se e' stata una sveglia a far nascere il
+        // processo, riarmarla davanti al suo stesso giro la faceva suonare
+        // due volte.
         dev.antigravity.fluidtransit.data.routines.RoutineScheduler.ensureChannel(this)
         applicationScope.launch {
-            dev.antigravity.fluidtransit.data.routines.RoutineScheduler.rescheduleAll(this@FluidTransitApp)
+            dev.antigravity.fluidtransit.data.routines.RoutineScheduler.rescheduleMissing(this@FluidTransitApp)
         }
         // La trappola nota dei widget: si ridisegnano quando cambiano i DATI,
         // non quando cambia l'ASPETTO. Il collegamento tema->updateAll e'

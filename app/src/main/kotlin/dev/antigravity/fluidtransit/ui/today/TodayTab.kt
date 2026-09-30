@@ -422,7 +422,9 @@ fun TodayTab(
                         // bastava che il consiglio fosse di oggi, e alle
                         // dieci del mattino la riga diceva ancora "Esci alle
                         // 07:25".
-                        val rigaDiOggi = if (isToday) {
+                        // In pausa niente consiglio: la riga diceva "Esci
+                        // alle 07:25" di una routine che non avvisa piu'.
+                        val rigaDiOggi = if (isToday && r.enabled) {
                             dev.antigravity.fluidtransit.data.routines.RoutineText.today(
                                 r,
                                 java.time.Instant.ofEpochSecond(adesso)
@@ -503,6 +505,14 @@ fun TodayTab(
                             },
                         )
                     }
+                    // Pausa ed Elimina stanno solo nel menu della tenuta
+                    // premuta, e niente lo diceva: chi sbagliava la
+                    // partenza di una routine non aveva dove guardare. Una
+                    // riga che lo dice, senza cambiare dove stanno le azioni.
+                    FluidListRow(
+                        title = dev.antigravity.fluidtransit.data.routines.RoutineText.GESTIONE_TITOLO,
+                        subtitle = dev.antigravity.fluidtransit.data.routines.RoutineText.GESTIONE_DETTAGLIO,
+                    )
                 }
             }
         } else if (favStops.isNotEmpty()) {

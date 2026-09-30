@@ -1,5 +1,7 @@
 package dev.antigravity.fluidtransit.ui.welcome
 
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,11 +44,20 @@ fun WelcomeScreen(manager: BundleManager, state: BundleState) {
             ambient = FluidAmbient(tone = FluidHeroTone.Primary, motif = FluidHeroMotif.Ripples),
             modifier = Modifier.fillMaxSize(),
         )
+        // Scorre, e al centro quando ci sta. Era una colonna centrata e
+        // basta: coi caratteri grandi o col telefono in orizzontale il tasto
+        // — "Scarica ora", "Riprova" — finiva sotto il bordo, e dalla prima
+        // schermata dell'app non si usciva. L'altezza minima e' quella dello
+        // schermo, cosi' quando tutto ci sta resta centrato come prima.
+        androidx.compose.foundation.layout.BoxWithConstraints(
+            modifier = Modifier.fillMaxSize().safeDrawingPadding(),
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .safeDrawingPadding()
-                .padding(horizontal = 32.dp),
+                .verticalScroll(androidx.compose.foundation.rememberScrollState())
+                .heightIn(min = maxHeight)
+                .padding(horizontal = 32.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
@@ -168,6 +179,7 @@ fun WelcomeScreen(manager: BundleManager, state: BundleState) {
 
                 is BundleState.Ready -> Unit // AppRoot ha gia' cambiato schermata
             }
+        }
         }
     }
 }

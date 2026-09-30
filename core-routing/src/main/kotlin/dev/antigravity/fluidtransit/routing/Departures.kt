@@ -188,21 +188,31 @@ object Departures {
         val name = reader.stopName(stopIndex)
         val oggi = now.atZone(Ftb.ROME).toLocalDate()
         val fuoriValidita = oggi.isBefore(reader.feedStart) || oggi.isAfter(reader.feedEnd)
-        // Si chiede qualche corsa in piu' del necessario: alcune spariranno
-        // perche' saltate o gia' passate, e il tabellone deve restare pieno.
-        // Si interroga qualche secondo indietro: il lettore taglia tutto
-        // cio' che e' gia' partito, e senza questo margine una corsa spariva
-        // dal tabellone nell'istante esatto in cui il suo orario passava --
-        // proprio mentre la persona era alla fermata ad aspettarla.
+        // Si interroga il lettore [LOOKBACK_SECONDS] indietro, e senza limite.
+        //
+        // Il lettore taglia sull'orario di TABELLA, prima che i ritardi
+        // esistano: un bus delle 07:36 con otto minuti di ritardo spariva da
+        // ogni tabellone alle 07:36:30, e alle 07:40 la fermata mostrava solo
+        // quello delle 07:50 — un bus a quattro minuti dato per partito, cioe'
+        // proprio la domanda "il mio e' in ritardo?" risposta al contrario.
+        // Il taglio vero si fa qui sotto, sull'orario effettivo.
+        //
+        // Senza limite perche' il lettore ordina per orario di tabella e
+        // tronca: con la finestra allargata le corse gia' passate avrebbero
+        // riempito i posti, e a una fermata trafficata il tabellone sarebbe
+        // uscito vuoto. Costa poco: il lettore le raccoglie comunque tutte
+        // prima di troncare.
+        val cutoff = nowEpoch - GRACE_SECONDS
         val raw = reader.nextDepartures(
             stop = stopIndex,
-            now = now.minusSeconds(GRACE_SECONDS.toLong()),
-            limit = limit + EXTRA,
-            horizonSeconds = horizonSeconds + GRACE_SECONDS,
+            now = now.minusSeconds(LOOKBACK_SECONDS.toLong()),
+            limit = Int.MAX_VALUE,
+            horizonSeconds = horizonSeconds + LOOKBACK_SECONDS,
         )
 
-        val rows = ArrayList<NextDeparture>(raw.size)
+        val rows = ArrayList<NextDeparture>()
         for (d in raw) {
+            val scheduled = d.instant.epochSecond
             val stopCount = reader.patternStopCount(d.patternIndex)
             val at = live?.at(d.tripIndex, d.positionInPattern, stopCount, nowEpoch)
             // Un ritardo riferito a una fermata che il mezzo ha gia' passato
@@ -211,6 +221,28 @@ object Departures {
             val usable = at?.takeIf { it.certainty != Certainty.SERVED }
             val skipped = live?.skipped(d.tripIndex, d.positionInPattern) ?: false
             if (skipped) continue
+            val canceled = live?.canceled(d.tripIndex) ?: false
+            val effective = scheduled + (usable?.delaySeconds ?: 0)
+
+            // Il taglio, prima di costruire la riga: con la finestra larga le
+            // corse da scartare sono decine a ogni ricalcolo.
+            if (scheduled < cutoff) {
+                // Passata secondo la tabella. Torna solo se il FEED dice che
+                // e' in ritardo fin dopo adesso: una stima nostra no, perche'
+                // senza la posizione del mezzo non sappiamo se e' gia'
+                // passato, e resusciteremmo un bus fantasma. E una cancellata
+                // di mezz'ora fa non e' una notizia.
+                if (canceled) continue
+                if (usable == null || !(usable.certainty == Certainty.DECLARED ||
+                        usable.certainty == Certainty.PROPAGATED)
+                ) {
+                    continue
+                }
+                if (effective < cutoff) continue
+            } else if (!canceled && effective < cutoff) {
+                // Passata: un anticipo l'ha portata indietro nel tempo.
+                continue
+            }
 
             val row = NextDeparture(
                 tripIndex = d.tripIndex,
@@ -222,7 +254,7 @@ object Departures {
                 delaySeconds = usable?.delaySeconds,
                 certainty = usable?.certainty,
                 ageSeconds = usable?.ageSeconds ?: 0,
-                canceled = live?.canceled(d.tripIndex) ?: false,
+                canceled = canceled,
                 skipped = false,
                 monitored = live?.monitored(d.tripIndex, nowEpoch) ?: false,
                 line = reader.routeShortName(d.routeIndex)
@@ -231,8 +263,6 @@ object Departures {
                 colorRgb = reader.routeDisplayColor(d.routeIndex),
                 stopName = name,
             )
-            // Passata: il ritardo l'ha portata indietro nel tempo.
-            if (!row.canceled && row.effectiveEpoch < nowEpoch - GRACE_SECONDS) continue
             rows.add(row)
         }
 
@@ -336,6 +366,15 @@ object Departures {
      */
     private const val GRACE_SECONDS = 30
 
-    /** Quante corse in piu' chiedere, per compensare quelle che si scartano. */
-    private const val EXTRA = 4
+    /**
+     * Quanto indietro si guarda per un bus in ritardo.
+     *
+     * Non e' l'eta' massima di un'osservazione (quella e' FORGET_SECONDS del
+     * modello dei ritardi): e' quanto puo' essere in ritardo un bus perche'
+     * lo si mostri ancora. Tre quarti d'ora coprono i ritardi che si vedono
+     * davvero — "+33 min di ritardo" su una riga e' capitato — e oltre, un
+     * bus con piu' di tre quarti d'ora di ritardo e' un caso da avviso, non
+     * da tabellone.
+     */
+    private const val LOOKBACK_SECONDS = 45 * 60
 }

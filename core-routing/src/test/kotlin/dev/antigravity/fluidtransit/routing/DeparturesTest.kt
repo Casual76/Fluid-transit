@@ -177,6 +177,62 @@ class DeparturesTest {
         }
     }
 
+    @Test
+    fun `un bus in ritardo resta anche dopo il suo orario di tabella`() {
+        // Il caso del pendolare: la corsa delle 08:00 ha otto minuti di
+        // ritardo, e alle 08:04 arriva fra quattro. Il lettore la tagliava
+        // sull'orario di tabella e il tabellone la dava per partita.
+        BundleReader(busy()).use { r ->
+            val board = Departures.build(
+                r, stopIndex = 0, now = at("08:04"),
+                live = Live(delays = mapOf(0 to (480 to Certainty.DECLARED))),
+            )
+            val row = board.rows.firstOrNull { it.tripIndex == 0 }
+            kotlin.test.assertNotNull(row, "il bus in ritardo e' sparito: ${board.rows.map { it.tripIndex }}")
+            assertEquals(480, row.delaySeconds)
+            // E passa DOPO quella puntuale delle 08:05.
+            assertEquals(listOf(1, 0), board.rows.take(2).map { it.tripIndex })
+        }
+    }
+
+    @Test
+    fun `una corsa passata non torna senza un ritardo dichiarato dal feed`() {
+        // Una stima nostra, o nessun dato, non basta a resuscitarla: senza
+        // la posizione del mezzo non sappiamo se e' gia' passato.
+        BundleReader(busy()).use { r ->
+            val stimata = Departures.build(
+                r, stopIndex = 0, now = at("08:04"),
+                live = Live(delays = mapOf(0 to (480 to Certainty.ESTIMATED))),
+            )
+            assertTrue(stimata.rows.none { it.tripIndex == 0 })
+            val senza = Departures.build(r, stopIndex = 0, now = at("08:04"))
+            assertTrue(senza.rows.none { it.tripIndex == 0 })
+        }
+    }
+
+    @Test
+    fun `una cancellata di dieci minuti fa non e' una notizia`() {
+        BundleReader(busy()).use { r ->
+            val board = Departures.build(
+                r, stopIndex = 0, now = at("08:10"),
+                live = Live(canceled = setOf(0)),
+            )
+            assertTrue(board.rows.none { it.tripIndex == 0 })
+        }
+    }
+
+    @Test
+    fun `le corse gia' passate non tolgono il posto a quelle che vengono`() {
+        // Il lettore ordina per orario di tabella e tronca: con la finestra
+        // allargata all'indietro, a una fermata trafficata i posti andavano
+        // alle corse partite. Qui tutte e quattro le corse sono dietro tranne
+        // l'ultima, e con un limite di una la riga deve essere quella.
+        BundleReader(busy()).use { r ->
+            val board = Departures.build(r, stopIndex = 0, now = at("08:15"), limit = 1)
+            assertEquals(listOf(3), board.rows.map { it.tripIndex })
+        }
+    }
+
     // ------------------------------------------------- cancellate e saltate
 
     @Test

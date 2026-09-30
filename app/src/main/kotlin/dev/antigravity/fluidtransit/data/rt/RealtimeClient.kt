@@ -53,7 +53,10 @@ class RealtimeClient(
      * far perdere fiducia.
      */
     private val online: () -> Boolean = { true },
-    /** L'orologio degli avvisi: iniettabile perche' la loro regola dipende dall'eta'. */
+    /**
+     * L'orologio delle regole che dipendono dal tempo — il blocco su DIRECT,
+     * l'eta' degli avvisi — iniettabile perche' si possano provare.
+     */
     private val clockMs: () -> Long = System::currentTimeMillis,
 ) {
     enum class Source { PROXY, DIRECT, SCHEDULE_ONLY }
@@ -174,7 +177,7 @@ class RealtimeClient(
 
     private suspend fun fetchVehicles() = withContext(Dispatchers.IO) {
         val proxyOk = runCatching { proxyAllowed() }.getOrDefault(true)
-        val nowMs = System.currentTimeMillis()
+        val nowMs = clockMs()
         // Come siamo arrivati all'origine, se ci arriviamo: per un proxy che
         // NON RISPONDE, o per un proxy che risponde con roba vecchia. Sono
         // due situazioni diverse e vogliono due decisioni diverse, e prima
@@ -300,6 +303,14 @@ class RealtimeClient(
             _predictions.value = null
             publish(Source.DIRECT, feedAge(parsed.feedTimestamp), null)
         } catch (e: Exception) {
+            // Non risponde nemmeno l'origine: il guasto e' la rete, non il
+            // proxy. Con copertura scarsa tre timeout di fila portavano qui,
+            // e il blocco di cinque minuti sul proxy restava: cinque minuti
+            // senza ritardi anche dopo che la rete era tornata, e lo stato dei
+            // dati che dava la colpa al proxy. Il blocco si toglie, e la colpa
+            // pure.
+            directHoldUntilMs = 0L
+            lastProxyError = null
             publish(Source.SCHEDULE_ONLY, feedAge(_vehicles.value?.feedTimestamp), e.message)
         }
     }
@@ -312,7 +323,16 @@ class RealtimeClient(
         // widget, le routine e la scheda Oggi non vedevano MAI un ritardo,
         // perche' erano gli unici a chiedere e nessuno prima di loro aveva
         // stabilito lo stato. Il giro dei veicoli e' quello che lo stabilisce.
-        if (_status.value.source != Source.PROXY && _status.value.lastSuccessAt == null) {
+        //
+        // E non solo in un processo fresco: dopo un calo di copertura lo
+        // stato resta su DIRECT o SCHEDULE_ONLY, e se l'unico a chiedere e'
+        // la scheda Oggi, un widget o una routine — cioe' la mappa e' chiusa
+        // e nessuno fa girare i mezzi — i ritardi non tornavano piu', anche a
+        // rete tornata da un pezzo. Finito il blocco su DIRECT, un giro di
+        // ritardi riprova la strada del proxy come farebbe quello dei mezzi.
+        if (_status.value.source != Source.PROXY &&
+            (_status.value.lastSuccessAt == null || clockMs() >= directHoldUntilMs)
+        ) {
             vehiclesLock.withLock { fetchVehicles() }
         }
         // Poi vale il compromesso deciso per DIRECT: i trip-updates integrali
@@ -442,7 +462,7 @@ class RealtimeClient(
         lastProxyError = message
         val giveUp = proxyFailures >= 3
         if (giveUp) {
-            directHoldUntilMs = System.currentTimeMillis() + DIRECT_HOLD_MS
+            directHoldUntilMs = clockMs() + DIRECT_HOLD_MS
             proxyFailures = 0
         }
         _status.value = _status.value.let {

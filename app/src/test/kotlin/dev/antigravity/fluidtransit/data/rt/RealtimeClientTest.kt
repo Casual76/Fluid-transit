@@ -379,6 +379,46 @@ class RealtimeClientTest {
     }
 
     @Test
+    fun `finito il blocco i ritardi tornano anche senza la mappa aperta`() = runTest {
+        // Dopo un calo di copertura lo stato restava su DIRECT: chi chiede
+        // solo i ritardi — Oggi, i widget, le routine — non li rivedeva piu'.
+        var adesso = 1_790_000_000_000L
+        val rt = RealtimeClient(
+            proxyAllowed = { true },
+            proxyBase = proxy.url("/rt/v1").toString().trimEnd('/'),
+            directVehiclesUrl = origin.url("/vehicle-positions").toString(),
+            clockMs = { adesso },
+        )
+        repeat(3) { proxy.enqueue(MockResponse().setResponseCode(500)) }
+        origin.enqueue(feedResponse(vehicles = 1))
+        repeat(3) { rt.refreshVehicles() }
+        assertEquals(RealtimeClient.Source.DIRECT, rt.status.value.source)
+
+        adesso += 6 * 60_000L
+        proxy.enqueue(snapshotResponse(vehicleCount = 1, feedAge = 5))
+        proxy.enqueue(delaysResponse(delayCount = 2))
+        rt.refreshDelays()
+
+        assertEquals(RealtimeClient.Source.PROXY, rt.status.value.source)
+        assertEquals(2, rt.delays.value?.byTripHash?.size)
+    }
+
+    @Test
+    fun `se non risponde nemmeno l'origine la colpa non e' del proxy`() = runTest {
+        // Copertura scarsa: tre timeout, poi anche l'origine muta. Il blocco
+        // sul proxy restava cinque minuti anche a rete tornata.
+        repeat(3) { proxy.enqueue(MockResponse().setResponseCode(500)) }
+        origin.enqueue(MockResponse().setResponseCode(503))
+        val rt = client()
+        repeat(3) { rt.refreshVehicles() }
+        assertEquals(RealtimeClient.Source.SCHEDULE_ONLY, rt.status.value.source)
+
+        proxy.enqueue(snapshotResponse(vehicleCount = 1, feedAge = 5))
+        rt.refreshVehicles()
+        assertEquals(RealtimeClient.Source.PROXY, rt.status.value.source)
+    }
+
+    @Test
     fun `un giro di ritardi mancato non cambia lo stato`() = runTest {
         proxy.enqueue(snapshotResponse(vehicleCount = 1, feedAge = 5))
         proxy.enqueue(MockResponse().setResponseCode(500))

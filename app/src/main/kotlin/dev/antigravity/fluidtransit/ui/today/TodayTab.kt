@@ -542,7 +542,7 @@ fun TodayTab(
                             // undici lettere che si leggevano erano
                             // "#at_Firenze".
                             subtitle = dev.antigravity.fluidtransit.routing.AlertText
-                                .period(a.startEpoch, a.endEpoch, Instant.now().epochSecond)
+                                .period(a.startEpoch, a.endEpoch, adesso)
                                 ?: dev.antigravity.fluidtransit.routing.AlertText
                                     .body(a.description).take(120),
                             onClick = onOpenAlerts,

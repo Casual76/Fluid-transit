@@ -492,8 +492,13 @@ class RoutineWidget : GlanceAppWidget() {
         val oggi = LocalDate.now(Ftb.ROME)
         val today = oggi.dayOfWeek.value
         val routines = dev.antigravity.fluidtransit.data.routines.Routines(context).list()
-        val todayRoutine = routines.firstOrNull { it.enabled && today in it.days }
         val adesso = Instant.now().epochSecond
+        val todayRoutine = dev.antigravity.fluidtransit.data.routines.Routines.relevantToday(
+            routines,
+            today,
+            oggi.atStartOfDay(Ftb.ROME).toEpochSecond(),
+            adesso,
+        )
 
         // Un consiglio vale finche' non e' passata l'ora di uscire.
         //

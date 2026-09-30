@@ -144,6 +144,20 @@ class TimesTest {
     }
 
     @Test
+    fun `l'orario di un viaggio dice anche il giorno quando non e' oggi`() {
+        val zone = Ftb.ROME
+        val adesso = java.time.ZonedDateTime.of(2026, 9, 30, 23, 0, 0, 0, zone).toEpochSecond()
+        val stasera = java.time.ZonedDateTime.of(2026, 9, 30, 23, 40, 0, 0, zone).toEpochSecond()
+        val domattina = java.time.ZonedDateTime.of(2026, 10, 1, 7, 30, 0, 0, zone).toEpochSecond()
+        assertEquals("Parti alle 23:40", Times.journeyTimeLabel("depart", stasera, adesso))
+        // Il caso che si leggeva sbagliato: le 07:30 scelte alle 23:00 sono
+        // quelle di domani, e i viaggi mostrati sono quelli di domani.
+        assertEquals("Parti domani alle 07:30", Times.journeyTimeLabel("depart", domattina, adesso))
+        assertEquals("Arrivi domani entro le 07:30", Times.journeyTimeLabel("arrive", domattina, adesso))
+        assertEquals("Parti ora", Times.journeyTimeLabel("now", 0, adesso))
+    }
+
+    @Test
     fun `una durata quasi zero si dice a parole`() {
         // Le camminate di pochi passi e le discese imminenti finivano in
         // "0 min", che e' la stessa frase vuota di "parte tra 0 min". Stava

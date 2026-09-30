@@ -1029,6 +1029,13 @@ fun MapScreen(
     var journeysFailed by remember { mutableStateOf(false) }
     /** Il calcolo sta ancora andando: la lista che si vede e' parziale. */
     var journeysSearching by remember { mutableStateOf(false) }
+    // "Parti ora" invecchia. Il calcolo aveva fra le chiavi tutto tranne
+    // l'orologio, e a pannello aperto il primo viaggio restava in cima anche
+    // dopo la sua partenza: si leggeva un bus gia' andato come il prossimo.
+    // Si ricalcola quando il primo parte, e solo con l'elenco aperto: col
+    // dettaglio di un viaggio aperto, un elenco nuovo gli cambierebbe sotto
+    // il viaggio che si sta guardando.
+    var nowRefresh by remember { mutableStateOf(0) }
     val journeys by produceState<List<UiJourney>?>(
         initialValue = null,
         // La PARTENZA fra le chiavi, che e' dove mancava.
@@ -1041,6 +1048,7 @@ fun MapScreen(
         // domanda di prima e sembra aver risposto a quella nuova e' il modo
         // piu' diretto di far perdere fiducia a chi lo usa.
         journeysTarget, journeyOrigin, journeyTimeMode, journeyTimeEpoch, ready?.buildId,
+        nowRefresh,
     ) {
         val reader = ready?.reader
         val to = journeysTarget
@@ -1197,6 +1205,20 @@ fun MapScreen(
     // taglia palazzi, fiumi e ferrovie — e mostrarla mentre uno cammina
     // davvero e' peggio che non mostrare niente: si vede dove sei, e basta.
     // Il percorso del bus arriva dopo, quando sali, dalla modalita' linea.
+    // Il giro di "Parti ora": si aspetta la partenza del primo viaggio in
+    // elenco, piu' mezzo minuto, e si ricalcola. Nessun battito da dieci
+    // secondi qui: farebbe ricomporre l'intera schermata per niente.
+    LaunchedEffect(journeys, journeyTimeMode, panel is Panel.Journeys) {
+        if (journeyTimeMode == "depart" || journeyTimeMode == "arrive") return@LaunchedEffect
+        if (panel !is Panel.Journeys) return@LaunchedEffect
+        // Un viaggio tutto a piedi parte "adesso" per definizione: ricalcolare
+        // dopo la sua partenza vorrebbe dire ricalcolare ogni mezzo minuto.
+        val primo = journeys?.firstOrNull { !it.raw.isWalkOnly }?.raw?.departure?.epochSecond
+            ?: return@LaunchedEffect
+        val attesa = (primo + 30) * 1000 - System.currentTimeMillis()
+        if (attesa > 0) kotlinx.coroutines.delay(attesa)
+        nowRefresh++
+    }
     LaunchedEffect(panel, journeys, navState) {
         val p = panel
         val r2 = ready?.reader
@@ -1650,10 +1672,13 @@ fun MapScreen(
                     } else {
                         "Il centro della mappa"
                     },
-                    timeLabel = when (journeyTimeMode) {
-                        "depart" -> "Parti alle ${hhmm(journeyTimeEpoch)}"
-                        "arrive" -> "Arriva entro le ${hhmm(journeyTimeEpoch)}"
-                        else -> "Parti ora"
+                    // Una frase sola per le due righe che la mostrano, e col
+                    // giorno quando non e' oggi. Il "domani" si decide quando
+                    // si sceglie l'orario, che e' quando lo si legge.
+                    timeLabel = remember(journeyTimeMode, journeyTimeEpoch) {
+                        dev.antigravity.fluidtransit.routing.Times.journeyTimeLabel(
+                            journeyTimeMode, journeyTimeEpoch, Instant.now().epochSecond,
+                        )
                     },
                     onPickFrom = {
                         plannerField = "from"
@@ -2485,10 +2510,11 @@ fun MapScreen(
                                             SAME_PLACE_M
                                     } ?: false,
                                     fromLabel = journeyFrom,
-                                    timeLabel = when (journeyTimeMode) {
-                                        "depart" -> "Parti alle ${hhmm(journeyTimeEpoch)}"
-                                        "arrive" -> "Arrivi entro ${hhmm(journeyTimeEpoch)}"
-                                        else -> "Parti ora"
+                                    timeLabel = remember(journeyTimeMode, journeyTimeEpoch) {
+                                        dev.antigravity.fluidtransit.routing.Times.journeyTimeLabel(
+                                            journeyTimeMode, journeyTimeEpoch,
+                                            Instant.now().epochSecond,
+                                        )
                                     },
                                     backdrop = backdrop,
                                     onTimeTap = { showTimeDialog = true },

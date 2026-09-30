@@ -167,6 +167,32 @@ object Times {
         else -> "${date.dayOfMonth} ${nomeMese(date)}"
     }
 
+    /**
+     * L'orario scelto per un viaggio: "Parti ora", "Parti alle 14:30",
+     * "Parti domani alle 07:30", "Arrivi entro le 09:00".
+     *
+     * Due difetti in una frase sola. Un orario gia' passato si sposta a
+     * domani — scegliere le 07:30 alle 23:00 vuol dire la mattina dopo — ma
+     * l'etichetta non lo diceva, e i viaggi di domani si leggevano come
+     * viaggi di stasera. E le due righe che la mostrano la scrivevano in due
+     * modi, "Arriva entro le" e "Arrivi entro": la stessa scelta, due frasi.
+     *
+     * @param mode "depart", "arrive", o altro per "ora".
+     */
+    fun journeyTimeLabel(mode: String, epoch: Long, nowEpoch: Long): String {
+        if (mode != "depart" && mode != "arrive") return "Parti ora"
+        val ora = if (epoch > 0) hhmm(epoch) else "—"
+        val giorno = if (epoch > 0) {
+            val zone = Ftb.ROME
+            val d = java.time.Instant.ofEpochSecond(epoch).atZone(zone).toLocalDate()
+            val oggi = java.time.Instant.ofEpochSecond(nowEpoch).atZone(zone).toLocalDate()
+            dateLabel(d, oggi).takeIf { it != "oggi" }?.let { "$it " } ?: ""
+        } else {
+            ""
+        }
+        return if (mode == "depart") "Parti ${giorno}alle $ora" else "Arrivi ${giorno}entro le $ora"
+    }
+
     private fun nomeMese(date: java.time.LocalDate): String =
         date.month.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.ITALIAN)
 }

@@ -122,5 +122,31 @@ class Routines(private val file: File) {
             routine.lastAdviceEpoch > 0 &&
                 routine.lastAdviceText.isNotEmpty() &&
                 nowEpoch <= routine.lastAdviceEpoch + GRAZIA_CONSIGLIO_S
+
+        /**
+         * La routine di oggi che conta adesso.
+         *
+         * Il widget prendeva la prima della lista, e con due routine nello
+         * stesso giorno — andata la mattina, ritorno la sera — passata la
+         * prima diceva "Per oggi e' andata" per tutto il resto della
+         * giornata, anche con la seconda ancora da venire. L'ordine qui e'
+         * quello di chi guarda: prima un consiglio ancora buono, poi la
+         * prossima di oggi, e solo se sono passate tutte l'ultima.
+         *
+         * @param today giorno della settimana, lunedi' = 1.
+         * @param dayStartEpoch la mezzanotte di oggi, nel fuso di Roma.
+         */
+        fun relevantToday(
+            routines: List<Routine>,
+            today: Int,
+            dayStartEpoch: Long,
+            nowEpoch: Long,
+        ): Routine? {
+            val diOggi = routines.filter { it.enabled && today in it.days }
+            fun ancora(r: Routine) = dayStartEpoch + r.anchorMinutes * 60L
+            return diOggi.filter { adviceStillGood(it, nowEpoch) }.minByOrNull(::ancora)
+                ?: diOggi.filter { nowEpoch < ancora(it) }.minByOrNull(::ancora)
+                ?: diOggi.maxByOrNull(::ancora)
+        }
     }
 }

@@ -85,7 +85,12 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var refreshing by remember { mutableStateOf(false) }
 
-    val now = Instant.now().epochSecond
+    // L'orologio comune, non uno suo: "da oggi alle 10:15" e l'elenco degli
+    // avvisi in corso si aggiornano col battito di tutta l'app. Con
+    // `Instant.now()` qui dentro restavano fermi finche' qualcos'altro non
+    // faceva ricomporre la schermata.
+    val battito = remember { dev.antigravity.fluidtransit.data.time.UiClock.ticks() }
+    val now by battito.collectAsStateWithLifecycle(initialValue = Instant.now().epochSecond)
     val attivi = (alerts ?: emptyList())
         .filter { AlertText.active(it.startEpoch, it.endEpoch, now) }
         // Le tue linee per prime; poi quelli di rete, che riguardano tutti;

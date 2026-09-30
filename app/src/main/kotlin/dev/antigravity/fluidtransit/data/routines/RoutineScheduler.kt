@@ -14,7 +14,6 @@ import dev.antigravity.fluidtransit.routing.Ftb
 import dev.antigravity.fluidtransit.routing.Raptor
 import java.time.Instant
 import java.time.LocalDate
-import java.time.ZonedDateTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
@@ -32,7 +31,6 @@ object RoutineScheduler {
 
     const val CHANNEL_ID = "routine"
     private const val ACTION = "dev.antigravity.fluidtransit.ROUTINE_ALARM"
-    private const val COMPUTE_LEAD_MINUTES = 45L
 
     fun ensureChannel(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java)
@@ -54,52 +52,66 @@ object RoutineScheduler {
         }
     }
 
-    /** La prossima occorrenza: oggi se la finestra non e' passata, se no il prossimo giorno buono. */
-    fun scheduleNextCompute(context: Context, r: Routines.Routine) {
-        if (r.days.isEmpty()) return
-        val zone = Ftb.ROME
-        val now = ZonedDateTime.now(zone)
-        for (offset in 0..7) {
-            val day = now.toLocalDate().plusDays(offset.toLong())
-            if (day.dayOfWeek.value !in r.days) continue
-            val anchor = java.time.Instant
-                .ofEpochSecond(Routines.anchorEpoch(day, r.anchorMinutes)).atZone(zone)
-            val computeAt = anchor.minusMinutes(COMPUTE_LEAD_MINUTES)
-            val at = when {
-                offset == 0 && now.isAfter(anchor) -> continue // oggi e' andata
-                offset == 0 && now.isAfter(computeAt) -> now.plusSeconds(5) // siamo gia' in finestra
-                else -> computeAt
-            }
-            setAlarm(context, r.id, "compute", at.toInstant().toEpochMilli())
-            return
+    /**
+     * La prossima sveglia, decisa da [RoutineTiming.next].
+     *
+     * @param doneDay il giorno appena chiuso, che non si riprende.
+     */
+    fun scheduleNextCompute(context: Context, r: Routines.Routine, doneDay: LocalDate? = null) {
+        val alarm = RoutineTiming.next(r, Instant.now().epochSecond, doneDay) ?: return
+        setAlarm(context, r.id, alarm.phase, alarm.atEpoch * 1000, alarm.day)
+    }
+
+    /**
+     * Un giro che non e' riuscito si riprova fra un minuto, finche' l'ora
+     * della routine non e' passata. Prima si richiamava la pianificazione,
+     * che dentro la finestra rispondeva "fra cinque secondi": con gli orari
+     * non ancora pronti, o un'eccezione che si ripeteva, erano cinque
+     * secondi di attesa e un giro, all'infinito.
+     */
+    private fun retryLater(context: Context, r: Routines.Routine, phase: String, day: LocalDate) {
+        val anchor = Routines.anchorEpoch(day, r.anchorMinutes)
+        val now = Instant.now().epochSecond
+        if (now + RETRY_SECONDS < anchor) {
+            setAlarm(context, r.id, phase, (now + RETRY_SECONDS) * 1000, day)
+        } else {
+            scheduleNextCompute(context, r, doneDay = day)
         }
     }
+
+    private const val RETRY_SECONDS = 60L
 
     fun cancel(context: Context, id: Long) {
         val am = context.getSystemService(AlarmManager::class.java)
-        am.cancel(pending(context, id, "compute"))
-        am.cancel(pending(context, id, "refine"))
+        am.cancel(pending(context, id, RoutineTiming.COMPUTE))
+        am.cancel(pending(context, id, RoutineTiming.REFINE))
     }
 
-    internal fun setAlarm(context: Context, id: Long, phase: String, atMillis: Long) {
+    internal fun setAlarm(context: Context, id: Long, phase: String, atMillis: Long, day: LocalDate) {
         val am = context.getSystemService(AlarmManager::class.java)
         runCatching {
             am.setExactAndAllowWhileIdle(
-                AlarmManager.RTC_WAKEUP, atMillis, pending(context, id, phase),
+                AlarmManager.RTC_WAKEUP, atMillis, pending(context, id, phase, day),
             )
         }.onFailure {
             // Senza il permesso delle sveglie esatte: meglio in ritardo che mai.
-            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMillis, pending(context, id, phase))
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMillis, pending(context, id, phase, day))
         }
     }
 
-    private fun pending(context: Context, id: Long, phase: String): PendingIntent {
+    private fun pending(context: Context, id: Long, phase: String, day: LocalDate? = null): PendingIntent {
         val intent = Intent(context, RoutineReceiver::class.java)
             .setAction(ACTION)
             .putExtra("id", id)
             .putExtra("phase", phase)
-        // requestCode distinto per (routine, fase): compute e refine convivono.
-        val code = (id * 2 + if (phase == "compute") 0 else 1).toInt()
+        // Il giorno della routine viaggia con la sveglia: quella delle 23:35
+        // e' della routine di domani alle 00:20, e il giro deve saperlo.
+        if (day != null) intent.putExtra("day", day.toEpochDay())
+        // requestCode per (routine, posto): la pianificazione e l'avviso
+        // stanno nello stesso posto — la prima arma il secondo — e le
+        // rifiniture nel loro. Gli stessi numeri di prima, cosi' le sveglie
+        // gia' armate da una versione vecchia si possono ancora cancellare.
+        val code = (id * 2 + if (phase == RoutineTiming.REFINE) 1 else 0).toInt()
         return PendingIntent.getBroadcast(
             context, code, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
@@ -110,11 +122,11 @@ object RoutineScheduler {
      * Il giro di calcolo: bundle + ritardi live + RAPTOR, poi la notifica
      * "esci alle" e le rifiniture man mano che l'uscita si avvicina.
      */
-    fun runComputation(context: Context, id: Long, phase: String, whenDone: () -> Unit) {
+    fun runComputation(context: Context, id: Long, phase: String, day: LocalDate, whenDone: () -> Unit) {
         val app = context.applicationContext as FluidTransitApp
         app.applicationScope.launch(Dispatchers.IO) {
             try {
-                computeAndNotify(app, id, phase)
+                computeAndNotify(app, id, phase, day)
             } catch (e: Exception) {
                 // C'era solo try/finally. Un'eccezione qui dentro — il
                 // lettore del bundle chiuso sotto i piedi dallo scambio
@@ -124,7 +136,7 @@ object RoutineScheduler {
                 // nessuno, quindi la routine moriva li'.
                 runCatching {
                     Routines(app).list().firstOrNull { it.id == id && it.enabled }
-                        ?.let { scheduleNextCompute(app, it) }
+                        ?.let { retryLater(app, it, phase, day) }
                 }
             } finally {
                 whenDone()
@@ -132,7 +144,7 @@ object RoutineScheduler {
         }
     }
 
-    private suspend fun computeAndNotify(app: FluidTransitApp, id: Long, phase: String) {
+    private suspend fun computeAndNotify(app: FluidTransitApp, id: Long, phase: String, day: LocalDate) {
         val store = Routines(app)
         val r = store.list().firstOrNull { it.id == id } ?: return
         if (!r.enabled) return
@@ -146,7 +158,7 @@ object RoutineScheduler {
             // E soprattutto: si RIARMA. Prima si usciva e basta, e quella
             // routine non si sarebbe piu' fatta viva — nessun errore, nessun
             // avviso, semplicemente non suonava mai piu'.
-            scheduleNextCompute(app, r)
+            retryLater(app, r, phase, day)
             return
         }
         val reader = ready.reader
@@ -155,6 +167,7 @@ object RoutineScheduler {
         runCatching {
             app.realtime.refreshVehicles()
             app.realtime.refreshDelays()
+            app.realtime.refreshPredictions()
         }
         val resolvedDelays = runCatching {
             val v = app.realtime.vehicles.value
@@ -169,14 +182,17 @@ object RoutineScheduler {
                 resolvedDelays.delayByTrip,
                 resolvedDelays.canceledTrips,
                 java.time.Instant.now().epochSecond,
+                // Le previsioni fermata per fermata, come il tabellone, il
+                // pianificatore e l'assistente. Senza, "Esci alle" si
+                // calcolava su un ritardo solo per tutta la corsa, e poteva
+                // dire un minuto diverso dalla scheda dello stesso bus.
+                live = app.departureBoards.live(),
             )
         } else {
             Raptor.Realtime.NONE
         }
 
-        val zone = Ftb.ROME
-        val anchor = java.time.Instant
-            .ofEpochSecond(Routines.anchorEpoch(LocalDate.now(zone), r.anchorMinutes))
+        val anchor = java.time.Instant.ofEpochSecond(Routines.anchorEpoch(day, r.anchorMinutes))
         val from = Raptor.Place(r.fromLat, r.fromLon)
         val to = Raptor.Place(r.toLat, r.toLon)
 
@@ -201,7 +217,7 @@ object RoutineScheduler {
                     lastAdviceText = "Oggi nessun bus utile",
                 )
             }
-            scheduleNextCompute(app, r)
+            scheduleNextCompute(app, r, doneDay = day)
             return
         }
 
@@ -225,6 +241,19 @@ object RoutineScheduler {
                 lastAdviceEpoch = leave.epochSecond,
                 lastAdviceText = advice,
             )
+        }
+
+        // La pianificazione di un "arriva entro": l'ora di uscita adesso si
+        // sa, e l'avviso si arma tre quarti d'ora prima. Niente notifica: e'
+        // presto, e il consiglio lo mostrano gia' Oggi e il widget.
+        if (phase == RoutineTiming.PLAN) {
+            runCatching { dev.antigravity.fluidtransit.ui.widget.RoutineWidget().updateAll(app) }
+            val alertAt = maxOf(
+                leave.epochSecond - RoutineTiming.COMPUTE_LEAD_SECONDS,
+                Instant.now().epochSecond + RoutineTiming.NOW_DELAY_SECONDS,
+            )
+            setAlarm(app, id, RoutineTiming.COMPUTE, alertAt * 1000, day)
+            return
         }
 
         val title = when {
@@ -257,7 +286,7 @@ object RoutineScheduler {
             .setStyle(NotificationCompat.BigTextStyle().bigText(advice))
             .setContentIntent(open)
             .setAutoCancel(true)
-            .setOnlyAlertOnce(phase == "refine")
+            .setOnlyAlertOnce(phase == RoutineTiming.REFINE)
             .build()
         runCatching { nm.notify(id.toInt(), notification) }
 
@@ -272,9 +301,11 @@ object RoutineScheduler {
             leave.toEpochMilli() - 2 * 60_000,
         ).firstOrNull { it > nowMs + 30_000 }
         if (refineAt != null) {
-            setAlarm(app, id, "refine", refineAt)
+            setAlarm(app, id, RoutineTiming.REFINE, refineAt, day)
         } else {
-            scheduleNextCompute(app, r)
+            // Oggi e' fatta: il prossimo giorno buono, non "fra cinque
+            // secondi" perche' l'ora della routine non e' ancora passata.
+            scheduleNextCompute(app, r, doneDay = day)
         }
     }
 
@@ -291,9 +322,16 @@ class RoutineReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getLongExtra("id", -1)
         if (id < 0) return
-        val phase = intent.getStringExtra("phase") ?: "compute"
+        val phase = intent.getStringExtra("phase") ?: RoutineTiming.COMPUTE
+        // Le sveglie armate da una versione vecchia non hanno il giorno:
+        // per quelle vale oggi, com'era.
+        val day = if (intent.hasExtra("day")) {
+            LocalDate.ofEpochDay(intent.getLongExtra("day", 0))
+        } else {
+            LocalDate.now(Ftb.ROME)
+        }
         val pending = goAsync()
-        RoutineScheduler.runComputation(context, id, phase) { pending.finish() }
+        RoutineScheduler.runComputation(context, id, phase, day) { pending.finish() }
     }
 }
 

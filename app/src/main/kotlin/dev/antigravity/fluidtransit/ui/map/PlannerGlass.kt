@@ -26,6 +26,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.antigravity.fluidengine.ui.fluid.ContinuousCornerShape
@@ -99,6 +101,8 @@ fun PlannerGlass(
                     // evita la domanda "da dove sta calcolando?".
                     text = from?.name ?: defaultFrom,
                     placeholder = from == null,
+                    spoken = plannerFieldSpoken("Partenza", from?.name ?: defaultFrom),
+                    onClickLabel = "Scegli la partenza",
                     onClick = onPickFrom,
                 )
                 FluidHairline(modifier = Modifier.padding(start = 52.dp, end = 16.dp))
@@ -113,6 +117,11 @@ fun PlannerGlass(
                     },
                     text = to?.name ?: "Dove vai?",
                     placeholder = to == null,
+                    // Vuota NON legge "Dove vai?": e' un invito, non un valore,
+                    // e "Destinazione: Dove vai?" si legge come se fosse il
+                    // nome del posto.
+                    spoken = plannerFieldSpoken("Destinazione", to?.name),
+                    onClickLabel = "Scegli la destinazione",
                     onClick = onPickTo,
                 )
             }
@@ -181,11 +190,29 @@ fun PlannerGlass(
     }
 }
 
+/**
+ * Cosa legge un lettore di schermo su una riga Da o A.
+ *
+ * Le due righe si distinguevano solo per l'icona, che non dice niente a
+ * nessun lettore, e per il segnaposto ("La tua posizione", "Dove vai?"):
+ * scelto un posto, il segnaposto spariva e TalkBack leggeva "Piazza
+ * Dalmazia, pulsante" e "Careggi, pulsante", senza dire quale fosse la
+ * partenza — e il tasto "Scambia" li' sotto rendeva la cosa ancora piu'
+ * confusa. Chi non ha ancora scelto (nome vuoto) sente "da scegliere",
+ * non l'invito scritto sullo schermo.
+ */
+internal fun plannerFieldSpoken(role: String, name: String?): String =
+    if (name.isNullOrBlank()) "$role: da scegliere" else "$role: $name"
+
 @Composable
 private fun PlannerField(
     icon: @Composable (androidx.compose.ui.graphics.Color) -> Unit,
     text: String,
     placeholder: Boolean,
+    /** La riga a voce: ruolo e valore, vedi [plannerFieldSpoken]. */
+    spoken: String,
+    /** Cosa fa il tocco, per chi non vede dove sta toccando. */
+    onClickLabel: String,
     onClick: () -> Unit,
 ) {
     Row(
@@ -195,9 +222,14 @@ private fun PlannerField(
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
+                onClickLabel = onClickLabel,
                 role = Role.Button,
                 onClick = onClick,
             )
+            // Dopo il clickable, che cosi' conserva il tocco: la descrizione
+            // sostituisce il solo testo del nome, che da solo non diceva se
+            // questa riga e' la partenza o l'arrivo.
+            .clearAndSetSemantics { contentDescription = spoken }
             .padding(start = 16.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),

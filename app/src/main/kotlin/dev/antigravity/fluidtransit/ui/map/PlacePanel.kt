@@ -7,11 +7,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Directions
@@ -29,10 +34,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.antigravity.fluidengine.ui.fluid.FluidCapsuleShape
+import dev.antigravity.fluidengine.ui.fluid.FluidTabBarDefaults
 import dev.antigravity.fluidengine.ui.fluid.GlassBackdropState
 import dev.antigravity.fluidengine.ui.fluid.GlassDefaults
 import dev.antigravity.fluidengine.ui.fluid.GlassEdge
@@ -126,6 +136,7 @@ fun PlacePanelContent(
 ) {
     var saving by remember { mutableStateOf(false) }
     var customLabel by remember { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
 
     Row(
         modifier = Modifier
@@ -266,6 +277,19 @@ fun PlacePanelContent(
                         color = MaterialTheme.colorScheme.onSurface,
                     ),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    // "Fatto" sulla tastiera chiudeva la tastiera e basta: il
+                    // nome restava li', scritto, e per salvarlo si doveva
+                    // cercare "Salva" — che con la tastiera aperta era
+                    // coperto. Ora fa quello che fa il tasto accanto, con la
+                    // sua stessa regola: senza un nome non c'e' niente da
+                    // salvare, e Invio chiude solo la tastiera come prima.
+                    keyboardActions = KeyboardActions(
+                        onDone = {
+                            focusManager.clearFocus()
+                            if (customLabel.isNotBlank()) onSave(customLabel)
+                        },
+                    ),
                     decorationBox = { inner ->
                         if (customLabel.isEmpty()) {
                             Text(
@@ -289,6 +313,50 @@ fun PlacePanelContent(
                 onClick = { onSave(customLabel) },
             )
         }
+        // Il modulo sale sopra la tastiera.
+        //
+        // Toccando il campo del nome la tastiera si prendeva gli ultimi
+        // 260-300 dp dello schermo, e il pannello — che siede 90 dp sopra la
+        // barra di sistema, appena sopra la tab bar, e non sa niente della
+        // tastiera, perche' l'app e' a tutto schermo e la tastiera arriva
+        // solo come margine — restava coperto tranne la testata: sparivano la
+        // riga Casa/Lavoro/Scuola, il campo e "Salva", e si scriveva alla
+        // cieca. In orizzontale il pannello era coperto per intero.
+        //
+        // Si alza di quanto la tastiera SPORGE oltre il punto in cui il
+        // pannello gia' sta (`keyboardLift`), non di tutta la sua altezza:
+        // sommarla al margine lasciava piu' di 90 dp di vetro vuoto fra il
+        // modulo e la tastiera. Sta qui e non nell'host della mappa perche'
+        // vale solo per questa scheda — una tastiera aperta da un'altra parte
+        // non deve sollevare gli altri pannelli — e vale solo mentre si
+        // compila. Il vetro si allunga verso l'alto e il fondo resta dov'e',
+        // sotto la tastiera; in orizzontale la testata esce dallo schermo e
+        // restano visibili il campo e "Salva", che sono in fondo.
+        val density = LocalDensity.current
+        val tastiera = with(density) { WindowInsets.ime.getBottom(density).toDp() }
+        val barraSistema = with(density) { WindowInsets.navigationBars.getBottom(density).toDp() }
+        Spacer(Modifier.height(keyboardLift(tastiera, barraSistema, PLACE_PANEL_RESTING_MARGIN)))
     }
     Spacer(Modifier.height(6.dp))
 }
+
+/**
+ * A che distanza dal fondo, sopra la barra di sistema, siede questo pannello.
+ *
+ * E' il numero di MapScreen (`ContentInset + 10.dp`, lo stesso di ogni
+ * pannello che non e' in modalita' linea): se la' cambia, cambia anche qui,
+ * altrimenti il modulo si alza troppo poco o troppo.
+ */
+private val PLACE_PANEL_RESTING_MARGIN = FluidTabBarDefaults.ContentInset + 10.dp
+
+/**
+ * Di quanto alzare il modulo perche' la tastiera non lo copra.
+ *
+ * Il fondo del pannello sta a [restingMargin] sopra la barra di sistema; la
+ * tastiera comincia a [ime] dal fondo dello schermo, barra compresa, quindi
+ * quella barra si toglie una volta sola. Quando la tastiera e' piu' bassa del
+ * pannello non c'e' niente da alzare, e il risultato non e' mai negativo.
+ * La regola e' la stessa di `listMax`: la tastiera si sottrae UNA volta.
+ */
+internal fun keyboardLift(ime: Dp, navBar: Dp, restingMargin: Dp): Dp =
+    maxOf(ime - navBar - restingMargin, 0.dp)

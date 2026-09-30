@@ -7,6 +7,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,6 +37,8 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
@@ -46,12 +49,15 @@ import dev.antigravity.fluidengine.ui.fluid.FluidSpinner
 import dev.antigravity.fluidengine.ui.fluid.GlassBackdropState
 import dev.antigravity.fluidengine.ui.theme.FluidEmptyState
 import dev.antigravity.fluidtransit.routing.BundleReader
+import dev.antigravity.fluidtransit.routing.DepartureText
 import dev.antigravity.fluidtransit.routing.Ftb
+import dev.antigravity.fluidtransit.routing.JourneyText
 import dev.antigravity.fluidtransit.routing.LiveTimes
 import dev.antigravity.fluidtransit.routing.TripProgress
 import dev.antigravity.fluidtransit.routing.Raptor
 import dev.antigravity.fluidtransit.routing.Times
 import dev.antigravity.fluidtransit.routing.Words
+import dev.antigravity.fluidtransit.ui.common.toneColor
 import java.time.Instant
 
 /** Un viaggio gia' tradotto in stringhe: la UI non tocca il reader. */
@@ -74,6 +80,29 @@ class UiJourney(
     val legs: List<UiLeg>,
     val raw: Raptor.Journey,
 ) {
+    /**
+     * Il viaggio a voce, per un lettore di schermo: vedi [JourneyText].
+     *
+     * La riga della lista e' fatta di segni — una freccia fra due orari, un
+     * pedone col suo numero, pastiglie, un pallino — e letta a voce diventava
+     * "07:12, 07:40, 3, 20, 28 min, 1 cambio". Le camminate si dicono coi
+     * secondi veri della tappa e non coi minuti arrotondati della striscia.
+     */
+    fun spoken(): String = JourneyText.spoken(
+        depTime = depTime,
+        arrTime = arrTime,
+        durationLabel = durationLabel,
+        transfers = transfers,
+        steps = legs.map { leg ->
+            when (leg) {
+                is UiLeg.Walk -> JourneyText.Step.Walk(leg.seconds)
+                is UiLeg.Ride -> JourneyText.Step.Ride(leg.line, leg.live)
+            }
+        },
+        walkOnly = walkOnly,
+        walkSeconds = raw.walkSeconds,
+    )
+
     companion object {
         fun of(
             reader: BundleReader,
@@ -355,19 +384,43 @@ fun JourneysContent(
 
 @Composable
 private fun JourneyRow(j: UiJourney, onClick: () -> Unit) {
-    Row(
+    // Una frase sola per tutta la riga, non i suoi pezzi.
+    //
+    // Con TalkBack la riga si leggeva "07:12, 07:40, 3, 20, ›, 7, 28 min, 1
+    // cambio": il 3 sono tre minuti a piedi ma suona come la linea 3, la
+    // pastiglia della linea non diceva "linea", e il pallino che pulsa — l'unico
+    // segno di "questi orari sono dal vivo" — non diceva niente. E la riga non
+    // si annunciava nemmeno come un tasto.
+    val parlato = remember(j) { j.spoken() }
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
+                role = Role.Button,
+                onClickLabel = "Vedi il dettaglio del viaggio",
                 onClick = onClick,
             )
+            // DOPO il clickable e non prima: clearAndSetSemantics toglie la
+            // semantica di quello che gli sta dentro, e il tocco (con ruolo ed
+            // etichetta) deve restare fuori, a lui.
+            .clearAndSetSemantics { contentDescription = parlato }
             .padding(vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        // Durata e cambi in testa, non in una colonna a destra.
+        //
+        // Quella colonna veniva misurata per prima e prendeva la larghezza che
+        // le serviva: con "1 h 05 min" e i caratteri grandi restavano poche
+        // decine di dp alla striscia delle tappe, e le ultime pastiglie non
+        // si disegnavano. Cosi' la striscia ha tutta la riga, e se la testata
+        // non ci sta la durata va a capo invece di schiacciare gli orari.
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
+        ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -376,28 +429,33 @@ private fun JourneyRow(j: UiJourney, onClick: () -> Unit) {
                     text = "${j.depTime} → ${j.arrTime}",
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
                 )
                 if (j.hasLive) LiveDot(liveGreen())
             }
-            Spacer(Modifier.height(6.dp))
-            StrisciaTappe(j)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = j.durationLabel,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                )
+                Text(
+                    text = when {
+                        j.walkOnly -> Times.durationOrUnderMinute(j.raw.walkSeconds) + " a piedi"
+                        else -> JourneyText.transfersLabel(j.transfers)
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
         }
-        Column(horizontalAlignment = Alignment.End) {
-            Text(
-                text = j.durationLabel,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = when {
-                    j.walkOnly -> dev.antigravity.fluidtransit.routing.Times.durationOrUnderMinute(j.raw.walkSeconds) + " a piedi"
-                    j.transfers == 0 -> "diretto"
-                    else -> dev.antigravity.fluidtransit.routing.Words.count(j.transfers, "cambio", "cambi")
-                },
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Spacer(Modifier.height(6.dp))
+        StrisciaTappe(j)
     }
 }
 
@@ -439,9 +497,7 @@ fun JourneyDetailContent(
                 text = buildString {
                     append(j.durationLabel)
                     append(" · ")
-                    append(
-                        if (j.transfers == 0) "diretto" else dev.antigravity.fluidtransit.routing.Words.count(j.transfers, "cambio", "cambi"),
-                    )
+                    append(JourneyText.transfersLabel(j.transfers))
                     if (j.raw.walkSeconds > dev.antigravity.fluidtransit.routing.Times.NOW_SECONDS) {
                         append(" · ")
                         append(dev.antigravity.fluidtransit.routing.Times.durationLabel(j.raw.walkSeconds))
@@ -666,7 +722,14 @@ fun JourneyDetailContent(
                             horizontalArrangement = Arrangement.spacedBy(5.dp),
                             modifier = Modifier.padding(top = 2.dp),
                         ) {
-                            if (leg.live) LiveDot(liveGreen())
+                            // Il pallino prende il tono del numero che accompagna,
+                            // come nel tabellone e nella scheda della corsa: un
+                            // pallino verde accanto a "+33 min di ritardo" dice
+                            // due cose opposte nello stesso centimetro, e a colpo
+                            // d'occhio un bus in ritardo di mezz'ora sembrava a
+                            // posto. Che il dato sia dal vivo lo dicono gia' il
+                            // pulsare e le parole, non il colore.
+                            if (leg.live) LiveDot(toneColor(DepartureText.toneOf(leg.delaySeconds)))
                             Text(
                                 text = if (leg.live) {
                                     "dal bus · " +
@@ -793,7 +856,17 @@ private fun RoutineForm(
                 Text(
                     text = letters[d - 1],
                     style = MaterialTheme.typography.labelLarge,
-                    color = if (on) Color.White else MaterialTheme.colorScheme.onSurface,
+                    // La coppia del riempimento, non un bianco fisso: con "Colori
+                    // dal telefono" in tema scuro `primary` e' un pastello chiaro,
+                    // e le lettere dei giorni ACCESI — proprio quelle da leggere —
+                    // uscivano bianche su lilla, circa 1,7 a 1. Anche con
+                    // l'accento di serie, in scuro, il contenuto giusto e'
+                    // scuro: `onPrimary` sceglie il lato con piu' contrasto.
+                    color = if (on) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
                 )
             }
         }
@@ -1049,6 +1122,28 @@ fun buildBusNavPlan(
 }
 
 /**
+ * Quando la striscia toglie i minuti delle camminate per fare spazio.
+ *
+ * Con tre corse la striscia e' lunga a qualunque corpo del testo: l'icona
+ * dice gia' che li' si cammina, e quanto lo dice il dettaglio. Due corse con
+ * una camminata all'inizio, una in mezzo e una in fondo, invece, dovrebbero
+ * stare in una riga a corpo normale — la stima e' sulle larghezze, circa 260
+ * dp per i 292 di una riga su uno schermo da 360, e non e' stata ancora
+ * misurata su un telefono — e non starci a corpo grande, dove i numeri
+ * crescono col testo e le pastiglie no. Toglierli sempre farebbe perdere i
+ * minuti anche a chi ha lo spazio per vederli, sul viaggio con un cambio che
+ * e' il piu' comune.
+ *
+ * Non e' questa regola a proteggere le ultime pastiglie: a quello pensa il
+ * ritorno a capo della striscia. Serve a tenerla su una riga finche' si puo'.
+ */
+internal fun stripCompact(rides: Int, walkLegs: Int, fontScale: Float): Boolean =
+    rides >= 3 || (rides >= 2 && walkLegs >= 3 && fontScale > STRIP_LARGE_FONT)
+
+/** Da questo corpo del testo in su la striscia con tre camminate si stringe. */
+private const val STRIP_LARGE_FONT = 1.15f
+
+/**
  * La forma del viaggio in una riga: si cammina, si sale, si cammina.
  *
  * La carta mostrava un'icona di pedone e poi tutte le pastiglie delle linee,
@@ -1056,19 +1151,22 @@ fun buildBusNavPlan(
  * viaggio con due cambi si leggeva come "a piedi, e poi tre bus". Qui le
  * tappe sono nell'ordine vero e separate da un segno di passaggio, quindi la
  * striscia si legge come si legge il viaggio.
+ *
+ * Va a capo, non si taglia. Era una `Row`: ogni figlio riceveva la larghezza
+ * che restava, e in fondo restavano zero dp, quindi con i caratteri grandi o
+ * una durata lunga le ultime pastiglie non si disegnavano — due opzioni
+ * "a piedi > 20 > 7" e "a piedi > 20 > 12" sembravano identiche, e la terza
+ * linea di un viaggio con due cambi non c'era proprio. Il segno di passaggio
+ * viaggia insieme alla tappa che introduce, cosi' una riga non finisce mai
+ * con un "›" da solo.
  */
 @Composable
 private fun StrisciaTappe(j: UiJourney) {
-    // Con due cambi la striscia diventa lunga e i minuti delle camminate
-    // sono la prima cosa che si puo' togliere: l'icona dice gia' che li' si
-    // cammina, e quanto lo dice il dettaglio. Senza questa regola l'ultima
-    // tappa finiva sotto la colonna della durata.
-    val compatta = j.legs.count { it is UiLeg.Ride } >= 3
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
-    ) {
-        if (j.walkOnly) {
+    if (j.walkOnly) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
             Icon(
                 imageVector = Icons.AutoMirrored.Rounded.DirectionsWalk,
                 contentDescription = null,
@@ -1080,39 +1178,58 @@ private fun StrisciaTappe(j: UiJourney) {
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            return@Row
         }
+        return
+    }
+    // Con molte tappe la striscia diventa lunga e i minuti delle camminate
+    // sono la prima cosa che si puo' togliere: l'icona dice gia' che li' si
+    // cammina, e quanto lo dice il dettaglio.
+    val compatta = stripCompact(
+        rides = j.legs.count { it is UiLeg.Ride },
+        walkLegs = j.legs.count { it is UiLeg.Walk },
+        fontScale = LocalDensity.current.fontScale,
+    )
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        itemVerticalAlignment = Alignment.CenterVertically,
+    ) {
         for ((i, leg) in j.legs.withIndex()) {
-            if (i > 0) {
-                Text(
-                    text = "›",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            when (leg) {
-                is UiLeg.Walk -> Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.DirectionsWalk,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(15.dp),
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                if (i > 0) {
+                    Text(
+                        text = "›",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    // Zero minuti non si scrivono: sarebbe un'icona con
-                    // accanto un numero che non vuol dire niente.
-                    if (leg.minutes > 0 && !compatta) {
-                        Text(
-                            text = "${leg.minutes}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
                 }
+                when (leg) {
+                    is UiLeg.Walk -> Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.DirectionsWalk,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(15.dp),
+                        )
+                        // Zero minuti non si scrivono: sarebbe un'icona con
+                        // accanto un numero che non vuol dire niente.
+                        if (leg.minutes > 0 && !compatta) {
+                            Text(
+                                text = "${leg.minutes}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
 
-                is UiLeg.Ride -> RoutePill(text = leg.line, colorRgb = leg.colorRgb)
+                    is UiLeg.Ride -> RoutePill(text = leg.line, colorRgb = leg.colorRgb)
+                }
             }
         }
     }

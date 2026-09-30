@@ -161,6 +161,9 @@ class NavigationService : Service() {
      */
     private var loopJob: kotlinx.coroutines.Job? = null
 
+    /** Il giro di rete in corso, se c'e': vedi il ciclo. */
+    private var netJob: kotlinx.coroutines.Job? = null
+
     // --- dove sei ---------------------------------------------------------
     //
     // Il modo Preciso prometteva il GPS dal giorno in cui e' nato — il tipo
@@ -258,14 +261,28 @@ class NavigationService : Service() {
                 // il processo. Ma la cancellazione passa: `runCatching` la
                 // inghiottiva, e un giro superato da un viaggio nuovo finiva
                 // il suo lavoro e lo pubblicava sopra quello nuovo.
-                try {
-                    app.realtime.refreshVehicles()
-                    app.realtime.refreshDelays()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    // Senza rete si calcola con quello che c'e'.
-                }
+                // La rete in un giro suo, aspettato al massimo [NET_WAIT_MS].
+                //
+                // Le due chiamate hanno trenta secondi di timeout ciascuna, e
+                // con la rete appesa — una galleria, una zona morta — il
+                // ciclo restava fermo fino a un minuto: niente posizione
+                // ricalcolata, niente "scendi qui", la card congelata proprio
+                // mentre si viaggia. Un timeout attorno non basta, perche'
+                // la chiamata bloccante non si interrompe e withContext ne
+                // aspetta comunque la fine: il giro continua per conto suo,
+                // e il ciclo va avanti con quello che c'e'. Uno solo per
+                // volta: finche' il precedente e' in corso, si aspetta quello.
+                val giro = netJob?.takeIf { it.isActive } ?: scope.launch {
+                    try {
+                        app.realtime.refreshVehicles()
+                        app.realtime.refreshDelays()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // Senza rete si calcola con quello che c'e'.
+                    }
+                }.also { netJob = it }
+                kotlinx.coroutines.withTimeoutOrNull(NET_WAIT_MS) { giro.join() }
                 ensureActive()
                 if (plan !== p0) break
                 val bundle = readerOrNull(app)
@@ -932,6 +949,13 @@ class NavigationService : Service() {
         const val NOTIFICATION_ID = 100
         const val ALERT_ID = 101
         const val ACTION_STOP = "dev.antigravity.fluidtransit.NAV_STOP"
+
+        /**
+         * Quanto il ciclo aspetta la rete prima di ricalcolare con quello che
+         * ha. Un giro buono sono qualche centinaio di millisecondi; sei
+         * secondi lasciano passare la rete lenta senza fermare la card.
+         */
+        const val NET_WAIT_MS = 6_000L
 
         /** Ogni quanto e ogni quanti metri si chiede una posizione nuova. */
         const val LOCATION_INTERVAL_MS = 5_000L

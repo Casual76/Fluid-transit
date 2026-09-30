@@ -104,7 +104,9 @@ class UiJourney(
                         arrTime = hm(leg.arrival),
                         stops = leg.alightPosition - leg.boardPosition,
                         delaySeconds = leg.delaySeconds,
-                        live = leg.trip in liveTrips,
+                        // Quello che il motore ha davvero usato, non "la corsa
+                        // ha un numero da qualche parte": vedi Leg.Ride.monitored.
+                        live = leg.monitored,
                     )
                 }
             }
@@ -119,7 +121,7 @@ class UiJourney(
                 transfers = j.transfers,
                 walkMin = (j.walkSeconds + 30) / 60,
                 walkOnly = j.isWalkOnly,
-                hasLive = j.legs.any { it is Raptor.Leg.Ride && it.trip in liveTrips },
+                hasLive = j.legs.any { it is Raptor.Leg.Ride && it.monitored },
                 pills = j.legs.filterIsInstance<Raptor.Leg.Ride>().map { r ->
                     reader.routeShortName(r.route).ifEmpty { reader.routeLongName(r.route) } to
                         reader.routeDisplayColor(r.route)

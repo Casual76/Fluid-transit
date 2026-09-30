@@ -330,6 +330,51 @@ class RaptorTest {
         override fun covers(tripIndex: Int) = ritardi.keys.any { it.first == tripIndex }
     }
 
+    /** Un feed che copre la corsa ma non risponde piu': previsioni scadute. */
+    private class Scadute(private val trip: Int) : LiveTimes {
+        override fun at(tripIndex: Int, position: Int, stopCount: Int, nowEpoch: Long): LiveTimes.At? = null
+        override fun covers(tripIndex: Int) = tripIndex == trip
+    }
+
+    @Test
+    fun `previsioni scadute non ripiegano sul numero unico per corsa`() {
+        // Un'ora senza rete: le previsioni della corsa sono oltre i tre
+        // quarti d'ora e non rispondono, ma il numero unico per corsa era
+        // ancora nel pacchetto. L'itinerario lo applicava e lo chiamava "dal
+        // bus", mentre il tabellone della stessa fermata diceva "orario da
+        // tabella".
+        BundleReader(writeBundle()).use { r ->
+            val trip = r.findTripByTripId("R1-0800")
+            val rt = Raptor.Realtime(
+                delayByTrip = mapOf(trip to 600),
+                live = Scadute(trip),
+                observedAtEpoch = epochAt(feedStart, 7, 58).epochSecond,
+            )
+            val ride = Raptor(r).plan(nearA, nearC, epochAt(feedStart, 7, 58), rt)
+                .first { !it.isWalkOnly }
+                .legs.filterIsInstance<Raptor.Leg.Ride>().first()
+            assertEquals(0, ride.delaySeconds)
+            assertTrue(!ride.monitored, "senza un dato applicato la tratta non e' 'dal vivo'")
+        }
+    }
+
+    @Test
+    fun `una tratta dice se un dato dal vivo e' stato applicato`() {
+        BundleReader(writeBundle()).use { r ->
+            val trip = r.findTripByTripId("R1-0800")
+            val rt = Raptor.Realtime(
+                live = PerFermata(mapOf((trip to 0) to 0)),
+                observedAtEpoch = epochAt(feedStart, 7, 58).epochSecond,
+            )
+            val ride = Raptor(r).plan(nearA, nearC, epochAt(feedStart, 7, 58), rt)
+                .first { !it.isWalkOnly }
+                .legs.filterIsInstance<Raptor.Leg.Ride>().first()
+            // Zero, ma seguito: "in orario", non "non se ne sa niente".
+            assertEquals(0, ride.delaySeconds)
+            assertTrue(ride.monitored)
+        }
+    }
+
     @Test
     fun `si sale con il ritardo della fermata dove si sale`() {
         // La R1 delle 08:00 e' data in ritardo di 10 minuti alla prima

@@ -179,8 +179,9 @@ object RoutineScheduler {
         }.getOrNull()
         val live = if (resolvedDelays != null) {
             Raptor.Realtime(
-                resolvedDelays.delayByTrip,
-                resolvedDelays.canceledTrips,
+                // Il numero unico per corsa solo se e' ancora buono: vedi delaysFresh.
+                if (app.realtime.delaysFresh()) resolvedDelays.delayByTrip else emptyMap(),
+                if (app.realtime.delaysFresh()) resolvedDelays.canceledTrips else emptySet(),
                 java.time.Instant.now().epochSecond,
                 // Le previsioni fermata per fermata, come il tabellone, il
                 // pianificatore e l'assistente. Senza, "Esci alle" si

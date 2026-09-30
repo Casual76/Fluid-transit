@@ -317,6 +317,23 @@ class RealtimeClient(
 
     suspend fun refreshDelays() = delaysLock.withLock { fetchDelays() }
 
+    /**
+     * I ritardi per corsa sono ancora buoni per un calcolo?
+     *
+     * Senza rete il pacchetto dei ritardi resta quello di prima — si butta
+     * solo quando l'origine diretta risponde — e il pianificatore lo
+     * applicava a un viaggio calcolato un'ora dopo, chiamando "dal bus" un
+     * ritardo di un'ora fa mentre il tabellone della stessa fermata diceva
+     * gia' "orario da tabella". Oltre i tre quarti d'ora del modello dei
+     * ritardi, un numero non entra piu' nei calcoli.
+     */
+    fun delaysFresh(nowEpoch: Long = clockMs() / 1000): Boolean {
+        val d = _delays.value ?: return false
+        val quando = d.feedTimestamp.takeIf { it > 0 } ?: d.generatedAt
+        if (quando <= 0) return false
+        return nowEpoch - quando <= dev.antigravity.fluidtransit.data.departures.LiveFromPredictions.FORGET_SECONDS
+    }
+
     private suspend fun fetchDelays() = withContext(Dispatchers.IO) {
         // In un processo fresco lo stato parte da SCHEDULE_ONLY e nessuno ha
         // ancora interrogato il proxy. Uscire di qui voleva dire che il

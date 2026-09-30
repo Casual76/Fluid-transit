@@ -393,11 +393,27 @@ class Raptor(private val reader: BundleReader) {
         position: Int,
         stopCount: Int,
         scheduledEpoch: Long,
-    ): Int {
+    ): Int = liveApplied(rt, trip, position, stopCount, scheduledEpoch) ?: 0
+
+    /**
+     * Il ritardo dal vivo che si applica davvero, o null se non se ne applica
+     * nessuno. La differenza fra null e zero e' quella fra "non ne sappiamo
+     * niente" e "e' in orario", ed e' cio' che la tratta porta come
+     * [Leg.Ride.monitored]: prima il pannello decideva "dal bus" guardando se
+     * la corsa aveva un numero nel pacchetto, anche vecchio di un'ora, mentre
+     * gli orari mostrati potevano non usarlo affatto.
+     */
+    private fun liveApplied(
+        rt: Realtime,
+        trip: Int,
+        position: Int,
+        stopCount: Int,
+        scheduledEpoch: Long,
+    ): Int? {
         if (rt.observedAtEpoch > 0 &&
             Math.abs(scheduledEpoch - rt.observedAtEpoch) > LIVE_WINDOW_SECONDS
         ) {
-            return 0
+            return null
         }
         // Prima la previsione della fermata giusta, che e' quella che il
         // tabellone mostra; il numero unico per corsa resta per le corse che
@@ -408,11 +424,16 @@ class Raptor(private val reader: BundleReader) {
         if (live != null && live.covers(trip)) {
             val now = if (rt.observedAtEpoch > 0) rt.observedAtEpoch else scheduledEpoch
             val at = live.at(trip, position, stopCount, now)
-            if (at != null && at.certainty != Certainty.SERVED) {
+            // Coperta dalle previsioni ma senza risposta: e' troppo vecchia
+            // (oltre i tre quarti d'ora del modello). Il tabellone qui dice
+            // "orario da tabella", e l'itinerario deve dire lo stesso invece
+            // di ripiegare sul numero unico per corsa, che non ha eta'.
+            if (at == null) return null
+            if (at.certainty != Certainty.SERVED) {
                 return at.delaySeconds.coerceAtLeast(0)
             }
         }
-        val raw = rt.delayByTrip[trip] ?: return 0
+        val raw = rt.delayByTrip[trip] ?: return null
         return raw.coerceAtLeast(0)
     }
 
@@ -742,7 +763,8 @@ class Raptor(private val reader: BundleReader) {
                     // stato costruito.
                     val stopCount = reader.patternStopCount(pattern)
                     val schedBoard = dayStart + dep0 + reader.profileOffset(profile, boardPos)
-                    val delay = liveDelay(rt, trip, boardPos, stopCount, schedBoard)
+                    val applied = liveApplied(rt, trip, boardPos, stopCount, schedBoard)
+                    val delay = applied ?: 0
                     // Alla discesa il ritardo puo' essere un altro: le
                     // previsioni sono fermata per fermata, e su un terzo
                     // delle corse cambiano di piu' di un minuto lungo il
@@ -780,6 +802,7 @@ class Raptor(private val reader: BundleReader) {
                             ),
                             arrival = Instant.ofEpochSecond(arrivoEff),
                             delaySeconds = delay,
+                            monitored = applied != null,
                         ),
                     )
                     rides++

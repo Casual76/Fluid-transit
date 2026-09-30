@@ -1082,10 +1082,14 @@ fun MapScreen(
         value = null
         // Il realtime entra nel calcolo: ritardi e cancellazioni di ADESSO.
         val rtNow = resolved
+        val fresco = app.realtime.delaysFresh()
         val liveData = if (rtNow != null) {
             dev.antigravity.fluidtransit.routing.Raptor.Realtime(
-                rtNow.delayByTrip,
-                rtNow.canceledTrips,
+                // Il numero unico per corsa e le cancellazioni solo se il
+                // pacchetto e' ancora buono (delaysFresh); le previsioni
+                // fermata per fermata invecchiano da se'.
+                if (fresco) rtNow.delayByTrip else emptyMap(),
+                if (fresco) rtNow.canceledTrips else emptySet(),
                 java.time.Instant.now().epochSecond,
                 // Le stesse previsioni che usa il tabellone della fermata.
                 //

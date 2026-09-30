@@ -129,10 +129,12 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
     ): List<Raptor.Journey> {
         val r = reader ?: return emptyList()
         val rt = resolved
+        // Il numero unico per corsa solo se e' ancora buono: vedi delaysFresh.
+        val fresco = app.realtime.delaysFresh()
         val live = if (rt != null) {
             Raptor.Realtime(
-                rt.delayByTrip,
-                rt.canceledTrips,
+                if (fresco) rt.delayByTrip else emptyMap(),
+                if (fresco) rt.canceledTrips else emptySet(),
                 java.time.Instant.now().epochSecond,
                 // Le stesse previsioni del tabellone e della mappa: se
                 // l'assistente calcolasse su un altro numero, direbbe a voce

@@ -1,5 +1,6 @@
 package dev.antigravity.fluidtransit.ui.map
 
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -481,10 +482,30 @@ fun JourneyDetailContent(
         alerts, onOpenAlerts, tail = "sulle linee di questo viaggio",
     )
 
+    // La riserva di questo pannello: quella della scheda fermata, piu' le
+    // righe degli avvisi e la barra di sistema in fondo. Con la sola riserva
+    // di serie, su un 360x640 la lista prendeva il suo spazio per prima e il
+    // tasto "Avvia il viaggio" usciva tagliato; coi caratteri grandi o la
+    // navigazione a tre tasti spariva.
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val barraSistema: androidx.compose.ui.unit.Dp = with(density) {
+        androidx.compose.foundation.layout.WindowInsets.Companion.navigationBars
+            .getBottom(density).toDp()
+    }
+    val righeAvvisi = when {
+        alerts == null -> 1
+        alerts.isEmpty() -> 0
+        else -> minOf(alerts.size, 3)
+    }
     LazyColumn(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(max = panelListMax(380.dp))
+            .heightIn(
+                max = panelListMax(
+                    380.dp,
+                    reserve = AROUND_THE_LIST + barraSistema + 32.dp * righeAvvisi,
+                ),
+            )
             .fadeVerticalEdges()
             .padding(horizontal = 20.dp),
     ) {
@@ -664,6 +685,15 @@ fun JourneyDetailContent(
             }
             }
         }
+        // "Fanne una routine" in fondo alla lista, e non sotto: scorre con
+        // lei. Stava fuori, e sotto la lista che prendeva il suo spazio per
+        // prima usciva tagliato; aperto, i giorni e "Crea la routine" non si
+        // raggiungevano, perche' il pannello non scorre.
+        if (backdrop != null && onCreateRoutine != null && !j.walkOnly) {
+            item(key = "routine") {
+                RoutineForm(j = j, backdrop = backdrop, onCreateRoutine = onCreateRoutine, inset = 0.dp)
+            }
+        }
     }
 
     // --- "Avvia": la navigazione a bordo (Fase 7) -------------------------
@@ -680,10 +710,6 @@ fun JourneyDetailContent(
         }
     }
 
-    // --- "Fanne una routine": il percorso naturale deciso -----------------
-    if (backdrop != null && onCreateRoutine != null && !j.walkOnly) {
-        RoutineForm(j = j, backdrop = backdrop, onCreateRoutine = onCreateRoutine)
-    }
     Spacer(Modifier.height(10.dp))
 }
 
@@ -692,6 +718,8 @@ private fun RoutineForm(
     j: UiJourney,
     backdrop: GlassBackdropState,
     onCreateRoutine: (Set<Int>, String, Int) -> Unit,
+    /** Il margine ai lati: zero dentro la lista, che ha gia' il suo. */
+    inset: androidx.compose.ui.unit.Dp = 20.dp,
 ) {
     var open by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     var created by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
@@ -706,13 +734,13 @@ private fun RoutineForm(
                 "ti diro' io quando uscire.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = inset, vertical = 10.dp),
         )
         return
     }
 
     if (!open) {
-        Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)) {
+        Row(modifier = Modifier.padding(horizontal = inset, vertical = 10.dp)) {
             GlassActionButton(
                 text = "Fanne una routine",
                 icon = Icons.Rounded.Schedule,
@@ -728,7 +756,7 @@ private fun RoutineForm(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 6.dp),
+            .padding(horizontal = inset, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         val letters = listOf("L", "M", "M", "G", "V", "S", "D")
@@ -778,7 +806,7 @@ private fun RoutineForm(
         label = { if (it == "arrive") "Arriva entro ${j.arrTime}" else "Parti alle ${j.depTime}" },
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 4.dp),
+            .padding(horizontal = inset, vertical = 4.dp),
     )
 
     if (days.isEmpty()) {
@@ -786,10 +814,10 @@ private fun RoutineForm(
             text = "Scegli almeno un giorno: la routine vale nei giorni accesi.",
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 20.dp),
+            modifier = Modifier.padding(horizontal = inset),
         )
     }
-    Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+    Row(modifier = Modifier.padding(horizontal = inset, vertical = 8.dp)) {
         GlassActionButton(
             text = "Crea la routine",
             icon = null,

@@ -186,7 +186,7 @@ internal fun listMax(
  * "Parti da qui" 56, la riga della provenienza in fondo 36, i margini del
  * vetro 24, la tab bar col suo scarto 86, la barra di stato 24.
  */
-private val AROUND_THE_LIST = 290.dp
+internal val AROUND_THE_LIST = 290.dp
 
 /**
  * La riserva della barra di ricerca.

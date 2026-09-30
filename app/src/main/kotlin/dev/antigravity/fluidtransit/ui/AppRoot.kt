@@ -141,13 +141,8 @@ private fun AppShell(app: FluidTransitApp) {
                 }
                 if (r != null) {
                     openOnMap(
-                        MapIntent.Journey(
-                            fromLat = r.fromLat,
-                            fromLon = r.fromLon,
-                            toLat = r.toLat,
-                            toLon = r.toLon,
-                            toName = r.toName.ifEmpty { r.label.ifEmpty { "Arrivo" } },
-                        ),
+                        dev.antigravity.fluidtransit.data.routines.Routines
+                            .journeyIntent(r, java.time.Instant.now().epochSecond),
                     )
                 }
             }

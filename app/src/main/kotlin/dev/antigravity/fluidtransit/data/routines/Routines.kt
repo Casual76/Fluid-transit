@@ -120,6 +120,37 @@ class Routines(private val file: File) {
          * somma sull'orologio, e con 1440 minuti (un arrivo arrotondato alla
          * mezzanotte) passa al giorno dopo invece di lanciare un'eccezione.
          */
+        /**
+         * L'ora della prossima occorrenza: oggi se non e' ancora passata e
+         * oggi e' uno dei suoi giorni, se no il prossimo giorno buono. E' il
+         * viaggio che si apre toccando la routine; null senza giorni.
+         */
+        fun nextAnchorEpoch(r: Routine, nowEpoch: Long): Long? {
+            val oggi = java.time.Instant.ofEpochSecond(nowEpoch)
+                .atZone(dev.antigravity.fluidtransit.routing.Ftb.ROME).toLocalDate()
+            for (offset in 0..7) {
+                val day = oggi.plusDays(offset.toLong())
+                if (day.dayOfWeek.value !in r.days) continue
+                val a = anchorEpoch(day, r.anchorMinutes)
+                if (a > nowEpoch) return a
+            }
+            return null
+        }
+
+        /** Il viaggio della routine, per aprirlo sulla mappa. */
+        fun journeyIntent(r: Routine, nowEpoch: Long): dev.antigravity.fluidtransit.ui.map.MapIntent.Journey {
+            val at = nextAnchorEpoch(r, nowEpoch)
+            return dev.antigravity.fluidtransit.ui.map.MapIntent.Journey(
+                fromLat = r.fromLat,
+                fromLon = r.fromLon,
+                toLat = r.toLat,
+                toLon = r.toLon,
+                toName = r.toName.ifEmpty { r.label.ifEmpty { "Arrivo" } },
+                timeMode = if (at == null) "now" else if (r.anchor == "arrive") "arrive" else "depart",
+                timeEpoch = at ?: 0L,
+            )
+        }
+
         fun anchorEpoch(date: java.time.LocalDate, anchorMinutes: Int): Long =
             date.atStartOfDay().plusMinutes(anchorMinutes.toLong())
                 .atZone(dev.antigravity.fluidtransit.routing.Ftb.ROME).toEpochSecond()

@@ -33,5 +33,13 @@ sealed interface MapIntent {
         val toLat: Double,
         val toLon: Double,
         val toName: String,
+        /**
+         * "depart", "arrive" o "now", e l'istante: quelli della routine.
+         * Senza, il pianificatore si apriva su "Parti ora" — la notifica
+         * diceva "Esci alle 8:12 per arrivare entro le 9" e il viaggio
+         * mostrato era quello di adesso, con un'altra partenza.
+         */
+        val timeMode: String = "now",
+        val timeEpoch: Long = 0L,
     ) : MapIntent
 }

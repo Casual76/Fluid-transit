@@ -905,7 +905,8 @@ fun MapScreen(
                     null
                 }
                 destRef = PlaceRef(i.toName, "", i.toLat, i.toLon)
-                journeyTimeMode = "now"
+                journeyTimeMode = i.timeMode
+                if (i.timeMode != "now") journeyTimeEpoch = i.timeEpoch
                 plannerOpen = true
                 runPlanner()
             }

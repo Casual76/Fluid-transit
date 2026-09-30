@@ -101,4 +101,18 @@ class RoutineTimingTest {
         val a = RoutineTiming.next(r, alle(mercoledi, 10))!!
         assertEquals(mercoledi.plusDays(2), a.day)
     }
+
+    @Test
+    fun `toccare la routine apre il suo viaggio, non quello di adesso`() {
+        // Prima delle 9 di oggi: il viaggio di oggi, "arriva entro le 9".
+        val r = routine("arrive", 9, days = setOf(3))
+        val prima = Routines.journeyIntent(r, alle(mercoledi, 7))
+        assertEquals("arrive", prima.timeMode)
+        assertEquals(alle(mercoledi, 9), prima.timeEpoch)
+        // Passate le 9: quello del prossimo mercoledi'.
+        val dopo = Routines.journeyIntent(r, alle(mercoledi, 10))
+        assertEquals(alle(mercoledi.plusDays(7), 9), dopo.timeEpoch)
+        // Una routine senza giorni si apre su "adesso".
+        assertEquals("now", Routines.journeyIntent(routine("depart", 8, days = emptySet()), alle(mercoledi, 7)).timeMode)
+    }
 }

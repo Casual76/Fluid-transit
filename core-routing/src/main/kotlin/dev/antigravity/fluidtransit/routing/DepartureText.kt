@@ -179,7 +179,7 @@ object DepartureText {
         }
 
         val live = delaySeconds != null
-        val fromFeed = certainty == Certainty.DECLARED || certainty == Certainty.PROPAGATED
+        val fromFeed = fromFeed(certainty)
         val tone = toneOf(delaySeconds)
         val source = if (fromFeed) "dal bus" else "stimato"
 
@@ -369,6 +369,24 @@ object DepartureText {
         Certainty.ESTIMATED, Certainty.SERVED -> "stimato"
         null -> null
     }
+
+    /**
+     * Il numero lo dice il mezzo? E' la domanda dietro "dal bus" e "stimato",
+     * e chi disegna un pallino pieno o vuoto deve darsi la stessa risposta.
+     *
+     * La barra della navigazione se ne dava un'altra: trattava SERVED come
+     * vivo e riempiva i pallini, mentre la riga sotto diceva "stimato".
+     */
+    fun fromFeed(certainty: Certainty?): Boolean =
+        certainty == Certainty.DECLARED || certainty == Certainty.PROPAGATED
+
+    /**
+     * Una corsa cancellata in una frase: "La 6 e' stata cancellata".
+     *
+     * La navigazione la scriveva in casa due volte, nel titolo della card e
+     * nell'avviso che fa vibrare: due copie che aspettavano solo di divergere.
+     */
+    fun canceledLine(line: String): String = "La $line e' stata cancellata"
 
     /**
      * La provenienza di un tabellone intero, per un titolo.

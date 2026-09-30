@@ -143,4 +143,15 @@ class TimesTest {
         assertEquals("0 min", Times.durationLabel(-500))
     }
 
+    @Test
+    fun `una durata quasi zero si dice a parole`() {
+        // Le camminate di pochi passi e le discese imminenti finivano in
+        // "0 min", che e' la stessa frase vuota di "parte tra 0 min". Stava
+        // nel servizio di navigazione, e gli itinerari ne avevano bisogno.
+        assertEquals("meno di un minuto", Times.durationOrUnderMinute(0))
+        assertEquals("meno di un minuto", Times.durationOrUnderMinute(20))
+        assertEquals("meno di un minuto", Times.durationOrUnderMinute(Times.NOW_SECONDS))
+        assertEquals("2 min", Times.durationOrUnderMinute(100))
+    }
+
 }

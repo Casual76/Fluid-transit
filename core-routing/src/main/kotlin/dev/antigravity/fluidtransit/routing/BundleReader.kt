@@ -520,6 +520,26 @@ class BundleReader(file: File, private val verifyCrcOnFirstUse: Boolean = true) 
      */
     fun findTripByTripId(tripId: String): Int = findTripByIdHash(Ftb.hash64(tripId))
 
+    /**
+     * L'hash del `trip_id` di una corsa: il contrario di [findTripByIdHash].
+     *
+     * Serve a chi deve ritrovare la STESSA corsa in un bundle diverso. Gli
+     * indici non sopravvivono alla notte — sono assegnati nell'ordine in cui
+     * il builder scandisce gli orari — e l'hash si'. E' una scansione lineare
+     * dell'indice (287.675 voci a settembre 2026, pochi millisecondi): chi la
+     * usa la fa una volta per viaggio, non a ogni giro. 0 se la corsa non
+     * compare nell'indice.
+     */
+    fun tripIdHash(trip: Int): Long {
+        val s = sec(Ftb.S_TRIP_ID_INDEX)
+        val count = s.getInt(0)
+        val valueBase = 8 + count * 8
+        for (i in 0 until count) {
+            if (s.getInt(valueBase + i * 4) == trip) return s.getLong(8 + i * 8)
+        }
+        return 0L
+    }
+
     fun findTripByIdHash(hash: Long): Int {
         val s = sec(Ftb.S_TRIP_ID_INDEX)
         val count = s.getInt(0)

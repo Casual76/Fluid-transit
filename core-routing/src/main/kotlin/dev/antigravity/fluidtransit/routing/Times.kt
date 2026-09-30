@@ -82,6 +82,17 @@ object Times {
     }
 
     /**
+     * Una durata che puo' essere quasi zero: "meno di un minuto", non "0 min".
+     *
+     * "0 min a piedi" e "poi 0 min a piedi" si leggevano nella navigazione e
+     * negli itinerari, e sono la stessa frase vuota che i tabelloni avevano
+     * gia' tolto: sotto il mezzo minuto la risposta non e' un numero. La
+     * navigazione ne aveva due copie in casa, con due soglie diverse.
+     */
+    fun durationOrUnderMinute(seconds: Int): String =
+        if (seconds <= NOW_SECONDS) "meno di un minuto" else durationLabel(seconds)
+
+    /**
      * La durata fra due istanti, contata come la conta chi legge l'orologio.
      *
      * Un viaggio scritto "10:26 -> 10:51" con accanto "24 min" e' una

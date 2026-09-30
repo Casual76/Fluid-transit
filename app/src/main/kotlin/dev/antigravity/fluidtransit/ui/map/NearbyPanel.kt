@@ -26,6 +26,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.antigravity.fluidengine.ui.fluid.ContinuousCornerShape
@@ -44,6 +46,8 @@ import dev.antigravity.fluidtransit.ui.common.toneColor
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Cosa passa qui intorno, senza cercare niente.
@@ -132,6 +136,7 @@ fun NearbyCapsule(
     modifier: Modifier = Modifier,
 ) {
     val row = board.rows.firstOrNull()
+    val phrase = row?.let { DepartureText.phrase(it, board.computedAtEpoch) }
     Row(
         modifier = modifier
             .glassSurface(
@@ -147,6 +152,23 @@ fun NearbyCapsule(
                 onClickLabel = "Mostra cosa passa qui intorno",
                 onClick = onClick,
             )
+            // Da dove viene il numero, per chi non vede il pallino.
+            //
+            // La capsula disegna la linea, la fermata e i minuti, mai la riga
+            // di provenienza: "dal bus" contro "orario da tabella" e il ritardo
+            // stavano solo nel pallino che pulsa e nel colore, e TalkBack
+            // leggeva "20, PIAZZA DALMAZIA, 3 min" tanto per un bus seguito dal
+            // feed quanto per una stima d'orario. E' uno stato, non un
+            // contenuto, quindi si aggiunge al testo unito dal clic senza
+            // sostituirlo: un contentDescription al suo posto avrebbe perso la
+            // linea e la fermata.
+            .let { m ->
+                if (phrase == null) {
+                    m
+                } else {
+                    m.semantics { stateDescription = DepartureText.spokenSupport(phrase) }
+                }
+            }
             .padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -157,19 +179,23 @@ fun NearbyCapsule(
             modifier = Modifier.size(16.dp),
         )
         Spacer(Modifier.width(10.dp))
-        if (row == null) {
+        if (row == null || phrase == null) {
+            // Tre motivi diversi per non avere una riga, e solo l'ultimo e'
+            // "non passa niente": senza fermate nel raggio o con gli orari
+            // scaduti il servizio non c'entra, e dirlo come se ci entrasse
+            // e' la lista vuota che si legge come una buona notizia.
+            val guaio = DepartureText.trouble(board)
             Text(
-                text = if (board.outsideValidity) {
-                    DepartureText.empty(DepartureText.Trouble.ORARI_SCADUTI).title
-                } else {
+                text = if (guaio == DepartureText.Trouble.NIENTE_A_BREVE) {
                     "Qui intorno non passa niente a breve"
+                } else {
+                    DepartureText.empty(guaio).title
                 },
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             return@Row
         }
-        val phrase = DepartureText.phrase(row, board.computedAtEpoch)
         RoutePill(text = row.line, colorRgb = row.colorRgb)
         Spacer(Modifier.width(10.dp))
         Text(
@@ -257,17 +283,25 @@ fun NearbyPanelContent(
         }
 
         board.rows.isEmpty() -> {
-            // Gli orari scaduti si dicono con le parole di tutte le altre
-            // schede, che erano ricopiate qui identiche; il "niente qui
-            // intorno" resta suo, perche' il soggetto non e' una fermata ne'
-            // le tue fermate ma le fermate a piedi da dove stai guardando.
-            val scaduti = DepartureText.empty(DepartureText.Trouble.ORARI_SCADUTI)
+            // Gli orari scaduti e "nessuna fermata nel raggio" si dicono con
+            // le parole di tutte le altre schede, che erano ricopiate qui
+            // identiche; il "niente qui intorno" resta suo, perche' il
+            // soggetto non e' una fermata ne' le tue fermate ma le fermate a
+            // piedi da dove stai guardando.
+            //
+            // "Non parte niente nelle prossime due ore" si puo' dire solo se
+            // le fermate ci sono: in campagna la lista vuota veniva da una
+            // ricerca a vuoto, e il pannello dava del servizio fermo a una
+            // zona in cui non c'e' proprio una fermata da guardare.
+            val guaio = DepartureText.trouble(board)
+            val parole = DepartureText.empty(guaio)
+            val nienteABreve = guaio == DepartureText.Trouble.NIENTE_A_BREVE
             FluidEmptyState(
-                title = if (board.outsideValidity) scaduti.title else "Niente a breve, qui intorno",
-                detail = if (board.outsideValidity) {
-                    scaduti.detail
-                } else {
+                title = if (nienteABreve) "Niente a breve, qui intorno" else parole.title,
+                detail = if (nienteABreve) {
                     "Dalle fermate a piedi da qui non parte niente nelle prossime due ore."
+                } else {
+                    parole.detail
                 },
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
@@ -367,10 +401,13 @@ fun rememberNearbyBoard(
         }
     }
 
-    val stops = androidx.compose.runtime.remember(anchor, buildId, stopGroups) {
+    // Null vuol dire "non so ancora dove guardare", lista vuota "ho guardato e
+    // non c'e' niente": sono due risposte, e a chiedere il tabellone di una
+    // lista vuota si otteneva la stessa per tutte e due.
+    val stops: List<Int>? = androidx.compose.runtime.remember(anchor, buildId, stopGroups) {
         val a = anchor
         if (reader == null || a == null) {
-            emptyList()
+            null
         } else {
             // Le banchine del gruppo entrano tutte: una fermata e' una
             // fermata, e le due direzioni si distinguono dalla destinazione.
@@ -379,20 +416,32 @@ fun rememberNearbyBoard(
             // tabellone e' un ordine di preferenza, e decide da quale palo
             // mostrare un autobus che passa da piu' d'uno di questi. Il piu'
             // vicino a chi guarda e' la risposta giusta.
-            reader.stopsNear(a.first, a.second, NEARBY_RADIUS_M)
+            reader.stopsNear(a.first, a.second, DepartureText.NEARBY_RADIUS_METERS)
                 .take(NEARBY_STOPS)
                 .flatMap { s -> stopGroups?.siblings(s)?.toList() ?: listOf(s) }
                 .distinct()
         }
     }
-    val board by androidx.compose.runtime.remember(stops) {
-        app.departureBoards.merged(stops, limit = NEARBY_LIMIT)
-    }.collectAsStateWithLifecycle()
+    // Senza fermate, o senza sapere ancora dove guardare, gli orari non si
+    // chiedono nemmeno: `merged` di una lista vuota restituisce un tabellone
+    // datato adesso e senza righe, e la capsula ci scriveva "non passa niente
+    // a breve" anche in mezzo alla campagna e nei due secondi dopo l'avvio,
+    // in cui l'ancora non c'e' ancora. La firma resta quella di sempre — un
+    // DepartureBoard — perche' lo stato "nessuna fermata" viaggia dentro il
+    // tabellone stesso (vedi DepartureText.NEARBY_NO_STOPS).
+    val flusso: StateFlow<DepartureBoard> = androidx.compose.runtime.remember(stops) {
+        val senzaChiedere = DepartureText.nearbyBoardWithoutAsking(
+            stops, java.time.Instant.now().epochSecond,
+        )
+        if (senzaChiedere != null) {
+            MutableStateFlow(senzaChiedere)
+        } else {
+            app.departureBoards.merged(stops.orEmpty(), limit = NEARBY_LIMIT)
+        }
+    }
+    val board by flusso.collectAsStateWithLifecycle()
     return board
 }
-
-/** Quanto lontano si guarda per "qui intorno": dieci minuti a piedi scarsi. */
-private const val NEARBY_RADIUS_M = 700.0
 
 /** Quante fermate al massimo, prima di espanderle nelle loro banchine. */
 private const val NEARBY_STOPS = 8

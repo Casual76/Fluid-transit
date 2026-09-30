@@ -337,6 +337,12 @@ fun StopPanelContent(
                 items(board.rows.size, key = { chiavi[it] }) { i ->
                     val row = board.rows[i]
                     if (i > 0) FluidHairline()
+                    // Il tasto "vola sul bus" c'e' solo per una corsa che ha un
+                    // mezzo in strada e non e' cancellata. La condizione sta
+                    // fuori dal disegno perche' la usa anche la riga per dire
+                    // a TalkBack che l'azione esiste: dentro `trailing` la
+                    // sapeva solo il tasto.
+                    val volaSuBus = row.tripIndex in liveTrips && !row.canceled
                     // Il tocco sulle PAROLE della provenienza apre "perche'
                     // questo numero", e nasce da quelle parole.
                     //
@@ -349,8 +355,9 @@ fun StopPanelContent(
                         nowEpoch = board.computedAtEpoch,
                         onSupportTap = { rect -> onWhyTap(row, rect) },
                         onLineTap = { onRouteTap(row.routeIndex) },
+                        onFlyToBus = if (volaSuBus) ({ onFlyToBus(row.tripIndex) }) else null,
                         trailing = {
-                            if (row.tripIndex in liveTrips && !row.canceled) {
+                            if (volaSuBus) {
                                 // Il tasto del prossimo bus live — in vetro,
                                 // vetro su vetro, come da regola: vola sul bus
                                 // di QUESTA corsa e apre la sua scheda.
@@ -361,7 +368,20 @@ fun StopPanelContent(
                                     Icon(
                                         imageVector = Icons.Rounded.DirectionsBus,
                                         contentDescription = "Vola sul bus della ${row.line}",
-                                        tint = liveGreen(),
+                                        // L'accento come gli altri tasti di
+                                        // vetro, non il verde dei semafori.
+                                        //
+                                        // E' un'azione, non uno stato: era
+                                        // liveGreen() fisso, e su un bus con
+                                        // mezz'ora di ritardo stava a un
+                                        // centimetro da "+33 min" in rosso —
+                                        // due segnali opposti sulla stessa
+                                        // riga, il difetto per cui il verde
+                                        // e' passato a dire la puntualita'.
+                                        // I minuti dicono se il bus e' in
+                                        // orario; il pallino che pulsa e le
+                                        // parole dicono da dove viene.
+                                        tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(18.dp),
                                     )
                                 }

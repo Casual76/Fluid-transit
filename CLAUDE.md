@@ -297,7 +297,7 @@ riscritta in casa da qualcuno, la copia e' divergita:
 
 | dove | cosa dice |
 |---|---|
-| `DepartureText` | una partenza: "dal bus", "stimato", "orario da tabella", il tono, il pallino |
+| `DepartureText` | una partenza: "dal bus", "stimato", "orario da tabella", il tono, il pallino; e `spoken`, la stessa detta a voce per TalkBack |
 | `Times.delayLabel` | il ritardo: "+3 min di ritardo", "in orario" |
 | `Times.durationLabel` | una durata: "43 min", "4 h 10 min" — mai "250 min" |
 | `Times.serviceTime` | un orario oltre le 24: "01:13 di notte" — mai un modulo 24 secco |
@@ -307,7 +307,7 @@ riscritta in casa da qualcuno, la copia e' divergita:
 | `Words.distance` | "350 m", "2,4 km" |
 | `Words.age` | l'eta' di un dato: "18s", "6 min" |
 | `Times.dateLabel` | un giorno: "oggi", "domani", "5 ottobre" — mai `2026-10-05` |
-| `DepartureText.empty` | un tabellone senza righe: le cinque ragioni, distinte |
+| `DepartureText.empty` | un tabellone senza righe: le sei ragioni, distinte (compresa "nessuna fermata qui intorno") |
 | `FidelityText` | il confronto con la fonte |
 | `BundleFailure` (in `:app`) | perche' gli orari non sono arrivati, senza inglese |
 | `TripProgress` | dov'e' arrivato un mezzo: qual e' la sua prossima fermata |

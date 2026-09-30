@@ -14,7 +14,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.antigravity.fluidtransit.routing.DepartureText
@@ -69,6 +73,14 @@ fun DepartureRowUi(
     /** Un'azione a destra del testo, per esempio "vola sul bus". */
     trailing: @Composable (() -> Unit)? = null,
     /**
+     * Cosa fa il tasto disegnato in [trailing], detto a chi lo legge a voce.
+     *
+     * Il tasto lo disegna chi chiama, ma per TalkBack la riga e' un elemento
+     * solo e i suoi figli non si raggiungono uno per uno: l'azione deve
+     * arrivare qui per diventare una delle azioni della riga.
+     */
+    onFlyToBus: (() -> Unit)? = null,
+    /**
      * Il tocco sulla riga della provenienza: "perche' questo numero".
      *
      * Riceve il rettangolo di quelle parole, cosi' la spiegazione nasce da
@@ -79,8 +91,53 @@ fun DepartureRowUi(
     onSupportTap: ((androidx.compose.ui.geometry.Rect?) -> Unit)? = null,
 ) {
     val phrase = DepartureText.phrase(row, nowEpoch)
+    // Il rettangolo delle parole di provenienza: sta qui, in cima, perche' lo
+    // legge anche l'azione per il lettore di schermo, che non ha un tocco da
+    // cui far nascere il pop-up e altrimenti lo aprirebbe al centro.
+    var supportBounds by remember {
+        mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
+    }
+    val spoken = DepartureText.spoken(row, nowEpoch, stopLabel, stopDistance)
     Row(
         modifier = modifier
+            // Una riga e' UN elemento per TalkBack, non cinque.
+            //
+            // Nella scheda fermata, dove nessun clic esterno unisce i figli
+            // (come fa in Oggi, nei Preferiti e in Qui intorno), ogni partenza
+            // era la pastiglia, la destinazione, "stimato", "vola sul bus" e
+            // per ultimi i minuti: una cinquantina di scorrimenti per dieci
+            // righe, col numero che e' il motivo per cui si e' aperta la
+            // scheda letto in fondo e slegato dalla sua linea. Qui la riga si
+            // legge in una frase (DepartureText.spoken) e i tre tocchi
+            // diventano azioni; l'unione semplice non bastava, perche' la
+            // pastiglia, il testo e il tasto restano nodi cliccabili a se'.
+            //
+            // Dopo `modifier` e non prima: il clic della schermata che ci
+            // ospita resta l'azione predefinita, e cio' che sta piu' dentro
+            // viene assorbito.
+            .clearAndSetSemantics {
+                contentDescription = spoken
+                customActions = listOfNotNull(
+                    onLineTap?.let { tap ->
+                        CustomAccessibilityAction("Mostra la linea ${row.line}") {
+                            tap()
+                            true
+                        }
+                    },
+                    onSupportTap?.let { tap ->
+                        CustomAccessibilityAction("Perche' questo numero") {
+                            tap(supportBounds)
+                            true
+                        }
+                    },
+                    onFlyToBus?.let { fly ->
+                        CustomAccessibilityAction("Vola sul bus della ${row.line}") {
+                            fly()
+                            true
+                        }
+                    },
+                )
+            }
             .fillMaxWidth()
             .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -137,9 +194,6 @@ fun DepartureRowUi(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            var supportBounds by androidx.compose.runtime.remember {
-                androidx.compose.runtime.mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
-            }
             Text(
                 text = phrase.support,
                 style = MaterialTheme.typography.labelSmall,

@@ -446,4 +446,102 @@ class DepartureTextTest {
             "non dice che la previsione e' di un'altra fermata: ${why.lines}",
         )
     }
+
+    // ------------------------------------------------------- detta a voce
+
+    @Test
+    fun `a voce i minuti seguono subito la linea e la destinazione`() {
+        // Nella scheda fermata i minuti erano l'ultima tappa di TalkBack,
+        // dopo la pastiglia, la destinazione, "stimato" e il tasto "vola sul
+        // bus": il numero per cui si e' aperta la scheda arrivava per ultimo
+        // e slegato dalla linea che lo riguarda.
+        assertEquals(
+            "Linea 23 verso Careggi, fra 5 min, orario da tabella",
+            DepartureText.spoken(row(300), now),
+        )
+        assertEquals(
+            "Linea 23 verso Careggi, fra 5 min, dal bus, in orario",
+            DepartureText.spoken(row(300, delay = 0, certainty = Certainty.DECLARED), now),
+        )
+    }
+
+    @Test
+    fun `a voce un ritardo che conta si dice e il separatore da occhio no`() {
+        // "dal bus · +20 min di ritardo" va bene per chi guarda; letto ad alta
+        // voce il punto centrato o sparisce o si pronuncia.
+        val s = DepartureText.spoken(
+            row(600, delay = 20 * 60, certainty = Certainty.DECLARED), now,
+        )
+        assertEquals("Linea 23 verso Careggi, fra 30 min, dal bus, +20 min di ritardo", s)
+        assertTrue("·" !in s, s)
+    }
+
+    @Test
+    fun `a voce una stima si dichiara stima e un numero vecchio dice di quando e'`() {
+        val stimata = DepartureText.spoken(
+            row(300, delay = 180, certainty = Certainty.ESTIMATED), now,
+        )
+        assertTrue(", stimato, " in stimata, stimata)
+        val vecchia = DepartureText.spoken(
+            row(600, delay = 480, certainty = Certainty.DECLARED, age = 15 * 60), now,
+        )
+        assertTrue(vecchia.endsWith("visto 15 min fa"), vecchia)
+    }
+
+    @Test
+    fun `a voce imminente e orologio si dicono come nella forma corta`() {
+        assertEquals(
+            "Linea 23 verso Careggi, ora, orario da tabella",
+            DepartureText.spoken(row(10), now),
+        )
+        // Oltre l'ora i minuti non dicono niente: "alle 18:04", con la
+        // preposizione, e lo stesso "alle" della riga del widget.
+        val tardi = DepartureText.spoken(row(2 * 3600), now)
+        assertEquals(
+            "Linea 23 verso Careggi, alle ${Times.hhmm(now + 2 * 3600)}, orario da tabella",
+            tardi,
+        )
+        assertTrue(DepartureText.compact(row(2 * 3600), now).endsWith("alle ${Times.hhmm(now + 2 * 3600)}"))
+    }
+
+    @Test
+    fun `a voce una corsa cancellata non ha un quando`() {
+        val s = DepartureText.spoken(row(300, canceled = true), now)
+        assertEquals(
+            "Linea 23 verso Careggi, cancellata. La corsa delle ${Times.hhmm(now + 300)} non ci sara'",
+            s,
+        )
+    }
+
+    @Test
+    fun `a voce la fermata viene prima, con la distanza solo se c'e' la fermata`() {
+        // "Qui intorno" mescola le fermate: la riga deve dire da quale parte
+        // e quanto dista, e "a 250 m" senza il nome non vuol dire niente.
+        assertEquals(
+            "Fermata Piazza Alfa, a 250 m. Linea 23 verso Careggi, fra 5 min, orario da tabella",
+            DepartureText.spoken(row(300), now, stopLabel = "Piazza Alfa", stopDistance = "a 250 m"),
+        )
+        assertEquals(
+            "Fermata Piazza Alfa. Linea 23 verso Careggi, fra 5 min, orario da tabella",
+            DepartureText.spoken(row(300), now, stopLabel = "Piazza Alfa"),
+        )
+        val senzaNome = DepartureText.spoken(row(300), now, stopDistance = "a 250 m")
+        assertTrue(senzaNome.startsWith("Linea 23"), senzaNome)
+        assertTrue("250" !in senzaNome, senzaNome)
+        assertTrue(DepartureText.spoken(row(300), now, stopLabel = "").startsWith("Linea 23"))
+    }
+
+    @Test
+    fun `a voce le parole di provenienza sono quelle della riga, non altre`() {
+        // La frase a voce non e' un secondo vocabolario: sotto ha la stessa
+        // riga di supporto che si vede, cambiata solo nel separatore.
+        for (c in listOf(Certainty.DECLARED, Certainty.PROPAGATED, Certainty.ESTIMATED, null)) {
+            val r = row(300, delay = if (c == null) null else 600, certainty = c)
+            val p = DepartureText.phrase(r, now)
+            assertTrue(
+                DepartureText.spoken(r, now).endsWith(DepartureText.spokenSupport(p)),
+                "la frase a voce cambia la provenienza per $c",
+            )
+        }
+    }
 }

@@ -242,22 +242,86 @@ object DepartureText {
      */
     fun compact(row: NextDeparture, nowEpoch: Long): String {
         if (row.canceled) return "${row.line} cancellata"
-        // "fra" e "alle" non sono ornamenti: senza, la linea e il numero si
-        // toccano e si leggono come uno solo. Nei Preferiti c'era scritto
-        // "6 3 min - 12 3 min", che sono la 6 fra tre minuti e la 12 fra
-        // tre minuti, ma si legge come due numeri appiccicati. Le linee a
-        // una cifra sono fra le piu' usate di Firenze, quindi il caso non e'
-        // raro: e' quello di tutti i giorni.
-        if (Times.minutesUntil(nowEpoch, row.effectiveEpoch) >= CLOCK_AFTER_MINUTES) {
-            return "${row.line} alle ${Times.hhmm(row.effectiveEpoch)}"
+        return "${row.line} ${whenPhrase(nowEpoch, row.effectiveEpoch)}"
+    }
+
+    /**
+     * Il quando di una partenza, con la preposizione: "fra 3 min", "alle 18:04", "ora".
+     *
+     * "fra" e "alle" non sono ornamenti: senza, la linea e il numero si
+     * toccano e si leggono come uno solo. Nei Preferiti c'era scritto
+     * "6 3 min - 12 3 min", che sono la 6 fra tre minuti e la 12 fra
+     * tre minuti, ma si legge come due numeri appiccicati. Le linee a
+     * una cifra sono fra le piu' usate di Firenze, quindi il caso non e'
+     * raro: e' quello di tutti i giorni.
+     *
+     * Lo usano [compact] e [spoken], cosi' la riga del widget e la frase per
+     * il lettore di schermo non possono dire due "quando" diversi.
+     */
+    private fun whenPhrase(nowEpoch: Long, effectiveEpoch: Long): String {
+        if (Times.minutesUntil(nowEpoch, effectiveEpoch) >= CLOCK_AFTER_MINUTES) {
+            return "alle ${Times.hhmm(effectiveEpoch)}"
         }
-        val label = Times.minutesLabel(nowEpoch, row.effectiveEpoch)
+        val label = Times.minutesLabel(nowEpoch, effectiveEpoch)
         return if (label.firstOrNull()?.isDigit() == true) {
-            "${row.line} fra $label"
+            "fra $label"
         } else {
             // "ora" sta da solo: "la 6 fra ora" non lo dice nessuno.
-            "${row.line} $label"
+            label
         }
+    }
+
+    /**
+     * La riga di provenienza, letta ad alta voce.
+     *
+     * I separatori " · " servono all'occhio: un lettore di schermo li dice
+     * "punto centrato" o li salta, e in entrambi i casi fa una frase sola di
+     * "dal bus · +9 min di ritardo". La virgola e' la pausa che voleva.
+     */
+    fun spokenSupport(phrase: Phrase): String = phrase.support.replace(" · ", ", ")
+
+    /**
+     * Una partenza intera, detta come la direbbe una persona.
+     *
+     * Nella scheda fermata ogni riga era quattro o cinque tappe separate per
+     * TalkBack — la pastiglia della linea, la destinazione, "stimato", il
+     * tasto "vola sul bus" e, per ultimi, i minuti — e con dieci righe sono
+     * una cinquantina di scorrimenti, col numero che e' il motivo per cui si
+     * e' aperta la scheda letto dopo tutto il resto e slegato dalla linea che
+     * lo riguarda. Qui i minuti seguono subito la linea e la destinazione, e
+     * il resto (da dove viene il numero, di quanto e' in ritardo) viene dopo.
+     *
+     * @param stopLabel da che fermata parte, quando la lista ne mescola piu' di una.
+     * @param stopDistance quanto dista, gia' scritto come si vede a schermo
+     *   ("a 250 m"). Senza [stopLabel] non si dice.
+     */
+    fun spoken(
+        row: NextDeparture,
+        nowEpoch: Long,
+        stopLabel: String? = null,
+        stopDistance: String? = null,
+    ): String {
+        val p = phrase(row, nowEpoch)
+        val fermata = if (stopLabel.isNullOrEmpty()) {
+            ""
+        } else if (stopDistance.isNullOrEmpty()) {
+            "Fermata $stopLabel. "
+        } else {
+            "Fermata $stopLabel, $stopDistance. "
+        }
+        val corsa = if (row.destination.isEmpty()) {
+            "Linea ${row.line}"
+        } else {
+            "Linea ${row.line} verso ${row.destination}"
+        }
+        // Una corsa cancellata o che salta la fermata non ha un "quando": il
+        // suo orario di tabella e' gia' dentro la frase di supporto.
+        val resto = if (p.tone == Tone.CANCELED) {
+            "${p.headline.lowercase()}. ${p.support}"
+        } else {
+            "${whenPhrase(nowEpoch, row.effectiveEpoch)}, ${spokenSupport(p)}"
+        }
+        return "$fermata$corsa, $resto"
     }
 
     /** La spiegazione di UN orario: cosa ha detto il feed, e cosa ci mettiamo noi. */
@@ -460,6 +524,9 @@ object DepartureText {
      * "Nessun passaggio a breve" — fa sembrare fermo il servizio quando a
      * essere ferma e' l'app, ed e' esattamente la frase che il widget
      * mostrava per tutte e cinque.
+     *
+     * "Qui intorno" ne aggiunge una sesta: non c'e' nessuna fermata nel
+     * raggio, e quindi non c'e' niente di cui dire che non parte.
      */
     enum class Trouble {
         /** Nessuna fermata scelta: solo un widget puo' trovarsi cosi'. */
@@ -483,6 +550,65 @@ object DepartureText {
 
         /** Tutto a posto: da li' non parte niente a breve. */
         NIENTE_A_BREVE,
+
+        /**
+         * "Qui intorno": nel raggio che si guarda non c'e' nessuna fermata.
+         *
+         * Succede in campagna, in montagna, o zoomando la mappa su un punto
+         * lontano da tutto. Il pannello diceva "non parte niente nelle
+         * prossime due ore", che e' un'affermazione sul servizio: qui il
+         * servizio non c'entra, e' la fermata che manca. E non diceva cosa
+         * fare — spostare la mappa su un paese, cercare una fermata per nome.
+         */
+        NESSUNA_FERMATA_VICINA,
+    }
+
+    /**
+     * Fino a dove si guarda per "qui intorno": dieci minuti a piedi scarsi.
+     *
+     * Sta qui e non nel pannello che fa la ricerca perche' la frase "nel
+     * raggio di 700 m non ci sono fermate" e la query che le cerca devono
+     * dire lo stesso numero: due costanti separate erano il modo di dire 700
+     * a schermo e cercarne 500.
+     */
+    const val NEARBY_RADIUS_METERS = 700.0
+
+    /**
+     * Lo `stopIndex` di un tabellone "qui intorno" costruito su ZERO fermate.
+     *
+     * Un tabellone di piu' fermate non ha una fermata sua, quindi quel campo
+     * e' libero: qui porta il fatto che la ricerca e' andata a vuoto, cosi' i
+     * pannelli che mostrano il tabellone lo distinguono da "ci sono fermate e
+     * non parte niente" senza un secondo valore da portarsi dietro.
+     * Negativo, come il -1 di "nessuna fermata" dei tabelloni vuoti, ma
+     * diverso da quello.
+     */
+    const val NEARBY_NO_STOPS = -2
+
+    /**
+     * Il tabellone di "qui intorno" quando non serve interrogare gli orari.
+     *
+     * [stops] sono le fermate trovate nel raggio: null se non si sa ancora
+     * dove si sta guardando (l'ancora della mappa arriva dopo un paio di
+     * secondi dall'avvio, e il lettore degli orari dopo ancora), lista vuota
+     * se si sa e non c'e' niente. Le due risposte vanno tenute distinte
+     * perche' chiedere a `DepartureBoards.merged` di una lista vuota dava lo
+     * stesso tabellone per tutte e due — datato adesso, senza righe — e la
+     * capsula scriveva "non passa niente a breve" anche mentre l'app non
+     * sapeva ancora dove guardare.
+     *
+     * Ritorna:
+     *  - il tabellone NON calcolato (`computedAtEpoch` a zero) se non si sa: la
+     *    capsula resta nascosta e il pannello mostra la rotella;
+     *  - un tabellone vuoto e datato, con [NEARBY_NO_STOPS], se non ci sono
+     *    fermate: e' uno stato vero, e [trouble] lo racconta a parole;
+     *  - null se le fermate ci sono e il tabellone va chiesto agli orari.
+     */
+    fun nearbyBoardWithoutAsking(stops: List<Int>?, nowEpoch: Long): DepartureBoard? = when {
+        stops == null -> DepartureBoard.empty(-1, "", 0L)
+        // Datato non zero, perche' zero e' proprio "non calcolato".
+        stops.isEmpty() -> DepartureBoard.empty(NEARBY_NO_STOPS, "", nowEpoch.coerceAtLeast(1L))
+        else -> null
     }
 
     /**
@@ -545,13 +671,26 @@ object DepartureText {
             },
             "nelle prossime due ore",
         )
+
+        Trouble.NESSUNA_FERMATA_VICINA -> Empty(
+            "Nessuna fermata qui intorno",
+            "Nel raggio di ${Words.distance(NEARBY_RADIUS_METERS)} non ce ne sono: " +
+                "sposta la mappa su un paese o cerca una fermata per nome.",
+            "nessuna fermata nel raggio",
+        )
     }
 
     /**
      * Il guaio di un tabellone gia' calcolato e senza righe.
      *
-     * Le altre tre situazioni le conosce solo chi ha provato a costruirlo.
+     * Le altre situazioni le conosce solo chi ha provato a costruirlo.
+     * Quella di "qui intorno" senza fermate si riconosce dal suo
+     * [NEARBY_NO_STOPS], e ha la precedenza: non aver chiesto gli orari non
+     * puo' essere scambiato per orari scaduti o per una notte tranquilla.
      */
-    fun trouble(board: DepartureBoard): Trouble =
-        if (board.outsideValidity) Trouble.ORARI_SCADUTI else Trouble.NIENTE_A_BREVE
+    fun trouble(board: DepartureBoard): Trouble = when {
+        board.stopIndex == NEARBY_NO_STOPS -> Trouble.NESSUNA_FERMATA_VICINA
+        board.outsideValidity -> Trouble.ORARI_SCADUTI
+        else -> Trouble.NIENTE_A_BREVE
+    }
 }

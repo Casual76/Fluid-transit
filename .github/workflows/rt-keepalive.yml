@@ -1,25 +1,21 @@
 name: RT keepalive
 
-# Il piano B della Fase 1, attivato per necessita': il Cron Trigger di
-# Cloudflare risulta registrato (verificato via API, riscritto, cancellato e
-# ricreato) ma non e' MAI scattato. Nel frattempo il proxy si tiene fresco da
-# solo col refresh pigro a ogni lettura; questo cron copre il caso rimasto
-# scoperto — il primo utente dopo un periodo di quiete, che altrimenti
-# vedrebbe posizioni vecchie per un giro di poll.
+# La rete di sicurezza per quando nessuno legge il proxy da ore.
+#
+# Il proxy si tiene fresco da chi lo legge: una lettura che trova lo snapshot
+# vecchio lo rinfresca e aspetta il giro (worker/src/freshness.js). Fino al
+# 30/09/2026 c'era anche un Cron Trigger di Cloudflare al minuto, ma sul piano
+# gratuito un cron ha 10 ms di CPU e un giro ne costa 70-90: partiva,
+# scaricava i feed e moriva nel parse. E' stato tolto, e questo workflow non
+# lo sostituisce: serve solo a far trovare pronto il primo lettore dopo una
+# notte di quiete.
 #
 # GitHub non garantisce la puntualita' dei cron, e su questo repo la
 # differenza fra la pianificazione e la realta' e' enorme. Misurato il
 # 16/09/2026 sui run veri: questo cron chiede di girare ogni cinque minuti e
 # gli ultimi quattro avvii sono stati alle 05:57, 01:09, 23:00 e 20:28 —
 # cioe' uno ogni due o cinque ore, con il 98% delle occorrenze semplicemente
-# saltate. Nello stesso giorno il bundle notturno, che chiede le 03:40 UTC,
-# e' partito alle 08:49; il giorno prima alle 08:57. Non sono ritardi di
-# minuti: sono ore, e la maggior parte degli avvii non avviene affatto.
-#
-# Quindi: come rete di sicurezza ogni tanto va bene, come metronomo no —
-# e nessun conto sulla freschezza deve dipendere da qui. Se un giorno il
-# cron di Cloudflare si sveglia, /rt/v1/health mostrera' il campo `cron` e
-# questo workflow si potra' spegnere.
+# saltate. Quindi nessun conto sulla freschezza deve dipendere da qui.
 
 on:
   schedule:

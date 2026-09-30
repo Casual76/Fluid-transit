@@ -1,17 +1,23 @@
 /**
  * Fluid Transit — il proxy realtime (Fase 4).
  *
- * Principio: ZERO parsing sul percorso richiesta. Il piano gratuito da'
- * ~10 ms di CPU a richiesta ma 30 s a invocazione cron, quindi:
+ * Principio: il parse si fa una volta per generazione dell'origine, non una
+ * volta per richiesta.
  *
- *   cron (1/min)  = fetch dei 3 feed + decoder protobuf statico + snapshot
- *                   binario compatto scritto UNA volta su R2 (rt/latest.bin);
+ *   giro          = fetch dei 3 feed + decoder protobuf statico + snapshot
+ *                   binario compatto scritto UNA volta su R2 (rt/latest.bin)
+ *                   e le sezioni gia' affettate e compresse;
  *   richiesta     = lettura R2 + copia di intervalli di byte gia' pronti,
  *                   dietro la Cache API con max-age 35 s.
  *
+ * Il giro lo fanno le letture, non un cron. Fino al 30/09/2026 c'era un Cron
+ * Trigger al minuto, ma sul piano gratuito una invocazione cron ha 10 ms di
+ * CPU e un giro vero ne costa 70-90: partiva, scaricava i feed e moriva nel
+ * parse. La regola di quando rinfrescare, e perche', sta in freshness.js.
+ *
  * L'origine si rigenera ogni ~2 minuti e non manda validatori: meta' dei
- * poll sono ridondanti e non si possono evitare — ma la SCRITTURA si evita:
- * se i tre timestamp non sono cambiati, il cron non riscrive niente e le
+ * giri sono ridondanti e non si possono evitare — ma la SCRITTURA si evita:
+ * se i tre timestamp non sono cambiati non si riscrive niente, e le
  * operazioni di classe A su R2 si dimezzano.
  *
  * Gli id del feed viaggiano come hash FNV-1a 64 (identici al bundle): l'app
@@ -23,6 +29,7 @@ import {
   SNAPSHOT_KEY, HEADER_LEN, buildSnapshot, readHeader, sliceSection,
 } from './snapshot.js';
 import { buildPredictions } from './predictions.js';
+import { refreshPolicy, holdEmptyTripUpdates } from './freshness.js';
 
 const ORIGIN = 'https://regionetoscana.smartregion.toscana.it/mobility/artifacts/gtfs-rt';
 const UA = 'FluidTransit-RT/1.0 (+https://github.com/Casual76/Fluid-transit)';
@@ -45,7 +52,7 @@ const NO_CACHE = {
 const MAX_AGE_SECONDS = 35;
 
 /**
- * Le tre sezioni, affettate e compresse UNA volta dal cron.
+ * Le sezioni, affettate e compresse UNA volta per giro.
  *
  * Prima ogni richiesta leggeva `rt/latest.bin` per intero — circa 400 kB, di
  * cui 294 sono gli alerts — per poi affettarne 30 e ricomprimerli. Chi
@@ -63,30 +70,18 @@ const SECTION_KEYS = {
   3: 'rt/alerts.gz',
   4: 'rt/predictions.gz',
 };
-const HEARTBEAT_KEY = 'rt/cron-heartbeat';
 
 /**
- * Refresh pigro: se una richiesta scopre uno snapshot piu' vecchio di cosi',
- * ne avvia uno in waitUntil. E' la cintura oltre alle bretelle del cron —
- * osservato sul campo: la schedule risulta registrata ma le prime esecuzioni
- * possono tardare. Con l'app che polla ogni 30 s, basta un utente perche'
- * il proxy si tenga fresco da solo.
- */
-const LAZY_REFRESH_AFTER_SECONDS = 55;
-
-/**
- * Oltre questa eta' non si serve piu' il vecchio rinfrescando per il
- * PROSSIMO: si rinfresca PRIMA di rispondere.
+ * Quanto si aspetta ciascun feed dell'origine prima di lasciar perdere.
  *
- * Il motivo, misurato il 03/09: il cron di Cloudflare non e' un metronomo
- * (ultimo battito 26 minuti prima) e il keepalive su GitHub, programmato
- * ogni 5 minuti, parte in realta' ogni 2-5 ore. Restava in piedi solo il
- * refresh pigro, che pero' dava al richiedente le posizioni vecchie e
- * rinfrescava per chi veniva dopo: con un utente solo, quel "dopo" non
- * arrivava mai prima di un giro di poll. Aspettare due secondi e' meglio
- * che mostrare mezz'ora di ritardo.
+ * Da quando una richiesta puo' aspettare il giro (freshness.js), un'origine
+ * appesa appendeva anche l'app. Non e' un'ipotesi: il 24/09 il keepalive e'
+ * fallito dopo sessanta secondi senza ricevere un byte, cioe' /refresh era
+ * rimasto fermo su un fetch. Dieci secondi sono venti volte quello che
+ * servono di solito (170-400 ms, misurati il 30/09) e restano sotto il
+ * timeout di lettura dell'app, che e' di 20 (RealtimeClient).
  */
-const BLOCKING_REFRESH_AFTER_SECONDS = 90;
+const ORIGIN_TIMEOUT_MS = 10_000;
 
 /**
  * Ogni quanto /rt/v1/refresh puo' far lavorare davvero.
@@ -99,10 +94,10 @@ const BLOCKING_REFRESH_AFTER_SECONDS = 90;
  * giro che trova gli stessi timestamp non scrive niente.
  *
  * Con venti secondi, chi volesse usarlo come pompa poteva ordinare nove
- * fetch al minuto verso la Regione: il triplo di quello che fa il cron, che
- * ne ordina tre. Con cinquantacinque ne ordina al massimo poco piu' di tre,
- * cioe' non piu' del nostro stesso battito: l'endpoint smette di essere una
- * leva su qualcun altro anche senza segreto.
+ * fetch al minuto verso la Regione: il triplo di un giro al minuto. Con
+ * cinquantacinque ne ordina al massimo poco piu' di tre, cioe' non piu' di
+ * quanto ne ordina un'app accesa: l'endpoint smette di essere una leva su
+ * qualcun altro anche senza segreto.
  *
  * Chi ha diritto di chiamarlo non se ne accorge: il keepalive gira ogni ore,
  * non ogni secondo, e l'origine si rigenera comunque ogni due minuti.
@@ -125,45 +120,43 @@ function sharedRefresh(env) {
   return refreshInFlight;
 }
 
+function nowSeconds() {
+  return Math.floor(Date.now() / 1000);
+}
+
 function maybeLazyRefresh(env, ctx, generatedAt) {
-  const now = Math.floor(Date.now() / 1000);
-  const age = now - (generatedAt || 0);
-  if (age < LAZY_REFRESH_AFTER_SECONDS || refreshInFlight) return;
-  // La guardia che mancava. `refreshInFlight` copre solo le richieste
-  // CONCORRENTI; due poll a 30 s di distanza facevano due giri completi.
-  // E siccome il ramo 'invariato' non riscrive lo snapshot, `generatedAt`
-  // avanza solo quando l'origine si muove davvero (~120 s): l'eta' restava
-  // sopra soglia per la maggior parte del tempo, e ogni richiesta in quella
-  // finestra rifaceva 3 fetch + parse + build + put. Era il moltiplicatore
+  // `refreshInFlight` copre le richieste CONCORRENTI; quelle in fila le
+  // copre il guardiano `lastRefreshAt` dentro refreshPolicy. Senza, due poll
+  // a 30 s di distanza facevano due giri completi — era il moltiplicatore
   // piu' grosso della bolletta CPU.
-  if (now - lastRefreshAt < LAZY_REFRESH_AFTER_SECONDS) return;
+  if (refreshInFlight) return;
+  const policy = refreshPolicy({ now: nowSeconds(), generatedAt, lastRefreshAt });
+  if (policy === 'none') return;
   ctx.waitUntil(sharedRefresh(env).catch(() => {}));
 }
 
-export default {
-  async scheduled(controller, env, ctx) {
-    // Il battito: si scrive a OGNI invocazione, qualunque sia l'esito.
-    // Distingue "il cron non parte" da "parte e fallisce" — senza log
-    // persistenti e' l'unico testimone, e /rt/v1/health lo riporta.
-    ctx.waitUntil(
-      (async () => {
-        let outcome;
-        try {
-          // sharedRefresh, non refresh: e' l'unico punto che aggiorna
-          // `lastRefreshAt`, il guardiano che tiene disarmati il refresh
-          // pigro e quello bloccante subito dopo un giro appena fatto.
-          outcome = await sharedRefresh(env);
-        } catch (e) {
-          outcome = 'errore: ' + String(e);
-        }
-        await env.RT.put(
-          HEARTBEAT_KEY,
-          JSON.stringify({ at: Math.floor(Date.now() / 1000), outcome }),
-        );
-      })(),
-    );
-  },
+/**
+ * Se lo snapshot e' troppo vecchio per servirlo, fa il giro e lo aspetta.
+ *
+ * Torna true solo se il giro ha SCRITTO: sugli esiti 'invariato' e 'feed non
+ * raggiunti' i byte su R2 sono per definizione quelli gia' in mano, e
+ * rileggerli sarebbe lavoro buttato proprio nel caso in cui questo ramo
+ * scatta piu' spesso (origine ferma). Se l'origine non risponde si serve
+ * quello che c'e': meglio un dato vecchio che dichiara la sua eta' di un
+ * errore.
+ */
+async function freshen(env, generatedAt) {
+  const policy = refreshPolicy({ now: nowSeconds(), generatedAt, lastRefreshAt });
+  if (policy !== 'blocking') return false;
+  try {
+    const outcome = await sharedRefresh(env);
+    return typeof outcome === 'string' && outcome.startsWith('scritto');
+  } catch {
+    return false;
+  }
+}
 
+export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     switch (url.pathname) {
@@ -186,26 +179,27 @@ export default {
   },
 };
 
-// --- cron -------------------------------------------------------------------
+// --- il giro ----------------------------------------------------------------
 
 async function fetchFeed(name) {
   const res = await fetch(`${ORIGIN}/${name}`, {
     headers: { 'User-Agent': UA, Accept: 'application/octet-stream' },
     cf: NO_CACHE,
+    signal: AbortSignal.timeout(ORIGIN_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`${name}: HTTP ${res.status}`);
   return new Uint8Array(await res.arrayBuffer());
 }
 
 /**
- * Lo stesso lavoro del cron, a comando: per il debug e per forzare un giro.
+ * Un giro a comando: per il debug e per il keepalive su GitHub Actions.
  *
- * Costa quanto un tick di cron, e siccome il Cron Trigger di Cloudflare non
- * e' mai scattato questo endpoint E' il motore di refresh vero (lo chiama il
- * keepalive su GitHub Actions). Due conseguenze che prima non erano gestite:
- * passa da `sharedRefresh` come tutti gli altri, e vuole un segreto — l'URL
- * sta in chiaro dentro un workflow pubblico, e chiunque poteva far partire
- * un giro completo a piacimento.
+ * Il keepalive e' la rete di sicurezza per quando nessuno legge da ore, e
+ * GitHub lo fa partire ogni due-cinque ore invece che ogni cinque minuti:
+ * il motore vero sono le letture (freshness.js). Passa da `sharedRefresh`
+ * come tutti gli altri, e vuole un segreto — l'URL sta in chiaro dentro un
+ * workflow pubblico, e chiunque poteva far partire un giro completo a
+ * piacimento.
  *
  * Finche' `REFRESH_SECRET` non e' configurato l'endpoint resta aperto: il
  * keepalive non deve rompersi nell'intervallo fra questo deploy e la messa
@@ -304,6 +298,12 @@ async function refresh(env) {
   } catch (e) {
     console.log('header illeggibile, snapshot non toccato:', String(e));
     return 'header illeggibile: ' + String(e);
+  }
+
+  // Un trip-updates vuoto e senza data subito dopo uno pieno e' un
+  // singhiozzo dell'origine, non la fine del servizio: vedi freshness.js.
+  if (holdEmptyTripUpdates({ now: Math.floor(Date.now() / 1000), tuTs, prev })) {
+    return 'trip-updates senza timestamp: snapshot non toccato';
   }
 
   // L'origine si rigenera ogni ~2 minuti: se niente e' cambiato, niente
@@ -420,7 +420,22 @@ async function serveSection(request, env, ctx, kind) {
   // nessun gzip, e si leggono i byte di QUESTA sezione invece dei 400 kB
   // dello snapshot intero.
   if (!response) {
-    const direct = await env.RT.get(SECTION_KEYS[kind]);
+    let direct = await env.RT.get(SECTION_KEYS[kind]);
+    // Una sezione vecchia si rinfresca PRIMA di rispondere, anche qui.
+    //
+    // La regola del refresh bloccante c'era dal 03/09, ma viveva solo nel
+    // ripiego qui sotto: quando le sezioni sono diventate la via normale le
+    // richieste hanno smesso di passarci, e senza un cron funzionante il
+    // primo lettore dopo una pausa riceveva la pausa intera. Il 30/09 alle
+    // 12:40 la sezione servita aveva due ore; il banco di fedelta' l'aveva
+    // vista in undici giri su quattordici, e la chiamava "non conclusivo".
+    if (direct && (await freshen(env, Number((direct.customMetadata || {}).gen || 0)))) {
+      const again = await env.RT.get(SECTION_KEYS[kind]);
+      if (again) {
+        direct.body.cancel().catch(() => {});
+        direct = again;
+      }
+    }
     if (direct) {
       const meta = direct.customMetadata || {};
       const feedTs = Number(meta.feedTs || 0);
@@ -440,13 +455,14 @@ async function serveSection(request, env, ctx, kind) {
       if (feedTs) headers.set('x-feed-timestamp', String(feedTs));
       response = new Response(gz, { headers, encodeBody: 'manual' });
       ctx.waitUntil(cache.put(cacheKey, response.clone()));
-      // Il refresh resta agganciato all'eta' dello snapshot, come prima.
+      // Fra 55 e 90 secondi non si aspetta: si serve questa e si rinfresca
+      // per chi viene dopo.
       maybeLazyRefresh(env, ctx, generatedAt);
     }
   }
 
   // Le previsioni non stanno nello snapshot, quindi il ripiego qui sotto non
-  // le riguarda: finche' il primo cron non le ha scritte non ci sono, e si
+  // le riguarda: finche' il primo giro non le ha scritte non ci sono, e si
   // dice 404 invece di affettare la sezione sbagliata. L'app ripiega da se'
   // su /rt/v1/updates, che e' esattamente cosa fa gia' oggi.
   if (!response && kind === 4) {
@@ -459,7 +475,7 @@ async function serveSection(request, env, ctx, kind) {
   }
 
   // Il ripiego: lo snapshot intero. Vale finche' le sezioni non sono state
-  // scritte nemmeno una volta — cioe' dal deploy al primo giro di cron.
+  // scritte nemmeno una volta — cioe' dal deploy al primo giro.
   if (!response) {
     const obj = await env.RT.get(SNAPSHOT_KEY);
     if (!obj) {
@@ -477,36 +493,16 @@ async function serveSection(request, env, ctx, kind) {
       });
     }
 
-    const nowSec = Math.floor(Date.now() / 1000);
-    const snapshotAge = nowSec - (header.generatedAt || 0);
-    if (
-      snapshotAge >= BLOCKING_REFRESH_AFTER_SECONDS &&
-      nowSec - lastRefreshAt >= BLOCKING_REFRESH_AFTER_SECONDS
-    ) {
-      // Si aspetta il giro. Il guardiano `lastRefreshAt` serve al caso
-      // 'invariato': se l'origine non si e' mossa, `generatedAt` non
-      // avanza, e senza questo si bloccherebbe ogni richiesta su una
-      // rilettura che non cambia niente.
-      try {
-        const outcome = await sharedRefresh(env);
-        // Si rilegge SOLO se il giro ha scritto davvero. Sugli esiti
-        // 'invariato' e 'feed non raggiunti' i byte su R2 sono per
-        // definizione identici a quelli gia' in mano: rileggerli erano
-        // ~400 KB buttati proprio nel caso in cui questo ramo scatta piu'
-        // spesso (origine ferma, eta' fra 90 e 120 s).
-        if (typeof outcome === 'string' && outcome.startsWith('scritto')) {
-          const again = await env.RT.get(SNAPSHOT_KEY);
-          if (again) {
-            const fresher = new Uint8Array(await again.arrayBuffer());
-            const reread = readHeader(fresher);
-            if (reread) {
-              snapshot = fresher;
-              header = reread;
-            }
-          }
+    // Si rilegge SOLO se il giro ha scritto davvero: qui sono ~400 KB.
+    if (await freshen(env, header.generatedAt)) {
+      const again = await env.RT.get(SNAPSHOT_KEY);
+      if (again) {
+        const fresher = new Uint8Array(await again.arrayBuffer());
+        const reread = readHeader(fresher);
+        if (reread) {
+          snapshot = fresher;
+          header = reread;
         }
-      } catch {
-        // Origine giu': si serve quello che si ha, meglio di un errore.
       }
     } else {
       maybeLazyRefresh(env, ctx, header.generatedAt);
@@ -610,13 +606,6 @@ async function serveSection(request, env, ctx, kind) {
 }
 
 async function serveHealth(env, ctx) {
-  let heartbeat = null;
-  try {
-    const hb = await env.RT.get(HEARTBEAT_KEY);
-    if (hb) heartbeat = JSON.parse(await hb.text());
-  } catch {
-    heartbeat = null;
-  }
   let header = null;
   try {
     const head = await env.RT.get(SNAPSHOT_KEY, { range: { offset: 0, length: HEADER_LEN } });
@@ -647,6 +636,9 @@ async function serveHealth(env, ctx) {
   }
 
   const now = Math.floor(Date.now() / 1000);
+  // Pigro e non bloccante: /health deve dire l'eta' che ha trovato, non
+  // quella che ha appena prodotto. Il campo `cron` non c'e' piu': il Cron
+  // Trigger e' stato tolto il 30/09 (vedi freshness.js).
   if (header) maybeLazyRefresh(env, ctx, header.generatedAt);
   const body = header
     ? {
@@ -657,7 +649,6 @@ async function serveHealth(env, ctx) {
       updates: { count: header.delayCount, feedAgeSeconds: header.tuTimestamp ? now - header.tuTimestamp : null },
       alerts: { bytes: header.alertsLen, feedAgeSeconds: header.alTimestamp ? now - header.alTimestamp : null },
       predictions,
-      cron: heartbeat ? { ageSeconds: now - heartbeat.at, outcome: heartbeat.outcome } : null,
     }
     : { ok: false, error: 'snapshot non ancora generato' };
   return new Response(JSON.stringify(body, null, 2), {

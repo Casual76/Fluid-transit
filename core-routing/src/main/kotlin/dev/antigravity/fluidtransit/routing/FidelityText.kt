@@ -21,10 +21,16 @@ object FidelityText {
     /** Cosa e' successo l'ultima volta che si e' confrontato. */
     class Verdict(
         val atEpoch: Long,
-        /** "uguale" | "diverso" | "poco" | "sfasato" */
+        /** "uguale" | "diverso" | "poco" | "sfasato" | "fermo" */
         val esito: String,
         val punti: Int,
         val diversi: Int,
+        /**
+         * Di quanti secondi il proxy era indietro sull'origine, quando
+         * l'esito e' "fermo". Null negli altri casi e nei verdetti scritti
+         * prima del 30/09/2026, che questo campo non l'avevano.
+         */
+        val indietro: Long? = null,
     )
 
     class Words(val title: String, val detail: String)
@@ -86,6 +92,23 @@ object FidelityText {
                 "Non c'era abbastanza da confrontare",
                 "L'ultimo giro, $quando, ha trovato ${punti(v.punti)} da " +
                     "confrontare: troppo pochi perche' il confronto dica qualcosa.",
+            )
+
+            // Il proxy non si e' allineato nemmeno dopo che il banco l'ha
+            // letto piu' volte: i ritardi che l'app riceveva erano di un'altra
+            // ora. Fino al 30/09 questo caso si confondeva con "sfasato", che
+            // e' sfortuna di tempi, e il proxy restava fermo per ore senza che
+            // nessuno lo sapesse.
+            "fermo" -> Words(
+                "I nostri minuti erano indietro",
+                if (v.indietro != null && v.indietro > 0) {
+                    "L'ultimo giro, $quando, ha trovato i ritardi che ricevi " +
+                        "indietro di ${dev.antigravity.fluidtransit.routing.Words.age(v.indietro)} " +
+                        "rispetto a quelli della Regione."
+                } else {
+                    "L'ultimo giro, $quando, ha trovato i ritardi che ricevi " +
+                        "indietro rispetto a quelli della Regione."
+                },
             )
 
             "sfasato" -> Words(

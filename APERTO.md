@@ -155,7 +155,7 @@ workflow `rt-keepalive.yml`: serve chi ha le chiavi di Cloudflare.
 Nel frattempo il danno possibile e' stato ridotto a zero per aritmetica: il
 limite e' passato da venti a cinquantacinque secondi per isolate, cioe' al
 massimo poco piu' di tre fetch al minuto verso l'origine della Regione —
-esattamente quello che ordina il nostro cron. Chi conoscesse l'URL non
+quanto ne ordina un'app accesa. Chi conoscesse l'URL non
 ottiene una leva su qualcun altro, solo su di noi, e nemmeno tanta.
 — aperto dal 15/09/2026, ridotto il 16/09/2026
 
@@ -167,29 +167,28 @@ o cinque ore; il bundle notturno, che chiede le 03:40 UTC, e' partito alle
 08:15 UTC, alle 09:07 UTC non era ancora partito. Non sono ritardi di minuti:
 sono ore, e la maggior parte delle occorrenze viene saltata.
 
-Tre sintomi diversi hanno quindi la stessa causa: il proxy che non viene
-svegliato, gli orari nuovi che arrivano a meta' mattina invece che all'alba,
-e il verdetto del banco che nell'app resta fermo a quello della notte. Niente
-di tutto questo si aggiusta da qui — e' come GitHub pianifica i lavori
-gratuiti — ma va saputo prima di cercare la causa altrove. L'app intanto fa
+Due sintomi diversi hanno quindi la stessa causa: gli orari nuovi che
+arrivano a meta' mattina invece che all'alba (a fine settembre verso le
+12:00 italiane), e il verdetto del banco che nell'app resta fermo a quello
+della notte. Niente di tutto questo si aggiusta da qui — e' come GitHub
+pianifica i lavori gratuiti — ma va saputo prima di cercare la causa altrove.
+Il terzo sintomo, il proxy che nessuno sveglia, non dipende piu' da qui: dal
+30/09 lo sveglia la lettura stessa. L'app intanto fa
 la cosa giusta: dice sempre di QUANDO e' il dato che mostra, invece di
 promettere una frequenza. — misurato il 16/09/2026
 
-**Il Cron Trigger di Cloudflare non e' un metronomo, e adesso si vede anche
-nell'app.** `crons = ["* * * * *"]` e' configurato, ma `/rt/v1/health` ha
-riportato battiti a 26 e a 102 minuti di distanza; stamattina alle 07:40, in
-piena ora di punta, l'ultimo battito era di **un'ora prima** e lo snapshot
-restava fresco solo perche' il refresh pigro lo riscriveva a ogni richiesta.
-
-La conseguenza visibile e' arrivata oggi: l'app e' passata alla sorgente
-diretta — "Ritardi non disponibili" sulla mappa, quindi nessun ritardo e
-nessuna previsione — perche' ha letto tre volte di fila uno snapshot vecchio.
-Si rimette da sola dopo cinque minuti, ed e' il comportamento voluto, ma il
-motivo per cui succede non e' un guasto del proxy: e' che senza traffico
-nessuno lo sveglia, e il cron che dovrebbe farlo non scatta.
-
-Non si chiude da qui: serve chi ha le chiavi di Cloudflare per guardare
-perche' il trigger non parte. — misurato di nuovo il 16/09/2026
+**Il giro del proxy sta nei 10 ms del piano gratuito solo per tolleranza.**
+Il Cron Trigger "che non scattava" in realta' partiva e moriva: un giro
+costa 70-90 ms di CPU e il Free ne concede 10 per invocazione (misurato il
+30/09/2026). Il cron e' stato tolto e il giro lo fa la richiesta che trova lo
+snapshot vecchio, aspettandolo prima di rispondere. Funziona perche' sulle
+richieste HTTP Cloudflare oggi non applica il limite alla lettera; lo stesso
+limite, sulla carta, vale anche li'. Se un giorno le richieste cominciassero
+a fallire con l'errore 1102 (CPU superata), la risposta e' Workers Paid
+(5 $/mese, 30 s di CPU): ridurre un parse da 70 ms a meno di 10 in
+JavaScript non e' realistico. Il segnale da guardare e' il banco di
+fedelta', che adesso esce con errore quando il proxy resta indietro.
+— aperto il 30/09/2026
 
 **La chiave Google Maps e' dentro gli APK 1.0.0, 1.0.1 e 1.1.0 gia'
 distribuiti.** È stata tolta da `local.properties`, ma quello che è stato

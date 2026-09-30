@@ -40,7 +40,9 @@ jobs:
     # minuti sembravano larghi, ma il 16/09 il solo scarico se li e' mangiati
     # tutti e il job e' stato ucciso senza aver costruito niente. Con novanta
     # ci sta il caso lento — quaranta minuti di scarico nel peggiore dei casi
-    # piu' i trenta del lavoro — e resta un margine.
+    # piu' i trenta del lavoro — e resta un margine. L'estratto OSM per
+    # Valhalla ha un tetto suo di quindici minuti, ma quasi sempre sta nella
+    # cache della settimana e costa mezzo minuto.
     timeout-minutes: 90
     steps:
       # Senza submodule: al bundler servono solo :core-routing e :bundler,
@@ -49,34 +51,155 @@ jobs:
         with:
           submodules: false
 
+      # Il pbf della Toscana, uno a settimana.
+      #
+      # Le strade e i nomi dei luoghi non cambiano da una notte all'altra, e
+      # scaricare ogni notte 384 MB da Geofabrik era un peso per loro e un
+      # punto di rottura per noi: il 30/09/2026 `centro-latest.osm.pbf`
+      # rispondeva con un 301 verso se' stesso piu' uno slash, all'infinito
+      # (verificato anche fuori da GitHub, e anche su `italy-latest`), e il
+      # bundle intero e' caduto su un passo che doveva essere facoltativo.
+      # La cache e' la terza difesa, e con la chiave della settimana esatta
+      # lo scarico non si fa proprio.
+      - name: Settimana dei dati OSM
+        id: osm
+        run: echo "key=osm-toscana-$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Il pbf toscano della cache
+        id: osmcache
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/osm/toscana.osm.pbf
+          key: ${{ steps.osm.outputs.key }}
+          restore-keys: osm-toscana-
+
       # Parte per primo e lavora in background: il grafo stradale della
       # Toscana si costruisce mentre bundle e verifica girano. Serve al map
       # matching delle tratte (le shape GTFS sono tracce GPS: zoomate
       # tagliano gli isolati; riproiettate sul grafo OSM seguono l'asfalto).
+      #
+      # Non fallisce MAI. Il map matching e i luoghi migliorano gli orari ma
+      # non sono gli orari: senza pbf si pubblica lo stesso, con le tratte GPS
+      # e i luoghi di ieri, e lo si dice con un warning. Tre cinture, perche'
+      # una sola non bastava: la shell non si ferma al primo errore (vedi
+      # sotto), il passo ha un tetto di tempo suo, e se anche quello salta
+      # `continue-on-error` lascia andare avanti il job — senza `pronto`, il
+      # matching se ne accorge e prosegue con le tracce GPS.
       - name: Avvia Valhalla in background (grafo stradale Toscana)
+        id: valhalla
+        timeout-minutes: 25
+        continue-on-error: true
+        env:
+          CACHE_HIT: ${{ steps.osmcache.outputs.cache-hit }}
+          CACHE_KEY: ${{ steps.osmcache.outputs.cache-matched-key }}
         run: |
-          set -euo pipefail
+          # GitHub lancia i passi con `bash -e`, e `set -uo pipefail` NON lo
+          # spegne: con errexit acceso un grep senza risultati, un apt-get
+          # capriccioso o una copia fallita facevano uscire il passo con
+          # errore, cioe' proprio il guasto che questo passo deve assorbire.
+          # Qui ogni fallimento ha il suo ripiego scritto accanto.
+          set -uo pipefail
+          set +e
+          P=/tmp/osm/toscana.osm.pbf
+          BASE=https://download.geofabrik.de/europe/italy
+          mkdir -p /tmp/osm
+          # osmium serve anche al passo dei luoghi, quindi si installa
+          # comunque, anche quando il pbf arriva dalla cache.
+          sudo apt-get update -qq || echo "::warning::apt-get update non riuscito"
+          sudo apt-get install -y -qq osmium-tool >/dev/null ||
+            echo "::warning::osmium-tool non installato"
+          # Quindici minuti in tutto per la catena di scarico, non per
+          # ciascun tentativo: con 900 secondi a testa e i ripieghi in fila,
+          # un mirror lento si mangiava da solo il tempo del job intero. Il
+          # secondo tentativo ha quello che il primo ha lasciato, e un
+          # trasferimento che si ferma (sotto i 100 kB/s per un minuto) si
+          # molla subito invece di aspettare la scadenza.
+          SECONDS=0
+          BUDGET=900
           # -L: Geofabrik puo' rispondere con un redirect al mirror, e senza
-          # seguirlo il "pbf" scaricato e' la paginetta del 302.
-          curl --fail --silent --show-error --location \
-               --retry 3 --retry-delay 20 \
-               --max-time 900 -o /tmp/centro.osm.pbf \
-               "https://download.geofabrik.de/europe/italy/centro-latest.osm.pbf"
-          test "$(stat -c%s /tmp/centro.osm.pbf)" -gt 100000000 || {
-            echo "::error::il pbf del Centro Italia e' sospettosamente piccolo"; exit 1; }
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq osmium-tool >/dev/null
-          # Il ritaglio: Geofabrik non ha la sola Toscana, il Centro intero
-          # triplicherebbe il tempo di costruzione del grafo.
-          osmium extract --bbox 9.55,42.20,12.60,44.60 /tmp/centro.osm.pbf \
-                 -o /tmp/toscana.osm.pbf --overwrite
-          ls -la /tmp/toscana.osm.pbf
-          mkdir -p /tmp/valhalla
-          cp /tmp/toscana.osm.pbf /tmp/valhalla/
-          docker run -d --name valhalla -p 8002:8002 \
-            -v /tmp/valhalla:/custom_files \
-            -e serve_tiles=True -e build_admins=False -e build_time_zones=False \
-            ghcr.io/gis-ops/docker-valhalla/valhalla:latest
+          # seguirlo il "pbf" scaricato e' la paginetta del 302. Ma i redirect
+          # si contano: un giro chiuso deve fallire subito, non dopo 50.
+          scarica() {
+            local resta=$((BUDGET - SECONDS))
+            [ "$resta" -gt 60 ] || return 1
+            rm -f /tmp/centro.osm.pbf
+            curl --fail --silent --show-error --location --max-redirs 5 \
+                 --retry 1 --retry-delay 10 \
+                 --speed-limit 100000 --speed-time 60 --max-time "$resta" \
+                 -A "FluidTransit-Bundler/0.1 (+https://github.com/${GITHUB_REPOSITORY})" \
+                 -o /tmp/centro.osm.pbf "$1" &&
+              [ "$(stat -c%s /tmp/centro.osm.pbf)" -gt 100000000 ]
+          }
+          fresco=false
+          if [ "$CACHE_HIT" = "true" ]; then
+            echo "pbf della settimana gia' in cache ($CACHE_KEY): niente scarico"
+          else
+            fonte=""
+            if scarica "$BASE/centro-latest.osm.pbf"; then
+              fonte="centro-latest"
+            else
+              # Gli estratti datati stanno accanto e hanno un nome fisso: il
+              # 30/09 rispondevano 200 mentre `-latest` girava in tondo.
+              echo "::warning::centro-latest non scaricabile: provo l'ultimo estratto datato"
+              ultimo=$(curl --fail --silent --location --max-redirs 5 --max-time 30 "$BASE/" \
+                       | grep -oE 'centro-[0-9]{6}\.osm\.pbf' | sort -u | tail -1) || ultimo=""
+              if [ -n "$ultimo" ] && scarica "$BASE/$ultimo"; then fonte="$ultimo"; fi
+            fi
+            if [ -n "$fonte" ]; then
+              # Il ritaglio: Geofabrik non ha la sola Toscana, il Centro intero
+              # triplicherebbe il tempo di costruzione del grafo. Su un file a
+              # parte e poi al suo posto: `--overwrite` direttamente su $P
+              # distruggeva il pbf della cache prima di sapere se l'estrazione
+              # sarebbe riuscita, e un file a meta' passava per buono. Il
+              # suffisso .osm.pbf serve: osmium deduce il formato dal nome.
+              NUOVO=/tmp/osm/nuovo.osm.pbf
+              rm -f "$NUOVO"
+              if osmium extract --bbox 9.55,42.20,12.60,44.60 /tmp/centro.osm.pbf \
+                   -o "$NUOVO" --overwrite && mv -f "$NUOVO" "$P"; then
+                fresco=true
+                echo "pbf da $fonte"
+              else
+                rm -f "$NUOVO"
+                echo "::warning::estrazione della Toscana non riuscita: resta il pbf di prima, se c'e'"
+              fi
+              rm -f /tmp/centro.osm.pbf
+            elif [ -f "$P" ]; then
+              echo "::warning::Geofabrik non risponde: uso il pbf toscano di $CACHE_KEY"
+            fi
+          fi
+          echo "fresco=$fresco" >> "$GITHUB_OUTPUT"
+          if [ ! -f "$P" ]; then
+            echo "::warning::nessun pbf OSM: stanotte niente map matching e luoghi di ieri"
+            echo "pronto=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          ls -la "$P"
+          if ! { mkdir -p /tmp/valhalla && cp "$P" /tmp/valhalla/; }; then
+            echo "::warning::copia del pbf per Valhalla non riuscita: shape GPS, senza matching"
+            echo "pronto=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if docker run -d --name valhalla -p 8002:8002 \
+               -v /tmp/valhalla:/custom_files \
+               -e serve_tiles=True -e build_admins=False -e build_time_zones=False \
+               ghcr.io/gis-ops/docker-valhalla/valhalla:latest; then
+            echo "pronto=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Valhalla non partito: shape GPS, senza matching"
+            echo "pronto=false" >> "$GITHUB_OUTPUT"
+          fi
+          exit 0
+
+      # Subito, e non a fine job: la cache di Actions salverebbe nel post-job
+      # solo se il job riesce, e un pbf scaricato bene non deve andare perso
+      # perche' stanotte un gate ha protestato.
+      - name: Salva il pbf toscano della settimana
+        if: steps.valhalla.outputs.fresco == 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/osm/toscana.osm.pbf
+          key: ${{ steps.osm.outputs.key }}
 
       - uses: actions/setup-java@v4
         with:
@@ -131,8 +254,18 @@ jobs:
       # Il bundle aspetta il grafo, ma non costa niente: dura tre secondi e
       # il cammino critico e' Valhalla comunque.
       - name: Riproietta le shape sulla strada (Valhalla)
+        env:
+          VALHALLA_PRONTO: ${{ steps.valhalla.outputs.pronto }}
         run: |
           set -euo pipefail
+          # Senza container non c'e' niente da aspettare: prima si sondava
+          # comunque 150 volte, cioe' venticinque minuti persi a chiedere
+          # a una porta chiusa se il grafo era pronto.
+          if [ "${VALHALLA_PRONTO:-false}" != "true" ]; then
+            echo "1" > work/overlay.rev
+            echo "::warning::niente grafo stradale stanotte: shape GPS, senza matching"
+            exit 0
+          fi
           # Se il grafo non e' pronto in tempo si va senza: meglio le tratte
           # GPS di ieri che nessuna pubblicazione — e la revisione
           # dell'overlay resta bassa, cosi' domani si riprova.
@@ -271,7 +404,11 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          P=/tmp/toscana.osm.pbf
+          P=/tmp/osm/toscana.osm.pbf
+          if [ ! -f "$P" ]; then
+            echo "nessun pbf OSM: si tengono i luoghi di ieri"
+            exit 0
+          fi
           mkdir -p work/osm
           # Ogni estrazione e' un doppio filtro dove serve l'AND (osmium non
           # intere seca in un colpo solo "highway E name").
@@ -492,6 +629,18 @@ jobs:
                --argjson prawBytes "$(stat -c%s work/luoghi.bin)" \
                '. + {placesUrl: $purl, placesSha256: $psha, placesBytes: $pbytes, placesRawBytes: $prawBytes}' \
                work/index.json > work/index2.json && mv work/index2.json work/index.json
+          elif [ -f work/previous.json ] && [ -n "$(jq -r '.placesUrl // empty' work/previous.json)" ]; then
+            # I luoghi di ieri, se stanotte non se ne sono costruiti (niente
+            # pbf OSM). Senza, l'indice nuovo nascerebbe senza `placesUrl`:
+            # le app che i luoghi li hanno gia' li terrebbero, ma una prima
+            # installazione resterebbe senza ricerca per indirizzo fino al
+            # giorno dopo. E il file di ieri va escluso dalla pulizia qui
+            # sotto, che altrimenti potrebbe cancellare proprio lui.
+            jq --slurpfile p work/previous.json \
+               '. + ($p[0] | {placesUrl, placesSha256, placesBytes, placesRawBytes})' \
+               work/index.json > work/index2.json && mv work/index2.json work/index.json
+            placesAsset=$(basename "$(jq -r .placesUrl work/previous.json)")
+            echo "luoghi di ieri: $placesAsset"
           fi
           cat work/index.json
 

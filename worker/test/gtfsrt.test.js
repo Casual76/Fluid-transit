@@ -24,8 +24,8 @@ describe('intestazione', () => {
 
     assert.equal(out.version, '1.0');
     assert.equal(out.timestamp, 1_699_999_940);
-    // 'header' salta le entita': e' il giro che il cron fa ogni minuto per
-    // decidere se c'e' qualcosa di nuovo, e deve costare quasi zero.
+    // 'header' salta le entita': e' il controllo con cui il giro decide se
+    // c'e' qualcosa di nuovo, e deve costare quasi zero.
     assert.equal(out.vehicles.length, 0);
     assert.equal(out.updates.length, 0);
   });

@@ -53,6 +53,7 @@ object FidelityCheck {
                 esito = o.optString("esito"),
                 punti = o.optInt("punti"),
                 diversi = o.optInt("diversi"),
+                indietro = if (o.has("indietro")) o.optLong("indietro") else null,
             )
         }.fold(
             onSuccess = { Esito(it, reachable = true) },

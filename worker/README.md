@@ -7,20 +7,32 @@ Cloudflare) ed e' stata sostituita da questo Worker. Il principio di design,
 misurato in Fase 1, e':
 
 - **l'origine non manda validatori e non supporta gzip**: ogni fetch e'
-  integrale, quindi lo fa il cron una volta al minuto — mai il client;
+  integrale, quindi lo fa il proxy — mai il client — e lo fa quando una
+  lettura trova lo snapshot vecchio (`src/freshness.js`);
 - **l'origine si rigenera ogni ~2 minuti**: quando i timestamp non cambiano
-  il cron NON riscrive lo snapshot (meta' delle scritture R2 risparmiate);
-- **zero parsing sul percorso richiesta**: le richieste servono byte gia'
-  pronti, affettati dallo snapshot e cacheati 35 s sull'edge — cinque secondi
-  piu' del poll dell'app, che chiede ogni 30 s: a 45 (e poi a 25) la voce non
-  arrivava mai viva al giro successivo.
+  il giro NON riscrive lo snapshot (meta' delle scritture R2 risparmiate);
+- **il parse si fa una volta per generazione, non per richiesta**: una
+  richiesta normale serve byte gia' pronti, affettati e cacheati 35 s
+  sull'edge — cinque secondi piu' del poll dell'app, che chiede ogni 30 s: a
+  45 (e poi a 25) la voce non arrivava mai viva al giro successivo. Solo la
+  richiesta che trova lo snapshot vecchio fa il giro: in sottofondo oltre i
+  55 secondi, aspettandolo oltre i 90.
+
+**Non c'e' un Cron Trigger** (`crons = []` in `wrangler.toml`). Sul piano
+gratuito un'invocazione cron ha 10 ms di CPU e un giro ne costa 70-90
+(misurato il 30/09/2026): partiva ogni minuto, scaricava i feed e moriva nel
+parse. Sulle richieste HTTP lo stesso limite oggi e' tollerato; se smettesse
+di esserlo, la via e' Workers Paid (vedi `APERTO.md`).
 
 ## Architettura
 
 ```
-cron 1/min:  origine (3 feed GTFS-RT) → decoder protobuf statico (gtfsrt.js)
+richiesta:   Cache API (35 s) → miss → R2 rt/<sezione>.gz → risposta
+             se lo snapshot ha piu' di 55 s: giro in sottofondo
+             se ne ha piu' di 90: giro PRIMA di rispondere (freshness.js)
+giro:        origine (3 feed GTFS-RT) → decoder protobuf statico (gtfsrt.js)
              → snapshot binario compatto (snapshot.js) → R2 rt/latest.bin
-richiesta:   Cache API (35 s) → miss → R2 → slice + gzip → risposta
+             → sezioni gia' affettate e compresse → R2 rt/*.gz
 ```
 
 Gli id del feed viaggiano come **hash FNV-1a a 64 bit, identici a quelli del

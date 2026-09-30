@@ -9,11 +9,13 @@ import kotlin.test.assertTrue
  * Le parole del confronto con la fonte.
  *
  * Questa riga esiste per rispondere a una domanda precisa — "non so nemmeno
- * se i dati sono accurati" — e la risposta puo' essere solo una di quattro:
+ * se i dati sono accurati" — e la risposta puo' essere solo una di cinque:
  * combaciano, non combaciano, non c'era abbastanza da confrontare, il
- * confronto non e' riuscito. Confonderne due sarebbe peggio che non dire
- * niente, e "zero differenze su zero orari" e' esattamente la confusione da
- * evitare: il banco stesso ci era gia' cascato.
+ * confronto non e' riuscito, i nostri minuti erano indietro. Confonderne due
+ * sarebbe peggio che non dire niente, e "zero differenze su zero orari" e'
+ * esattamente la confusione da evitare: il banco stesso ci era gia' cascato.
+ * Le ultime due vanno tenute separate: "non riuscito" e' sfortuna di tempi,
+ * "indietro" e' il proxy fermo che serve minuti vecchi.
  */
 class FidelityTextTest {
 
@@ -105,6 +107,29 @@ class FidelityTextTest {
             now,
         )
         assertEquals("Esito sconosciuto", w.title)
+    }
+
+    @Test
+    fun `un proxy fermo si dice, con quanto era indietro`() {
+        // Il caso che fino al 30/09 usciva "non conclusivo": il proxy era
+        // indietro di ore, e chi apriva questa schermata leggeva che il
+        // confronto non era riuscito, come se fosse colpa dei tempi.
+        val w = FidelityText.words(
+            FidelityText.Verdict(oreFa(1), "fermo", punti = 0, diversi = 0, indietro = 7464),
+            now,
+        )
+        assertEquals("I nostri minuti erano indietro", w.title)
+        assertTrue(w.detail.contains("2 h 4 min"), w.detail)
+    }
+
+    @Test
+    fun `un proxy fermo senza la misura non inventa un numero`() {
+        val w = FidelityText.words(
+            FidelityText.Verdict(oreFa(1), "fermo", punti = 0, diversi = 0),
+            now,
+        )
+        assertEquals("I nostri minuti erano indietro", w.title)
+        assertTrue(!w.detail.contains("di 0"), w.detail)
     }
 
     @Test

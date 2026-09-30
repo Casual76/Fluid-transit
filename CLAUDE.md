@@ -24,8 +24,9 @@ Due backend, non uno:
 - **il bundle degli orari** lo costruisce GitHub Actions ogni notte
   (`build-bundle.yml`) e lo pubblica sulla release a tag fisso `dati`;
   `index.json`, scritto per ultimo, e' lo switch atomico;
-- **il realtime** passa dal Worker `fluid-transit-rt`, che ogni minuto scarica
-  i tre feed GTFS-RT, li riduce a record binari e li mette su R2.
+- **il realtime** passa dal Worker `fluid-transit-rt`, che scarica i tre feed
+  GTFS-RT, li riduce a record binari e li mette su R2. Non c'e' un cron: il
+  giro lo fa la lettura che trova lo snapshot vecchio (`freshness.js`).
 
 L'app non parla mai GTFS ne' GTFS-RT: riceve byte gia' pronti da leggere con un
 `ByteBuffer`. Gli identificatori viaggiano come **hash FNV-1a a 64 bit**, la
@@ -149,6 +150,25 @@ dell'emulatore, e non lo e'. Chi scrive `pushXxx` poi si affida a
 `style.isFullyLoaded`, che durante il callback dello stile puo' essere
 ancora falso — quindi la prima consegna dei dati puo' non avvenire mai.
 
+**Sul piano gratuito di Cloudflare un cron ha 10 ms di CPU, e un giro ne
+costa 70-90.** Il Cron Trigger al minuto risultava registrato e "non
+scattava": in realta' partiva, scaricava 1,25 MB dalla Regione, trovava il
+feed cambiato e moriva nel parse. L'unico giro che ci stava era quello che
+legge solo gli header, per questo i rari battiti su `/health` dicevano
+sempre "invariato" — ed e' il dettaglio che l'ha tradito. Il cron e' stato
+tolto (`crons = []`, che su Cloudflare CANCELLA la schedule; togliere la
+sezione la lascerebbe). Il rischio che resta: anche le richieste HTTP hanno
+10 ms sul Free, e il giro ci sta solo perche' Cloudflare oggi e' tollerante.
+Se un giorno smettesse, la via e' Workers Paid, non un'ottimizzazione.
+
+**La via veloce aveva perso il refresh bloccante.** La regola "snapshot
+vecchio: si rinfresca PRIMA di rispondere" viveva solo nel ripiego dello
+snapshot intero; quando le sezioni sono diventate la via normale nessuna
+richiesta ci passava piu', e il primo lettore dopo una pausa riceveva la
+pausa intera — fino a cinque ore, misurate dal banco di fedelta' fra il 22 e
+il 29/09. Adesso la regola sta in `freshness.js` e la usano tutte e due le
+vie.
+
 ## Numeri misurati, non stimati
 
 Servono prima di progettare, e sono costati tempo: qui per non rimisurarli.
@@ -168,6 +188,10 @@ La data conta, perche' il feed cambia.
 | avvio a freddo fino a Oggi (stessa build) | ~1,85 s | 16/09/2026 |
 | pattern che toccano due volte la stessa fermata | 215 su 8.331 | 16/09/2026 |
 | fermate entro 700 m dal Duomo di Firenze | 44 | 16/09/2026 |
+| CPU di un giro del Worker (parse, snapshot, previsioni) | 70-90 ms (il Free ne da' 10) | 30/09/2026 |
+| di cui solo gli header, cioe' il giro "invariato" | 0,3-1,3 ms | 30/09/2026 |
+| ritardo del proxy sull'origine senza lettori | fino a 18.592 s | 22-29/09/2026 |
+| estratto OSM del Centro Italia (Geofabrik) | 384 MB | 30/09/2026 |
 
 Due conseguenze che si dimenticano:
 
@@ -229,6 +253,13 @@ guardato: a settembre 2026 il gate ha bloccato sette notti di fila un feed
 sano, perche' l'inizio dell'anno scolastico aveva aggiunto il 53% di corse.
 I gate sono ora asimmetrici (stretti in giu', larghi in su) e c'e' un
 interruttore manuale `ignora_gate`.
+
+Il map matching (Valhalla) e i luoghi dipendono da un estratto OSM di
+Geofabrik, e sono **facoltativi**: senza, si pubblica con le tratte GPS e i
+luoghi di ieri. Il pbf toscano sta nella cache di Actions, uno a settimana;
+se `centro-latest` non risponde si prova l'ultimo estratto datato, poi la
+cache. Il 30/09/2026 `-latest` girava in tondo su un 301 e aveva fatto
+cadere l'intero bundle.
 
 ## Il vocabolario sta in un posto solo
 
@@ -343,12 +374,17 @@ serve all'app, e confronta i ritardi uno per uno. E' l'unico modo di
 rispondere a "i nostri minuti sono quelli della fonte?": guardando l'app si
 confronterebbe l'app con se' stessa.
 
-Ultima misura: **873 punti confrontati, 0 differenze** (15/09/2026).
+Ultima misura: **23.808 punti confrontati, 0 differenze** (30/09/2026, 13:03).
 
 Gira da solo in CI due volte al giorno, nelle ore di punta — a notte fonda il
-feed ha una manciata di corse e il confronto non direbbe niente. Esce 1 se le
-differenze superano cinque per mille, 2 se i due lati vengono da due
-generazioni diverse (non e' un difetto: si riprova).
+feed ha una manciata di corse e il confronto non direbbe niente. Confronta
+solo la STESSA generazione (sfasamento zero: con 121 s i due lati sono a una
+rigenerazione di distanza, e il 18/09 e il 29/09 ne sono usciti due falsi
+allarmi al 60% e al 52%). Il primo giro sveglia il proxy, quindi riprova fino
+a sei volte a 40 s. Esce 1 se le differenze superano cinque per mille, 2 se
+i due lati restano sfasati di poco (non e' un difetto: si riprova), 4 se il
+proxy resta indietro di piu' di dieci minuti anche dopo averlo letto — cioe'
+e' fermo, e l'app riceve minuti vecchi.
 
 ## La lista di quello che resta aperto
 
@@ -359,8 +395,9 @@ quando una riga si chiude.
 
 ## Dove guardare quando qualcosa non torna
 
-- `/rt/v1/health` sul Worker: eta' dei feed, conteggi, battito del cron,
-  conteggi delle previsioni per fermata.
+- `/rt/v1/health` sul Worker: eta' dello snapshot e dei feed, conteggi,
+  conteggi delle previsioni per fermata. Non rinfresca prima di rispondere:
+  l'eta' che dice e' quella che ha trovato.
 - **Impostazioni -> Stato dei dati** nell'app: validita' del bundle, sorgente
   realtime, percentuale di corse riconosciute, stato dei luoghi.
 

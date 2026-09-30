@@ -1,10 +1,12 @@
 /**
  * Decoder GTFS-Realtime minimale, scritto a mano sul wire format protobuf.
  *
- * Niente protobufjs riflessivo e niente grafo di oggetti per 200k update:
- * il cron ha 30 s di CPU ma il principio del proxy e' fare il lavoro UNA
- * volta al minuto, non ad ogni richiesta. Si leggono solo i campi che il
- * formato di risposta usa; tutto il resto si salta a costo zero.
+ * Niente protobufjs riflessivo e niente grafo di oggetti per 200k update: il
+ * principio del proxy e' fare il lavoro UNA volta per generazione
+ * dell'origine, non a ogni richiesta, e il margine e' stretto — un giro
+ * intero costa 70-90 ms di CPU contro i 10 del piano gratuito (vedi
+ * freshness.js). Si leggono solo i campi che il formato di risposta usa;
+ * tutto il resto si salta a costo zero.
  *
  * Attenzione alle versioni: alerts e' GTFS-RT 2.0, gli altri due 1.0 — il
  * wire format e' identico, ma il parser non deve assumere una versione.
@@ -271,7 +273,9 @@ function parseVehiclePosition(buf, view, start, end) {
  *
  * Adesso si leggono tutte. Il costo misurato dalla Fase 1 e' ~434 TripUpdate
  * con una trentina di fermate ciascuno: qualche decina di millisecondi di CPU
- * al minuto, dentro i 30 s di budget di un'invocazione cron.
+ * a giro. Sono la parte piu' cara del giro (misurato il 30/09/2026: 21-28 ms
+ * il parse, 35-53 le previsioni), ed e' per questo che il giro sta sulle
+ * richieste e non su un cron da 10 ms.
  *
  * `delay` e `nextStopSeq` restano e valgono esattamente come prima: sono la
  * proiezione a un numero solo che alimenta `/rt/v1/updates`, cioe' le

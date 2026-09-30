@@ -1,6 +1,6 @@
 /**
- * Il formato binario dello snapshot realtime: quello che il cron scrive su
- * R2 (`rt/latest.bin`) e quello che gli endpoint affettano per l'app.
+ * Il formato binario dello snapshot realtime: quello che il giro di rinfresco
+ * scrive su R2 (`rt/latest.bin`) e quello che gli endpoint affettano per l'app.
  *
  * L'app NON riceve GTFS-RT e non riceve JSON: riceve record fissi
  * little-endian gia' pronti da leggere con un ByteBuffer. Gli identificatori

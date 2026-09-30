@@ -19,9 +19,16 @@
  * Uso:
  *   node tools/fedelta.mjs                    # contro il proxy in produzione
  *   node tools/fedelta.mjs --max-eta 300      # tollera 5 minuti di sfasamento
+ *   node tools/fedelta.mjs --tentativi 1      # un giro solo, senza aspettare
  *   node tools/fedelta.mjs --json fuori.json  # scrive anche il verdetto
  *
- * Esce con 1 se le differenze superano la soglia: cosi' puo' fare da cancello.
+ * Codici di uscita, perche' il workflow li distingue:
+ *   0  i minuti sono quelli della fonte;
+ *   1  differenze oltre la soglia: i minuti NON sono quelli della fonte;
+ *   2  non conclusivo: due generazioni diverse, o troppe poche corse;
+ *   3  il banco non e' riuscito a girare;
+ *   4  il proxy serve minuti vecchi: resta indietro anche dopo averlo
+ *      svegliato, cioe' l'app riceverebbe i ritardi di un'altra ora.
  *
  * Con `--json` scrive anche il verdetto in un file. Serve a farlo arrivare
  * all'utente: il confronto risponde alla domanda "non so nemmeno se i dati
@@ -45,8 +52,41 @@ import {
 const ORIGIN = 'https://regionetoscana.smartregion.toscana.it/mobility/artifacts/gtfs-rt';
 const PROXY = 'https://fluid-transit-rt.fluid-transit.workers.dev/rt/v1';
 
-/** Oltre questo scarto fra i due timestamp il confronto non ha senso. */
-const DEFAULT_MAX_SKEW_SECONDS = 180;
+/**
+ * Lo scarto fra i due timestamp oltre il quale non si confronta: ZERO.
+ *
+ * Era 180 secondi, ma l'origine si rigenera ogni ~120: con uno sfasamento di
+ * 121 secondi i due lati erano a una generazione l'uno dall'altro, e ogni
+ * ritardo che nel frattempo si era mosso contava come una differenza. E'
+ * cosi' che il 18/09 e il 29/09 il banco ha dichiarato il 60% e il 52% di
+ * minuti sbagliati su un proxy che non ne sbagliava nessuno. I giri riusciti
+ * hanno tutti sfasamento esattamente 0: la stessa generazione ha lo stesso
+ * timestamp, perche' il proxy ricopia quello dell'origine.
+ */
+const DEFAULT_MAX_SKEW_SECONDS = 0;
+
+/**
+ * Quante volte si riprova prima di arrendersi, e quanto si aspetta fra una
+ * volta e l'altra.
+ *
+ * Il primo giro trova spesso il proxy indietro, ed e' normale: nessuno lo
+ * leggeva, e la lettura del banco e' proprio quella che lo sveglia. La pausa
+ * supera i 35 secondi della cache dell'edge (MAX_AGE_SECONDS nel Worker),
+ * altrimenti il secondo giro rileggerebbe la stessa risposta del primo.
+ */
+const DEFAULT_ATTEMPTS = 6;
+const PAUSE_SECONDS = 40;
+
+/**
+ * Oltre questo ritardo del proxy sull'origine, dopo tutti i tentativi, non
+ * e' sfortuna di tempi: il proxy e' fermo, e l'app riceverebbe minuti
+ * vecchi. Sono cinque generazioni dell'origine.
+ *
+ * Prima questo caso usciva "non conclusivo", in verde: in undici giri su
+ * quattordici fra il 22 e il 29/09 il proxy era indietro di ore (fino a
+ * 18.592 secondi) e il banco non lo diceva a nessuno.
+ */
+const STALE_PROXY_SECONDS = 600;
 
 /**
  * Sotto questi punti confrontati il banco non ha visto abbastanza.
@@ -192,24 +232,57 @@ function rawDelays(tu) {
   return byTrip;
 }
 
-async function main() {
-  const maxSkew = arg('max-eta', DEFAULT_MAX_SKEW_SECONDS);
-  const maxPerMille = arg('max-diff', DEFAULT_MAX_DIFF_PER_MILLE);
-  const jsonOut = argText('json');
+function pausa(secondi) {
+  return new Promise((resolve) => setTimeout(resolve, secondi * 1000));
+}
 
+/** I due lati, letti insieme: un giro del banco. */
+async function leggiIDueLati() {
   const [rawBytes, predBytes] = await Promise.all([
     fetchBytes(`${ORIGIN}/trip-updates`),
     fetchBytes(`${PROXY}/predictions`),
   ]);
-
   const tu = parseFeed(rawBytes, 'updates');
   const pred = readPredictions(predBytes);
+  // Positivo = il proxy e' indietro. L'origine non puo' essere indietro al
+  // proxy, se non per un nodo della sua CDN che serve una copia vecchia.
+  const indietro = (tu.timestamp || 0) - (pred.feedTimestamp || 0);
+  return { tu, pred, indietro };
+}
+
+async function main() {
+  const maxSkew = arg('max-eta', DEFAULT_MAX_SKEW_SECONDS);
+  const maxPerMille = arg('max-diff', DEFAULT_MAX_DIFF_PER_MILLE);
+  const tentativi = Math.max(1, arg('tentativi', DEFAULT_ATTEMPTS));
+  const jsonOut = argText('json');
+
+  let lati = null;
+  for (let i = 1; i <= tentativi; i++) {
+    lati = await leggiIDueLati();
+    const scarto = Math.abs(lati.indietro);
+    console.log(`giro ${i}/${tentativi}: sfasamento ${scarto}s`);
+    // Zero non e' un timestamp. Due lati senza timestamp hanno "sfasamento
+    // zero" e sembravano la stessa generazione: il banco smetteva di
+    // riprovare al primo giro, su un feed che non aveva detto di quando era.
+    const datati = (lati.tu.timestamp || 0) > 0 && (lati.pred.feedTimestamp || 0) > 0;
+    if (datati && scarto <= maxSkew) break;
+    if (i < tentativi) await pausa(PAUSE_SECONDS);
+  }
+  const { tu, pred, indietro } = lati;
   const raw = rawDelays(tu);
 
-  const skew = Math.abs((tu.timestamp || 0) - (pred.feedTimestamp || 0));
+  const skew = Math.abs(indietro);
+  console.log('');
   console.log(`origine:  ${tu.updates.length} corse, timestamp ${tu.timestamp}`);
   console.log(`proxy:    ${pred.tripCount} corse, ${pred.pointCount} punti, timestamp ${pred.feedTimestamp}`);
   console.log(`sfasamento fra i due: ${skew}s`);
+  if (skew > maxSkew && indietro > STALE_PROXY_SECONDS) {
+    console.log(`\nIl proxy e' indietro di ${indietro}s anche dopo ${tentativi} giri:`);
+    console.log("non e' un caso di tempi, e' fermo. L'app riceve minuti vecchi.");
+    scriviVerdetto(jsonOut, { at: adesso(), esito: 'fermo', punti: 0, diversi: 0, indietro });
+    process.exitCode = 4;
+    return;
+  }
   if (skew > maxSkew) {
     console.log(`\nI due lati vengono da due generazioni diverse (oltre ${maxSkew}s):`);
     console.log('il confronto non direbbe niente. Riprova fra un minuto.');
@@ -275,7 +348,13 @@ async function main() {
     console.log(`
 Solo ${confrontati} punti da confrontare, meno di ${minPoints}.`);
     console.log("Non e' un via libera: e' che non c'era niente da guardare.");
-    console.log('Di notte la Regione pubblica zero corse. Riprova nelle ore di servizio.');
+    if (!tu.timestamp && !pred.feedTimestamp) {
+      // Non e' la notte: di notte il feed e' vuoto ma datato. Qui nessuno
+      // dei due lati ha detto di quando era, anche dopo tutti i giri.
+      console.log(`L'origine ha risposto senza corse e senza timestamp, anche dopo ${tentativi} giri.`);
+    } else {
+      console.log('Di notte la Regione pubblica zero corse. Riprova nelle ore di servizio.');
+    }
     scriviVerdetto(jsonOut, {
       at: adesso(),
       esito: 'poco',

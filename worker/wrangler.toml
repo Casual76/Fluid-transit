@@ -1,7 +1,8 @@
 # Fluid Transit — proxy realtime (Fase 4).
 #
-# Cron al minuto: fetch dei tre feed GTFS-RT, parse col decoder statico,
-# snapshot binario su R2. Richieste: byte gia' pronti dietro la Cache API.
+# Un giro = fetch dei tre feed GTFS-RT, parse col decoder statico, snapshot
+# binario su R2. Richieste: byte gia' pronti dietro la Cache API. I giri li
+# fanno le letture (src/freshness.js), non un cron.
 # La probe di Fase 1 e' stata sostituita da questo Worker; il vecchio
 # `fluid-transit-probe` resta deployato ma inerte (nessun cron, zero costi).
 
@@ -10,8 +11,14 @@ main = "src/index.js"
 compatibility_date = "2026-01-01"
 workers_dev = true
 
+# Vuoto e dichiarato, non tolto: con la lista vuota il deploy CANCELLA la
+# schedule gia' registrata su Cloudflare, senza la sezione la lascerebbe.
+#
+# Il cron al minuto non poteva funzionare sul piano gratuito: 10 ms di CPU
+# per invocazione, e un giro ne costa 70-90 (misurato il 30/09/2026). Partiva
+# ogni minuto, scaricava 1,25 MB dalla Regione e moriva nel parse.
 [triggers]
-crons = ["* * * * *"]
+crons = []
 
 [[r2_buckets]]
 binding = "RT"

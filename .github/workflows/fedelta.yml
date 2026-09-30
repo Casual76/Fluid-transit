@@ -32,6 +32,10 @@ permissions:
 jobs:
   confronta:
     runs-on: ubuntu-latest
+    # Il banco riprova fino a sei volte a quaranta secondi l'una dall'altra
+    # prima di arrendersi: quattro minuti nel caso peggiore. Dieci bastano,
+    # e un fetch appeso non tiene occupato un runner per sei ore.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -55,6 +59,10 @@ jobs:
             # sarebbe peggio.
             2) echo "::warning::confronto non conclusivo (sfasamento, o troppe poche corse)" ;;
             1) echo "::error::i nostri minuti NON sono quelli della fonte"; exit 1 ;;
+            # Il proxy resta indietro anche dopo che il banco l'ha svegliato:
+            # l'app riceve i ritardi di un'altra ora. Fino al 30/09 questo
+            # caso usciva come "non conclusivo" e non lo vedeva nessuno.
+            4) echo "::error::il proxy serve minuti vecchi: resta indietro sull'origine anche dopo averlo letto"; exit 1 ;;
             *) echo "::error::il banco non e' riuscito a girare"; exit 1 ;;
           esac
 

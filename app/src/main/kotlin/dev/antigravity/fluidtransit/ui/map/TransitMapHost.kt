@@ -147,6 +147,18 @@ class TransitMapController(private val context: Context) {
      */
     private var pendingCamera: ((MapLibreMap) -> Unit)? = null
 
+    /**
+     * La mappa e' stata distrutta: da qui in poi non si tocca piu'. Chi arriva
+     * dopo — un tabellone, un giro dei bus, la camera della navigazione — trova
+     * null ed esce, invece di chiamare una mappa nativa gia' liberata.
+     */
+    fun unbind(old: MapLibreMap?) {
+        if (old == null || map === old) {
+            map = null
+            currentStyleKey = null
+        }
+    }
+
     fun bind(map: MapLibreMap) {
         this.map = map
         // Una mappa nuova parte senza padding, qualunque cosa avesse la
@@ -1588,7 +1600,21 @@ fun TransitMap(
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
             appContext?.unregisterComponentCallbacks(memoryCallbacks)
-            holder[0]?.onDestroy()
+            // La chiusura completa, non solo onDestroy. La mappa esce di scena
+            // anche con l'attivita' ancora viva — basta passare a Oggi — e
+            // MapLibre ferma il componente della posizione in onStop: saltarlo
+            // lasciava il motore della posizione a consegnare aggiornamenti a
+            // una mappa distrutta, e al primo che animava la camera (in
+            // "seguimi") l'app si chiudeva con un NullPointerException dentro
+            // LocationAnimatorCoordinator. Visto su un Galaxy S25, tre minuti
+            // dopo essere passati alle Impostazioni.
+            currentController.value.unbind(null)
+            holder[0]?.let { vista ->
+                val stato = lifecycleOwner.lifecycle.currentState
+                if (stato.isAtLeast(Lifecycle.State.RESUMED)) vista.onPause()
+                if (stato.isAtLeast(Lifecycle.State.STARTED)) vista.onStop()
+                vista.onDestroy()
+            }
             holder[0] = null
         }
     }

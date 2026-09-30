@@ -225,16 +225,23 @@ object RoutineScheduler {
 
         val leave = journey.departure
         val firstRide = journey.legs.filterIsInstance<Raptor.Leg.Ride>().firstOrNull()
-        val rideText = firstRide?.let {
-            val line = reader.routeShortName(it.route).ifEmpty { reader.routeLongName(it.route) }
-            "linea $line alle ${hm(it.departure)} da ${reader.stopName(it.boardStop)}"
-        } ?: "a piedi"
+        // La frase la costruisce RoutineText.advice, la stessa funzione che il
+        // widget usa (con parseAdvice) per rileggerla: scritta qui a mano
+        // divergeva in silenzio dal suo lettore.
+        val line = firstRide?.let {
+            reader.routeShortName(it.route).ifEmpty { reader.routeLongName(it.route) }
+        }
         // Arrotondato come ovunque nell'app, non troncato: la stessa uscita
         // diceva "tra 12 min" qui e "13 min" nella scheda del viaggio,
         // perche' questa riga buttava via i secondi invece di arrotondarli.
         val secondsToLeave = (leave.epochSecond - Instant.now().epochSecond).toInt()
         val minutes = dev.antigravity.fluidtransit.routing.Times.toMinutes(secondsToLeave)
-        val advice = "Esci alle ${hm(leave)} — $rideText"
+        val advice = RoutineText.advice(
+            leaveHm = hm(leave),
+            line = line,
+            busHm = firstRide?.let { hm(it.departure) },
+            boardStop = firstRide?.let { reader.stopName(it.boardStop) },
+        )
 
         store.update(id) {
             Routines.Routine(

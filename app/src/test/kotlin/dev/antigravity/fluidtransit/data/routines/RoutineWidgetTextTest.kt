@@ -29,9 +29,11 @@ class RoutineWidgetTextTest {
     )
 
     @Test
-    fun `il consiglio si spezza in uscita, bus e fermata`() {
+    fun `il consiglio si spezza in uscita, linea, ora del bus e fermata`() {
         val p = RoutineText.parseAdvice(testo)!!
         assertEquals("Esci alle 07:25", p.leave)
+        assertEquals("23", p.line)
+        assertEquals("07:28", p.busHm)
         assertEquals("linea 23 alle 07:28", p.ride)
         assertEquals("SODERINI TORRINO SANTA ROSA", p.boardStop)
     }
@@ -41,6 +43,7 @@ class RoutineWidgetTextTest {
         val p = RoutineText.parseAdvice("Esci alle 07:25 — a piedi")!!
         assertEquals("Esci alle 07:25", p.leave)
         assertEquals("a piedi", p.ride)
+        assertNull(p.line)
         assertNull(p.boardStop)
     }
 
@@ -48,25 +51,63 @@ class RoutineWidgetTextTest {
     fun `un testo di un'altra forma non si inventa`() {
         assertNull(RoutineText.parseAdvice("Calcolo in corso"))
         assertNull(RoutineText.parseAdvice(""))
+        // Il verbo giusto ma un resto che non e' ne' "a piedi" ne' una corsa.
+        assertNull(RoutineText.parseAdvice("Esci alle 07:25 — qualcosa"))
     }
 
     @Test
-    fun `sul widget il titolo sta in una riga e non ripete l'ora`() {
+    fun `quello che scrive lo scheduler si rilegge, andata e ritorno`() {
+        // La frase ha una costruzione sola, RoutineText.advice: se qualcuno
+        // ne ritocca la forma, il lettore la segue e questo test non cambia.
+        for (linea in listOf("23", "LAM ROSSA", "301A", "Linea alle 9")) {
+            val scritto = RoutineText.advice("07:25", linea, "07:28", "SODERINI TORRINO")
+            val p = RoutineText.parseAdvice(scritto)!!
+            assertEquals(scritto, linea, p.line)
+            assertEquals(scritto, "07:25", p.leaveHm)
+            assertEquals(scritto, "07:28", p.busHm)
+            assertEquals(scritto, "SODERINI TORRINO", p.boardStop)
+        }
+        val piedi = RoutineText.parseAdvice(RoutineText.advice("07:25", null, null, null))!!
+        assertNull(piedi.line)
+        assertEquals("Esci alle 07:25", piedi.leave)
+    }
+
+    @Test
+    fun `sul widget largo il titolo e' l'uscita e a destra sta l'ora del bus`() {
         val leave = mezzanotte + 7 * 3600 + 25 * 60
-        val riga = RoutineText.widget(routine(testo, leave), oggi, leave - 10 * 60)
+        val riga = RoutineText.widget(routine(testo, leave), oggi, leave - 10 * 60, compact = false)
         assertEquals("Esci alle 07:25", riga.title)
-        assertEquals("linea 23 alle 07:28", riga.trailing)
+        assertEquals("bus 07:28", riga.trailing)
         assertTrue(riga.title, riga.title.length < 20)
-        // La fermata apre il sottotitolo, dove c'e' posto e il taglio non la tocca.
-        assertTrue(riga.subtitle, riga.subtitle.startsWith("da SODERINI TORRINO SANTA ROSA"))
+        // A destra una scritta corta, qualunque sia la linea: la colonna e'
+        // a larghezza fissa e quello che prende lo toglie al titolo.
+        assertTrue(riga.trailing!!, riga.trailing!!.length <= 10)
+        // Linea e fermata aprono il sottotitolo, dove il taglio non le tocca.
+        assertTrue(riga.subtitle, riga.subtitle.startsWith("linea 23 da SODERINI TORRINO SANTA ROSA"))
         assertTrue(riga.subtitle, riga.subtitle.contains("06:55"))
+    }
+
+    @Test
+    fun `sul widget stretto il titolo ha tutto il posto e a destra non c'e' niente`() {
+        // Sotto i 240 dp il sottotitolo non si disegna e il titolo prende
+        // quello che la colonna di destra non chiede: con "linea LAM ROSSA
+        // alle 07:28" a destra restavano venti dp, cioe' "E...".
+        val leave = mezzanotte + 7 * 3600 + 25 * 60
+        val lunga = RoutineText.advice("07:25", "LAM ROSSA", "07:28", "SODERINI")
+        val riga = RoutineText.widget(routine(lunga, leave), oggi, leave - 10 * 60, compact = true)
+        assertEquals("Esci alle 07:25", riga.title)
+        assertNull(riga.trailing)
     }
 
     @Test
     fun `se il testo non torna si mostra intero, come prima`() {
         val leave = mezzanotte + 7 * 3600 + 25 * 60
-        val riga = RoutineText.widget(routine("qualcosa di nuovo", leave), oggi, leave - 10 * 60)
-        assertEquals("qualcosa di nuovo", riga.title)
-        assertEquals("07:25", riga.trailing)
+        for (compact in listOf(false, true)) {
+            val riga = RoutineText.widget(
+                routine("qualcosa di nuovo", leave), oggi, leave - 10 * 60, compact,
+            )
+            assertEquals("qualcosa di nuovo", riga.title)
+            assertEquals("07:25", riga.trailing)
+        }
     }
 }

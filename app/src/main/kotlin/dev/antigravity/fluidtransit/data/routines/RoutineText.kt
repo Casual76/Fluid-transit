@@ -20,9 +20,14 @@ object RoutineText {
     /** Una riga: titolo, sottotitolo, e l'orario a destra se c'e'. */
     class Riga(val title: String, val subtitle: String, val trailing: String? = null)
 
-    fun widget(r: Routines.Routine, day: LocalDate, nowEpoch: Long): Riga =
+    /**
+     * La riga del widget. [compact] e' il formato che non disegna il
+     * sottotitolo e ha meno di 240 dp di larghezza: li' il posto e' del solo
+     * titolo, e [goodOnWidget] lo sa.
+     */
+    fun widget(r: Routines.Routine, day: LocalDate, nowEpoch: Long, compact: Boolean): Riga =
         when (Routines.adviceState(r, day, nowEpoch)) {
-            AdviceState.GOOD -> goodOnWidget(r)
+            AdviceState.GOOD -> goodOnWidget(r, compact)
             AdviceState.NO_BUS -> Riga(
                 title = NESSUN_BUS,
                 subtitle = "calcolato alle ${Times.hhmm(r.lastComputeEpoch)}: " +
@@ -55,47 +60,94 @@ object RoutineText {
      * leggeva due volte.
      *
      * Adesso il titolo e' il verbo e l'ora ("Esci alle 07:25"), a destra sta
-     * il bus ("linea 23 alle 07:28"), e la fermata di salita apre il
-     * sottotitolo, che il formato piccolo nasconde ma quello grande mostra.
-     * Il testo salvato lo scrive `RoutineScheduler` e resta l'unica fonte;
-     * se un giorno cambiasse forma e qui non tornasse, [parseAdvice] da' null
-     * e si torna alla frase intera, tagliata ma completa.
+     * l'ora del bus in forma corta ("bus 07:28"), e la linea e la fermata di
+     * salita aprono il sottotitolo. A destra NON sta la frase "linea 23 alle
+     * 07:28": la colonna di destra ha larghezza fissa e il titolo prende il
+     * resto, quindi una scritta di venti caratteri (o di trenta con "LAM
+     * ROSSA") schiacciava il titolo fino a "E...", cioe' l'ora di uscita, che
+     * e' l'unica cosa che serve sulla home. Nel formato stretto, dove il
+     * sottotitolo non si disegna, a destra non sta niente: il titolo ha tutto
+     * il posto, e chi vuole il bus tocca la riga.
+     *
+     * Il testo salvato lo scrive `RoutineScheduler` con [advice] e resta
+     * l'unica fonte; se un giorno non tornasse, [parseAdvice] da' null e si
+     * torna alla frase intera, tagliata ma completa.
      */
-    private fun goodOnWidget(r: Routines.Routine): Riga {
+    private fun goodOnWidget(r: Routines.Routine, compact: Boolean): Riga {
         val pezzi = parseAdvice(r.lastAdviceText)
             ?: return Riga(
                 title = r.lastAdviceText.ifEmpty { "Calcolo in corso" },
                 subtitle = calcolato(r),
                 trailing = Times.hhmm(r.lastAdviceEpoch),
             )
-        val sub = if (pezzi.boardStop != null) {
-            "da ${pezzi.boardStop} - ${calcolato(r)}"
+        val bus = if (pezzi.line != null) {
+            "linea ${pezzi.line} da ${pezzi.boardStop}"
         } else {
-            calcolato(r)
+            null
         }
-        return Riga(title = pezzi.leave, subtitle = sub, trailing = pezzi.ride)
+        val sub = if (bus != null) "$bus - ${calcolato(r)}" else calcolato(r)
+        val trailing = when {
+            compact -> null
+            pezzi.line != null -> "bus ${pezzi.busHm}"
+            else -> WALK
+        }
+        return Riga(title = pezzi.leave, subtitle = sub, trailing = trailing)
     }
 
-    /** Le parti di "Esci alle 07:25 - linea 23 alle 07:28 da SODERINI". */
-    class AdviceParts(val leave: String, val ride: String, val boardStop: String?)
+    /**
+     * Le parti di "Esci alle 07:25 - linea 23 alle 07:28 da SODERINI".
+     * [line], [busHm] e [boardStop] sono null, tutti e tre, per "a piedi".
+     */
+    class AdviceParts(
+        val leaveHm: String,
+        val line: String?,
+        val busHm: String?,
+        val boardStop: String?,
+    ) {
+        /** "Esci alle 07:25". */
+        val leave: String get() = "$LEAVE$leaveHm"
 
-    private val ADVICE = Regex("""^(Esci alle \d{2}:\d{2}) — (.+)$""")
-    private val ADVICE_RIDE = Regex("""^(linea .+? alle \d{2}:\d{2}) da (.+)$""")
+        /** "linea 23 alle 07:28", oppure "a piedi". */
+        val ride: String get() = if (line != null) "linea $line alle $busHm" else WALK
+    }
+
+    private const val LEAVE = "Esci alle "
+    private const val SEP = " — "
+    private const val WALK = "a piedi"
+
+    /**
+     * Il consiglio come lo legge chi lo riceve: e' l'UNICA costruzione della
+     * frase, usata dallo scheduler per scriverla e da [parseAdvice] per
+     * rileggerla. Prima lo scheduler la scriveva a mano e qui due regex la
+     * rileggevano: bastava ritoccare una preposizione da una parte e il
+     * widget, in silenzio, tornava alla frase intera tagliata a una riga.
+     * Senza [line] e' un tragitto a piedi.
+     */
+    fun advice(leaveHm: String, line: String?, busHm: String?, boardStop: String?): String =
+        if (line != null) {
+            "$LEAVE$leaveHm${SEP}linea $line alle $busHm da $boardStop"
+        } else {
+            "$LEAVE$leaveHm$SEP$WALK"
+        }
+
+    private val ADVICE = Regex("""^${Regex.escape(LEAVE)}(\d{2}:\d{2})${Regex.escape(SEP)}(.+)$""")
+    private val ADVICE_RIDE = Regex("""^linea (.+?) alle (\d{2}:\d{2}) da (.+)$""")
 
     /**
      * Il testo di [Routines.Routine.lastAdviceText] a pezzi, o null se non ha
-     * la forma che scrive lo scheduler ("Esci alle HH:MM" + trattino lungo +
-     * "linea X alle HH:MM da FERMATA" oppure "a piedi").
+     * la forma che scrive [advice].
      */
     fun parseAdvice(text: String): AdviceParts? {
         val m = ADVICE.matchEntire(text) ?: return null
         val resto = m.groupValues[2]
-        val corsa = ADVICE_RIDE.matchEntire(resto)
-        return if (corsa != null) {
-            AdviceParts(m.groupValues[1], corsa.groupValues[1], corsa.groupValues[2])
-        } else {
-            AdviceParts(m.groupValues[1], resto, null)
-        }
+        if (resto == WALK) return AdviceParts(m.groupValues[1], null, null, null)
+        val corsa = ADVICE_RIDE.matchEntire(resto) ?: return null
+        return AdviceParts(
+            m.groupValues[1],
+            corsa.groupValues[1],
+            corsa.groupValues[2],
+            corsa.groupValues[3],
+        )
     }
 
     /** La riga sotto la routine nella scheda Oggi; null se non c'e' niente da dire. */

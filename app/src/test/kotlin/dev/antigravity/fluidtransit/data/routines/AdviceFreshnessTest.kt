@@ -170,7 +170,7 @@ class AdviceFreshnessTest {
     fun `un consiglio dice quando e' stato calcolato`() {
         val esci = mezzanotte + 7 * 3600 + 40 * 60
         val r = conCalcolo(8, leave = esci, computed = mezzanotte + 6 * 3600 + 55 * 60)
-        val riga = RoutineText.widget(r, OGGI, esci - 10 * 60)
+        val riga = RoutineText.widget(r, OGGI, esci - 10 * 60, compact = false)
         assertTrue(riga.subtitle, riga.subtitle.contains("06:55"))
     }
 }

@@ -208,6 +208,15 @@ tabellone e routine DENTRO `provideContent` e si ricaricano al contatore
 widget nuovo.
 — corretto il 30/09/2026, da verificare su un dispositivo
 
+**Un numero vecchio sul widget stretto non dice la sua eta'.** Sotto i 270 dp
+la riga compatta non ha posto per "visto 15 min fa" senza tagliare i minuti
+(conto fatto a mano, non misurato su un telefono): li' resta solo il pallino
+spento, e chi guarda non sa di quando e' il numero. Un posto per dirlo sul
+formato 2x2 e 3x2 non c'e' ancora: la testata ha l'ora del disegno, non l'eta'
+del ritardo. Stessa cosa per la routine: nel formato stretto a destra non c'e'
+piu' l'ora del bus, che si legge toccando la riga.
+— 30/09/2026
+
 **Le parole del pannello corsa, viste su un bus vivo.** Aspettate le ore di
 servizio e fatte alle 05:10 sulla linea 23 verso CROCE A VARLIANO: "Posizione
 live - aggiornata 2 min fa", "+2 min di ritardo" col pallino verde, e tutte

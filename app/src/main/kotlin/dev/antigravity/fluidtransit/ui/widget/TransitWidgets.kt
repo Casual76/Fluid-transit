@@ -189,11 +189,12 @@ private fun RigaPartenza(
     nowEpoch: Long,
     palette: EngineWidgetPalette,
     layout: EngineWidgetLayout,
+    larghezza: Dp,
     onLineClick: Action?,
 ) {
     val phrase = DepartureText.phrase(row, nowEpoch)
-    // Un numero vecchio si presenta con la sua eta'.
-    val vecchio = DepartureText.oldAgeNote(row)
+    // Un numero vecchio si presenta con la sua eta', dove c'e' posto.
+    val vecchio = notaEtaSulWidget(row, layout.showSubtitle, larghezza)
     Row(
         modifier = GlanceModifier
             .fillMaxWidth()
@@ -242,21 +243,20 @@ private fun RigaPartenza(
         // un pallino che sta li' e' comunque la stessa convenzione che l'app
         // usa a due dita di distanza.
         //
-        // Non per un numero vecchio: il pallino dice "il feed sta seguendo
-        // QUESTA corsa", e dopo dieci minuti di silenzio dell'origine non e'
-        // piu' vero. La Regione si ferma per quarti d'ora anche di mattina
-        // (misurato), e fino a qui la riga teneva il pallino e il rosso di un
-        // ritardo di tre quarti d'ora prima, senza una parola che lo datasse.
-        if (phrase.pulse && vecchio == null) {
+        // Per un numero vecchio `phrase.pulse` e' gia' falso: il pallino dice
+        // "il feed sta seguendo QUESTA corsa", e dopo dieci minuti di silenzio
+        // dell'origine non e' piu' vero. La regola sta in `DepartureText`,
+        // cosi' vale anche per la scheda fermata.
+        if (phrase.pulse) {
             Box(modifier = GlanceModifier.size(6.dp).background(colore).cornerRadius(3.dp)) {}
             Spacer(GlanceModifier.width(5.dp))
         }
         // La riga di provenienza, dove il kit la nasconde: nel widget
         // piccolo il sottotitolo non c'e', e con lui "visto 15 min fa".
-        if (vecchio != null && !layout.showSubtitle) {
+        if (vecchio != null) {
             Text(
                 text = vecchio,
-                style = engineWidgetTextStyle(color = palette.onSurfaceVariant, size = 11.sp),
+                style = engineWidgetTextStyle(color = palette.onSurfaceVariant, size = 12.sp),
                 maxLines = 1,
             )
             Spacer(GlanceModifier.width(6.dp))
@@ -271,6 +271,36 @@ private fun RigaPartenza(
             maxLines = 1,
         )
     }
+}
+
+/**
+ * Sotto questa larghezza la riga compatta non ha posto per "visto 15 min fa".
+ *
+ * La nota e' a larghezza fissa fra la destinazione (che prende il resto) e i
+ * minuti, quindi quando manca lo spazio a uscire dal bordo e' l'ULTIMO
+ * elemento: i minuti, cioe' il numero che serve. Il conto: pastiglia 34 + 8 +
+ * 8 + nota (circa 88 a 12 sp) + 6 + minuti (circa 40) = 184 dp, piu' 44 di
+ * margini fra widget e riga; per lasciare almeno 40 dp alla destinazione
+ * servono circa 270 dp. Sotto, si tace la nota (e con lei resta spento il
+ * pallino) come `oraDelDisegno` si tace sotto il suo minimo: fra una
+ * destinazione tagliata a "L..." e un minuto tagliato vale di piu' il minuto.
+ */
+private val LARGHEZZA_MINIMA_NOTA_ETA = 270.dp
+
+/**
+ * L'eta' di un numero vecchio per la riga di un widget, o null.
+ *
+ * Solo dove il sottotitolo non si disegna ([mostraSottotitolo] falso) — dove
+ * si disegna la dice gia' il sostegno della frase — e solo se la riga e'
+ * larga abbastanza da portarla senza tagliare i minuti.
+ */
+internal fun notaEtaSulWidget(
+    row: NextDeparture,
+    mostraSottotitolo: Boolean,
+    larghezza: Dp,
+): String? {
+    if (mostraSottotitolo || larghezza < LARGHEZZA_MINIMA_NOTA_ETA) return null
+    return DepartureText.oldAgeNote(row)
 }
 
 /**
@@ -460,13 +490,16 @@ class StopWidget : GlanceAppWidget() {
             // non c'era piu', il tocco apriva la mappa su un pannello vuoto,
             // e l'unico rimedio era togliere il widget e rimetterlo.
             val daScegliere = stopHash == null || esito is StopBoard.UnknownStop
+            // Il tocco apre la scelta solo se il widget conosce il proprio
+            // numero: senza, apre la scheda della fermata, e una frase che
+            // promette la scelta sarebbe falsa.
+            val widgetValido = widgetId != android.appwidget.AppWidgetManager
+                .INVALID_APPWIDGET_ID
             EngineWidgetSurface(
                 palette = palette,
                 layout = layout,
                 onClick = actionStartActivity(
-                    if (daScegliere && widgetId != android.appwidget.AppWidgetManager
-                            .INVALID_APPWIDGET_ID
-                    ) {
+                    if (daScegliere && widgetValido) {
                         android.content.Intent(context, StopWidgetConfigActivity::class.java)
                             .putExtra(
                                 android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_ID,
@@ -484,6 +517,8 @@ class StopWidget : GlanceAppWidget() {
                     layout = layout,
                     subtitle = when {
                         stopHash == null -> "Tocca per configurare"
+                        // Non "tocca per...": quella frase e' della riga sotto,
+                        // e scritta due volte a meta' schermo non dice di piu'.
                         esito is StopBoard.UnknownStop ->
                             DepartureText.empty(DepartureText.Trouble.FERMATA_SCONOSCIUTA).short
                         board == null -> "Orari in arrivo…"
@@ -532,7 +567,7 @@ class StopWidget : GlanceAppWidget() {
                                     else -> DepartureText.Trouble.ORARI_NON_PRONTI
                                 }
                             }
-                            val parole = DepartureText.emptyOnWidget(guaio)
+                            val parole = DepartureText.emptyOnWidget(guaio, canReconfigure = widgetValido)
                             EngineWidgetRow(
                                 title = parole.title,
                                 subtitle = parole.short,
@@ -550,6 +585,7 @@ class StopWidget : GlanceAppWidget() {
                                     nowEpoch = board.computedAtEpoch,
                                     palette = palette,
                                     layout = layout,
+                                    larghezza = misura.width,
                                     // La pastiglia apre la linea, come in
                                     // app: e' l'unica parte della riga che
                                     // nomina qualcosa di diverso dalla
@@ -770,7 +806,7 @@ class RoutineWidget : GlanceAppWidget() {
                         // quarti d'ora prima si diceva "coi ritardi live".
                         else -> {
                             val riga = dev.antigravity.fluidtransit.data.routines.RoutineText
-                                .widget(todayRoutine, oggi, adesso)
+                                .widget(todayRoutine, oggi, adesso, layout.compact)
                             EngineWidgetRow(
                                 title = riga.title,
                                 subtitle = riga.subtitle,

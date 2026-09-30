@@ -148,13 +148,14 @@ class BoardEmptyTextTest {
     }
 
     @Test
-    fun `sul widget una fermata sparita dice che toccarla serve a sceglierne un'altra`() {
-        // Al formato piccolo il kit nasconde il sottotitolo: l'azione deve
-        // stare nel titolo, che c'e' sempre, e deve starci in una riga.
+    fun `sul widget una fermata sparita ha un titolo corto che non dice la causa`() {
+        // Nel formato stretto il sottotitolo non c'e' e il titolo e' una riga
+        // da 13 sp in 146 dp: una ventina di caratteri, non trentaquattro.
         val sparita = DepartureText.emptyOnWidget(DepartureText.Trouble.FERMATA_SCONOSCIUTA)
-        assertTrue("tocca" in sparita.title, sparita.title)
-        assertTrue(sparita.title.length <= 34, "'${sparita.title}' e' troppo lungo per una riga")
-        // Le altre schermate non cambiano parole: il tocco e' del solo widget.
+        assertTrue(sparita.title.length <= 20, "'${sparita.title}' e' troppo lungo per un widget stretto")
+        // Rinominata o tolta gli orari non lo dicono: il titolo non sceglie.
+        assertFalse("tolta" in sparita.title, sparita.title)
+        // Le altre schermate non cambiano parole.
         assertEquals(
             DepartureText.empty(DepartureText.Trouble.FERMATA_SCONOSCIUTA).title,
             "Questa fermata non c'e' piu'",
@@ -163,6 +164,23 @@ class BoardEmptyTextTest {
         for (t in DepartureText.Trouble.entries - DepartureText.Trouble.FERMATA_SCONOSCIUTA) {
             assertEquals(DepartureText.empty(t).title, DepartureText.emptyOnWidget(t).title)
         }
+    }
+
+    @Test
+    fun `sul widget il gesto si promette solo se il tocco lo mantiene`() {
+        val conNumero = DepartureText.emptyOnWidget(
+            DepartureText.Trouble.FERMATA_SCONOSCIUTA, canReconfigure = true,
+        )
+        val senza = DepartureText.emptyOnWidget(
+            DepartureText.Trouble.FERMATA_SCONOSCIUTA, canReconfigure = false,
+        )
+        assertTrue("tocca" in conNumero.short, conNumero.short)
+        assertFalse("tocca" in senza.short, senza.short)
+        assertTrue(conNumero.short.length <= 34)
+        // L'intestazione dice gia' `.short` di empty(): la riga non la ripete.
+        assertFalse(
+            conNumero.short == DepartureText.empty(DepartureText.Trouble.FERMATA_SCONOSCIUTA).short,
+        )
     }
 
     @Test

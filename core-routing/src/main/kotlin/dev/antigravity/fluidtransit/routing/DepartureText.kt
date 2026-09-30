@@ -229,7 +229,12 @@ object DepartureText {
             headline = headline,
             support = support,
             tone = tone,
-            pulse = certainty == Certainty.DECLARED,
+            // Il pallino dice "il feed sta seguendo QUESTA corsa", e dopo
+            // dieci minuti di silenzio dell'origine non e' piu' vero: la
+            // regola sta qui e non in una superficie, altrimenti il widget
+            // lo spegneva e la scheda fermata, con la stessa eta', lo
+            // teneva acceso.
+            pulse = certainty == Certainty.DECLARED && ageSeconds < VECCHIO_SECONDS,
         )
     }
 
@@ -787,22 +792,38 @@ object DepartureText {
      * Uguali a [empty] salvo una: il widget della fermata, toccato, riapre la
      * scelta della fermata, e chi ne ha una sparita non ha altro da fare che
      * sceglierne un'altra. Quel "sceglierne un'altra" stava solo nella frase
-     * lunga, che il widget non mostra mai, e al formato piccolo nemmeno il
-     * sottotitolo: restava "Questa fermata non c'e' piu'" senza dire che
-     * toccarla serve a qualcosa. L'azione va nel titolo, l'unica riga che
-     * c'e' sempre.
+     * lunga, che il widget non mostra mai.
+     *
+     * Il titolo e' corto ([WIDGET_STOP_GONE_TITLE], una ventina di caratteri)
+     * perche' nel formato stretto — 190 dp al massimo, di cui ne restano
+     * 146 per il testo — una riga da 13 sp ne porta una ventina: la prima
+     * versione, "Fermata tolta: tocca per cambiarla", arrivava a "Fermata
+     * tolta: tocc...", cioe' tagliava proprio l'azione. E non dice la causa:
+     * la fermata puo' essere stata tolta o solo rinominata, e gli orari non
+     * lo distinguono (vedi [empty]). L'azione sta nel sottotitolo, che il
+     * formato grande mostra, e solo se [canReconfigure]: il tocco apre la
+     * scelta soltanto quando il widget conosce il proprio numero, e una
+     * frase che promette un gesto che poi apre un'altra cosa e' peggio di
+     * nessuna frase.
      */
-    fun emptyOnWidget(trouble: Trouble): Empty {
+    fun emptyOnWidget(trouble: Trouble, canReconfigure: Boolean = true): Empty {
         val base = empty(trouble)
         return if (trouble == Trouble.FERMATA_SCONOSCIUTA) {
-            Empty(WIDGET_STOP_GONE_TITLE, base.detail, base.short)
+            Empty(
+                WIDGET_STOP_GONE_TITLE,
+                base.detail,
+                if (canReconfigure) WIDGET_STOP_GONE_ACTION else base.short,
+            )
         } else {
             base
         }
     }
 
     /** Sta in un titolo da 13 sp su un widget stretto: meglio corto di tagliato. */
-    const val WIDGET_STOP_GONE_TITLE = "Fermata tolta: tocca per cambiarla"
+    const val WIDGET_STOP_GONE_TITLE = "Fermata non trovata"
+
+    /** Il gesto che rimette a posto, per il sottotitolo del widget. */
+    const val WIDGET_STOP_GONE_ACTION = "tocca per sceglierne un'altra"
 
     /**
      * Il guaio di un tabellone gia' calcolato e senza righe.

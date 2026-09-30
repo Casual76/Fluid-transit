@@ -603,4 +603,15 @@ class DepartureTextTest {
             ),
         )
     }
+
+    @Test
+    fun `il pallino si spegne per un numero vecchio, in ogni superficie`() {
+        // La regola sta nella frase e non nel widget: la scheda fermata, il
+        // pannello vicino e quello della corsa leggono la stessa `pulse`.
+        val soglia = DepartureText.VECCHIO_SECONDS
+        val fresco = row(300, delay = 60, certainty = Certainty.DECLARED, age = soglia - 1)
+        val vecchio = row(300, delay = 60, certainty = Certainty.DECLARED, age = soglia)
+        assertTrue(DepartureText.phrase(fresco, now).pulse)
+        assertTrue(!DepartureText.phrase(vecchio, now).pulse)
+    }
 }

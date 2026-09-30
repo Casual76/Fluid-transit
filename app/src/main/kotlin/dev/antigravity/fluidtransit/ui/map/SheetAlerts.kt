@@ -1,7 +1,18 @@
 package dev.antigravity.fluidtransit.ui.map
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import dev.antigravity.fluidtransit.FluidTransitApp
 import dev.antigravity.fluidtransit.data.rt.GtfsRtLite
+import dev.antigravity.fluidtransit.data.rt.RealtimeClient
 import dev.antigravity.fluidtransit.routing.AlertText
+import kotlinx.coroutines.delay
 
 /**
  * Gli avvisi che una scheda dice a chi la guarda: fermata, linea, corsa, viaggio.
@@ -20,6 +31,59 @@ import dev.antigravity.fluidtransit.routing.AlertText
  * scheda piu' di un'altra — e l'ordine in cui si leggono.
  */
 internal object SheetAlerts {
+
+    /** Dopo un download andato male si riprova presto: la rete torna in un attimo. */
+    const val RETRY_MS = 30_000L
+
+    /**
+     * Quanto aspettare prima del prossimo giro.
+     *
+     * Gli avvisi delle schede si scaricavano UNA volta all'apertura: uno
+     * sciopero annunciato alle 07:20 non compariva sulla fermata aperta alle
+     * 07:00, e un download fallito in galleria lasciava "Avvisi non arrivati"
+     * anche a rete tornata, fino a chiudere e riaprire la scheda. Dopo un
+     * successo si aspetta come "Oggi" e la schermata Avvisi (la cache di
+     * cinque minuti assorbe i giri in piu'); dopo un fallimento, o servendo
+     * una lista vecchia, si riprova in fretta.
+     */
+    fun nextPollMs(feed: Feed): Long =
+        if (feed.alerts == null || feed.staleSinceEpoch != null) RETRY_MS
+        else RealtimeClient.ALERTS_POLL_MS
+
+    /** Quello che l'ultimo giro ha riportato: `alerts` null = non scaricati. */
+    class Feed(
+        val alerts: List<GtfsRtLite.RtAlert>?,
+        /** Da quando la lista e' vecchia, se l'ultimo tentativo e' fallito. */
+        val staleSinceEpoch: Long?,
+    )
+
+    /** Cio' che una scheda disegna: le righe (null = non scaricati) e l'eta' se vecchie. */
+    class View(val rows: List<String>?, val staleNote: String?) {
+        companion object {
+            val EMPTY = View(emptyList(), null)
+        }
+    }
+
+    /**
+     * Le righe di una scheda piu' la nota "Aggiornati alle...", se la lista
+     * servita e' quella di un giro vecchio.
+     *
+     * Un dato vecchio si mostra ma dice di quando e' — la stessa regola dei
+     * minuti, e la stessa frase di "Oggi" e della schermata Avvisi.
+     */
+    fun view(
+        feed: Feed,
+        lines: Map<Long, String>,
+        nowEpoch: Long,
+        withLineNames: Boolean,
+        maxBodyChars: Int,
+    ): View {
+        val lista = feed.alerts ?: return View(null, null)
+        return View(
+            rows = rows(lista, lines, nowEpoch, withLineNames, maxBodyChars),
+            staleNote = feed.staleSinceEpoch?.let { AlertText.stale(it, nowEpoch) },
+        )
+    }
 
     /**
      * Le righe di una scheda, nell'ordine in cui vanno lette.
@@ -70,4 +134,29 @@ internal object SheetAlerts {
             if (periodo != null) "$periodo · $riga" else riga
         }
     }
+}
+
+/**
+ * Il giro degli avvisi per le schede della mappa: scarica mentre una scheda
+ * che li mostra e' aperta e la schermata e' davanti, e riprova da solo.
+ *
+ * Null finche' il primo giro non e' finito: chi legge non deve scambiare
+ * "sto ancora scaricando" per "non sono arrivati".
+ */
+@Composable
+internal fun rememberSheetAlertsFeed(app: FluidTransitApp, active: Boolean): State<SheetAlerts.Feed?> {
+    val feed = remember { mutableStateOf<SheetAlerts.Feed?>(null) }
+    val owner = LocalLifecycleOwner.current
+    LaunchedEffect(active) {
+        if (!active) return@LaunchedEffect
+        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                val lista = app.realtime.fetchAlertsOrNull()
+                val nuovo = SheetAlerts.Feed(lista, app.realtime.alertsStaleSinceEpoch())
+                feed.value = nuovo
+                delay(SheetAlerts.nextPollMs(nuovo))
+            }
+        }
+    }
+    return feed
 }

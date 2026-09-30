@@ -25,3 +25,16 @@ internal fun targetOf(kind: String): SuggestionTarget = when (kind) {
     "route" -> SuggestionTarget.ROUTE
     else -> SuggestionTarget.PLACE
 }
+
+/**
+ * Un suggerimento che puo' diventare un PUNTO del pianificatore.
+ *
+ * Nel pianificatore la ricerca compila "Da" o "A": servono posti. Una linea
+ * non e' un posto, ma l'elenco la offriva in testa (scrivendo "23", o fra le
+ * "Linee recenti"), e toccarla faceva `PlaceRef(titolo, sottotitolo, lat,
+ * lon)` con le coordinate del primo capolinea del primo pattern: "Dove vai?
+ * -> 23", e il viaggio calcolato verso un capolinea a caso, o verso NaN per
+ * una linea senza pattern. Vale anche per un punto senza coordinate vere.
+ */
+internal fun Suggestion.isPlannerPoint(): Boolean =
+    kind != "route" && lat.isFinite() && lon.isFinite()

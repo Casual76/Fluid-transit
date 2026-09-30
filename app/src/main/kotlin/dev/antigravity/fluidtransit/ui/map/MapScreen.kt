@@ -67,6 +67,7 @@ import dev.antigravity.fluidtransit.FluidTransitApp
 import dev.antigravity.fluidtransit.ui.nav.NavOverlay
 import dev.antigravity.fluidtransit.data.bundle.BundleManager.BundleState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -137,21 +138,11 @@ fun MapScreen(
     var routeDirection by rememberSaveable { mutableStateOf(0) }
 
     /**
-     * Il guardiano del bundle.
-     *
-     * Un pannello salvato porta dentro degli indici, e gli indici valgono
-     * solo nel bundle che li ha prodotti. Se l'app e' stata sfrattata dalla
-     * memoria e nel frattempo e' passato l'aggiornamento notturno, quegli
-     * indici puntano a una linea diversa: il pannello si butta, e si riparte
-     * dalla mappa. Nel caso normale — rotazione, cambio di scheda — il
-     * bundle e' lo stesso e non succede niente.
+     * Il bundle con cui e' stato aperto il pannello. Il guardiano che lo
+     * confronta sta piu' sotto, dopo `exitRouteMode`, perche' quando butta un
+     * pannello deve rimettere a posto anche la mappa.
      */
     var panelBuild by rememberSaveable { mutableStateOf(0L) }
-    LaunchedEffect(ready?.buildId) {
-        val id = ready?.buildId ?: return@LaunchedEffect
-        if (panelBuild != 0L && panelBuild != id) panel = null
-        panelBuild = id
-    }
 
     // Lo zoom corrente (a camera ferma): decide se i bus vivi si scaricano.
     //
@@ -555,6 +546,20 @@ fun MapScreen(
         }
     }
 
+    // Un posto solo per far partire la navigazione.
+    //
+    // Il permesso notifiche lo chiedeva solo il tasto "Avvia" del dettaglio
+    // viaggio; "Sono su questo bus" e "avvia la navigazione" dell'assistente
+    // partivano senza. Su un'installazione nuova, chi saliva sul bus e
+    // bloccava il telefono non vedeva ne' la notifica del servizio ne'
+    // "Scendi alla prossima" — proprio il caso in cui l'avviso serve di piu',
+    // e nessuno gli diceva che non sarebbe arrivato. Tre siti di chiamata
+    // che devono fare la stessa cosa divergono: per questo e' una funzione.
+    fun avviaNavigazione(plan: dev.antigravity.fluidtransit.data.nav.NavPlan) {
+        app.navigation.start(context, plan)
+        chiediNotifiche(NotifMotivo.VIAGGIO)
+    }
+
     // L'indice di ricerca si costruisce una volta per bundle, fuori dal main.
     // Aspetta i gruppi di banchine: senza, uscirebbero le righe doppie che
     // l'indice esiste per evitare.
@@ -586,6 +591,43 @@ fun MapScreen(
         controller.clearPlaceMarker()
         controller.clearJourney()
         panel = null
+    }
+
+    /**
+     * Il guardiano del bundle.
+     *
+     * Un pannello porta a volte degli indici, e gli indici valgono solo nel
+     * bundle che li ha prodotti: dopo lo scambio notturno puntano a un'altra
+     * linea. Era scritto per l'app sfrattata dalla memoria e ripresa dopo la
+     * notte, e buttava ogni pannello — ma gira anche con l'app in uso, quando
+     * il nuovo bundle arriva 5-15 s dopo che si e' aperta una fermata: il
+     * pannello spariva senza ragione, e con una linea o un bus aperti la mappa
+     * restava ridotta a quello, con la tab bar tornata e nessuna uscita
+     * visibile. Adesso ogni pannello ha il suo destino (`panelAfterSwap`), e
+     * quando se ne butta uno si rimette a posto anche la mappa.
+     */
+    LaunchedEffect(ready?.buildId) {
+        val id = ready?.buildId ?: return@LaunchedEffect
+        val reader = ready?.reader
+        if (panelBuild != 0L && panelBuild != id && reader != null) {
+            val fate = panelAfterSwap(
+                panel,
+                findTrip = { runCatching { reader.findTripByIdHash(it) }.getOrDefault(-1) },
+                findRoute = { runCatching { reader.findRouteByIdHash(it) }.getOrDefault(-1) },
+            )
+            when (fate) {
+                PanelFate.Keep -> Unit
+                PanelFate.Drop -> exitRouteMode()
+                is PanelFate.Replace -> {
+                    // L'evidenza di un viaggio scelto apparteneva al bundle
+                    // vecchio: l'elenco lo riaccende quando ne viene scelto un
+                    // altro.
+                    if (panel is Panel.JourneyDetail) controller.clearJourney()
+                    panel = fate.panel
+                }
+            }
+        }
+        panelBuild = id
     }
 
     // Il colore d'accento per il segnaposto: lo stesso ametista del tema.
@@ -902,19 +944,33 @@ fun MapScreen(
     // fermate — quindi "questa fermata e' spostata" non si puo' sapere. Le
     // linee si', ed e' quello che serve a chi sta li' ad aspettare.
     val currentStopHash = (panel as? Panel.Stop)?.tap?.idHashHex
-    val avvisiDiFermata by produceState<List<String>?>(
-        initialValue = emptyList(),
-        currentStopHash, ready?.buildId,
+
+    // Gli avvisi delle quattro schede (fermata, linea, corsa, viaggio) si
+    // scaricano da un giro solo, che continua finche' una di loro e' aperta.
+    //
+    // Prima ognuna li scaricava UNA volta all'apertura: chi aspettava il bus
+    // alla fermata dalle 07:00 non vedeva lo sciopero annunciato alle 07:20, e
+    // un download fallito in galleria lasciava "Avvisi non arrivati" anche a
+    // rete tornata. Le schede sono mutuamente esclusive, quindi un giro solo
+    // basta; le righe si ricavano da qui a ogni battito.
+    val avvisiFeed by rememberSheetAlertsFeed(
+        app,
+        active = panel is Panel.Stop || panel is Panel.RouteMini || panel is Panel.RouteFull ||
+            panel is Panel.TripMini || panel is Panel.TripFull || panel is Panel.JourneyDetail,
+    )
+    val avvisiDiFermata by produceState(
+        initialValue = SheetAlerts.View.EMPTY,
+        currentStopHash, ready?.buildId, avvisiFeed,
     ) {
         val reader = ready?.reader
         val hex = currentStopHash
         if (reader == null || hex == null) {
-            value = emptyList()
+            value = SheetAlerts.View.EMPTY
             return@produceState
         }
         val stop = hex.toULongOrNull(16)?.toLong()?.let { reader.findStopByIdHash(it) } ?: -1
         if (stop < 0) {
-            value = emptyList()
+            value = SheetAlerts.View.EMPTY
             return@produceState
         }
         val linee = HashMap<Long, String>()
@@ -925,19 +981,10 @@ fun MapScreen(
                     .ifEmpty { reader.routeLongName(route) }
             }
         }
-        // Null = non scaricati, e si dice. Prima diventava una lista vuota,
-        // cioe' "nessun avviso": un'affermazione sulla rete mentre il guasto
-        // era nostro.
-        // Senza runCatching: fetchAlertsOrNull non lancia, dice null. Il
-        // runCatching di prima inghiottiva anche la CancellationException di
-        // un produttore superato — si apre la fermata A e subito la B — che
-        // proseguiva e scriveva null nello stato ormai della B: "Avvisi non
-        // arrivati" su una scheda i cui avvisi stavano solo arrivando.
-        val tutti = app.realtime.fetchAlertsOrNull()
-        if (tutti == null) {
-            value = null
-            return@produceState
-        }
+        // Null = non scaricati, e si dice: una lista vuota sarebbe "nessun
+        // avviso", un'affermazione sulla rete mentre il guasto e' nostro. Il
+        // primo giro non e' ancora finito: si tiene quello che c'e'.
+        val feed = avvisiFeed ?: return@produceState
         // In corso E annunciati, non solo quelli gia' cominciati.
         //
         // Il filtro teneva solo cio' che era partito: alle 07:40 uno sciopero
@@ -951,8 +998,8 @@ fun MapScreen(
         // ricomposizione che capita. Si scarica una volta e si rifiltra a ogni
         // battito, che costa una scansione di una lista corta.
         dev.antigravity.fluidtransit.data.time.UiClock.ticks().collect { adesso ->
-            value = SheetAlerts.rows(
-                tutti, linee, adesso, withLineNames = true, maxBodyChars = 80,
+            value = SheetAlerts.view(
+                feed, linee, adesso, withLineNames = true, maxBodyChars = 80,
             )
         }
     }
@@ -964,24 +1011,21 @@ fun MapScreen(
     // suoi piani. La scheda gliela nascondeva.
     val currentTripRoute = (panel as? Panel.TripMini)?.ref?.routeHash
         ?: (panel as? Panel.TripFull)?.ref?.routeHash
-    val avvisiDiCorsa by produceState<List<String>?>(initialValue = emptyList(), currentTripRoute) {
+    val avvisiDiCorsa by produceState(
+        initialValue = SheetAlerts.View.EMPTY,
+        currentTripRoute, avvisiFeed,
+    ) {
         val hash = currentTripRoute
         if (hash == null || hash == 0L) {
-            value = emptyList()
+            value = SheetAlerts.View.EMPTY
             return@produceState
         }
-        // Null = non scaricati, e si dice. Prima diventava una lista vuota,
-        // cioe' "nessun avviso": un'affermazione sulla rete mentre il guasto
-        // era nostro.
-        val tutti = app.realtime.fetchAlertsOrNull()
-        if (tutti == null) {
-            value = null
-            return@produceState
-        }
+        // Null = non scaricati, e si dice: vedi la fermata.
+        val feed = avvisiFeed ?: return@produceState
         // In corso e annunciati, come sulla fermata: vedi `SheetAlerts`.
         dev.antigravity.fluidtransit.data.time.UiClock.ticks().collect { adesso ->
-            value = SheetAlerts.rows(
-                tutti, mapOf(hash to ""), adesso, withLineNames = false, maxBodyChars = 90,
+            value = SheetAlerts.view(
+                feed, mapOf(hash to ""), adesso, withLineNames = false, maxBodyChars = 90,
             )
         }
     }
@@ -996,32 +1040,26 @@ fun MapScreen(
     // Si chiedono solo quando una scheda linea e' davvero aperta, e il
     // recupero ha cinque minuti di cache: aprirne una seconda non ricarica
     // niente.
-    val avvisiDiLinea by produceState<List<String>?>(
-        initialValue = emptyList(),
-        currentRouteIndex, ready?.buildId,
+    val avvisiDiLinea by produceState(
+        initialValue = SheetAlerts.View.EMPTY,
+        currentRouteIndex, ready?.buildId, avvisiFeed,
     ) {
         val reader = ready?.reader
         val idx = currentRouteIndex
         if (reader == null || idx == null) {
-            value = emptyList()
+            value = SheetAlerts.View.EMPTY
             return@produceState
         }
         val hash = runCatching { reader.routeIdHash(idx) }.getOrNull()
-        // Null = non scaricati, e si dice. Prima diventava una lista vuota,
-        // cioe' "nessun avviso": un'affermazione sulla rete mentre il guasto
-        // era nostro.
-        val tutti = app.realtime.fetchAlertsOrNull()
-        if (tutti == null) {
-            value = null
-            return@produceState
-        }
+        // Null = non scaricati, e si dice: vedi la fermata.
+        val feed = avvisiFeed ?: return@produceState
         // In corso e annunciati, come sulla fermata: vedi `SheetAlerts`. Se
         // l'hash non si legge non c'e' nessuna linea da cui cominciare, e la
         // lista resta vuota come prima.
         val linee: Map<Long, String> = if (hash != null) mapOf(hash to "") else emptyMap()
         dev.antigravity.fluidtransit.data.time.UiClock.ticks().collect { adesso ->
-            value = SheetAlerts.rows(
-                tutti, linee, adesso, withLineNames = false, maxBodyChars = 90,
+            value = SheetAlerts.view(
+                feed, linee, adesso, withLineNames = false, maxBodyChars = 90,
             )
         }
     }
@@ -1123,7 +1161,9 @@ fun MapScreen(
      * partiva, correttamente, dal punto scelto. Il numero era giusto e la
      * frase era falsa, che e' il modo peggiore di sbagliare.
      */
-    var journeyFrom by rememberSaveable { mutableStateOf("Dalla tua posizione") }
+    var journeyFrom by rememberSaveable {
+        mutableStateOf(dev.antigravity.fluidtransit.routing.OriginText.HERE)
+    }
     var journeyTimeMode by rememberSaveable { mutableStateOf("now") } // now | depart | arrive
     var journeyTimeEpoch by rememberSaveable { mutableStateOf(0L) }
     var showTimeDialog by remember { mutableStateOf(false) }
@@ -1161,14 +1201,41 @@ fun MapScreen(
             // Dalla posizione GPS se c'e', dal centro mappa se no — e la
             // differenza si dichiara nel pannello, non si nasconde.
             val loc = controller.lastLocation()
+            // Le ragioni per cui manca sono tre (permesso, Posizione di
+            // Android, primo rilevamento) e si rimediano in tre modi: "GPS
+            // spento" era falso per chi non aveva mai dato il permesso.
             journeyFrom = if (loc != null) {
-                "Dalla tua posizione"
+                dev.antigravity.fluidtransit.routing.OriginText.HERE
             } else {
-                "Dal centro della mappa (GPS spento)"
+                dev.antigravity.fluidtransit.routing.OriginText.fromMapCenter(
+                    locationGranted, serviceOn,
+                )
             }
             journeyOrigin = loc ?: controller.cameraCenter()
         }
         panel = Panel.Journeys(to)
+    }
+
+    /** Il viaggio parte dal centro della mappa perche' non c'e' una posizione. */
+    val partenzaDalCentro = originRef == null &&
+        journeyFrom != dev.antigravity.fluidtransit.routing.OriginText.HERE
+
+    // Il primo viaggio di chi non ha ancora dato la posizione parte dal
+    // centro della mappa, e quando la posizione arriva — il permesso dato dal
+    // tasto "Usa la mia posizione", o la Posizione di Android accesa — il
+    // viaggio si ricalcola da li'. Senza, l'elenco restava quello calcolato
+    // dalla campagna fra Siena e Colle, con l'etichetta che non diceva piu' il
+    // vero. Si aspetta il primo rilevamento fino a mezzo minuto.
+    LaunchedEffect(panel is Panel.Journeys, partenzaDalCentro, locationGranted, serviceOn) {
+        if (panel !is Panel.Journeys || !partenzaDalCentro) return@LaunchedEffect
+        if (!locationGranted || !serviceOn) return@LaunchedEffect
+        repeat(30) {
+            if (controller.lastLocation() != null) {
+                runPlanner()
+                return@LaunchedEffect
+            }
+            kotlinx.coroutines.delay(1_000)
+        }
     }
 
     /** "Portami qui" da un luogo: destinazione quella, partenza da dove sei. */
@@ -1315,7 +1382,7 @@ fun MapScreen(
                         val j = js.firstOrNull()
                         if (j != null) {
                             assistantOpen = false
-                            app.navigation.start(context, buildNavPlan(reader, j, action.to.name))
+                            avviaNavigazione(buildNavPlan(reader, j, action.to.name))
                         }
                     }
                 }
@@ -1396,6 +1463,19 @@ fun MapScreen(
     // dettaglio di un viaggio aperto, un elenco nuovo gli cambierebbe sotto
     // il viaggio che si sta guardando.
     var nowRefresh by remember { mutableStateOf(0) }
+
+    // Il tempo reale nuovo rifa' i viaggi (vedi `JourneyLiveRefresh`).
+    //
+    // `liveRefresh` e' il contatore che riavvia il calcolo; `journeysCalcAtMs`
+    // e `journeysHadLive` dicono quando e' partito l'ultimo e se aveva gia'
+    // dei ritardi; `journeysSig` e `journeysLiveSig` permettono di rifare
+    // l'elenco senza farlo sparire sotto gli occhi (vedi sotto).
+    var liveRefresh by remember { mutableStateOf(0) }
+    var journeysCalcAtMs by remember { mutableStateOf(0L) }
+    var journeysHadLive by remember { mutableStateOf(true) }
+    var journeysSig by remember { mutableStateOf<List<Any?>?>(null) }
+    val rtPredictions by rt.predictions.collectAsStateWithLifecycle()
+    var journeysLiveSig by remember { mutableStateOf<Pair<Any?, Any?>?>(null) }
     val journeys by produceState<List<UiJourney>?>(
         initialValue = null,
         // La PARTENZA fra le chiavi, che e' dove mancava.
@@ -1408,39 +1488,60 @@ fun MapScreen(
         // domanda di prima e sembra aver risposto a quella nuova e' il modo
         // piu' diretto di far perdere fiducia a chi lo usa.
         journeysTarget, journeyOrigin, journeyTimeMode, journeyTimeEpoch, ready?.buildId,
-        nowRefresh,
+        nowRefresh, liveRefresh,
     ) {
         val reader = ready?.reader
         val to = journeysTarget
         val from = journeyOrigin
         if (reader == null || to == null || from == null) {
             value = null
+            // Un calcolo abbandonato (pannello chiuso, partenza cambiata) non
+            // arriva piu' in fondo a spegnere "sto cercando": lo si fa qui.
+            journeysSearching = false
+            journeysCalcAtMs = 0L
+            journeysSig = null
             return@produceState
         }
-        value = null
+        // Un ricalcolo per dati live nuovi non fa sparire l'elenco: la stessa
+        // domanda, con ritardi piu' freschi, sostituisce i viaggi man mano
+        // che arrivano. Blank-are a ogni arrivo di ritardi farebbe tornare
+        // "Cerco i prossimi viaggi..." ogni minuto su una lista che si sta
+        // leggendo. Una domanda diversa (partenza, orario, bundle) azzera come
+        // prima.
+        val firma = listOf(to.lat, to.lon, from, journeyTimeMode, journeyTimeEpoch, ready?.buildId, nowRefresh)
+        val stessaDomanda = firma == journeysSig && value != null
+        journeysSig = firma
+        journeysCalcAtMs = System.currentTimeMillis()
+        journeysHadLive = rtDelays != null || rtPredictions != null
+        journeysLiveSig = rtDelays?.generatedAt to rtPredictions
+        if (!stessaDomanda) value = null
         // Il realtime entra nel calcolo: ritardi e cancellazioni di ADESSO.
         val rtNow = resolved
         val fresco = app.realtime.delaysFresh()
-        val liveData = if (rtNow != null) {
-            dev.antigravity.fluidtransit.routing.Raptor.Realtime(
-                // Il numero unico per corsa e le cancellazioni solo se il
-                // pacchetto e' ancora buono (delaysFresh); le previsioni
-                // fermata per fermata invecchiano da se'.
-                if (fresco) rtNow.delayByTrip else emptyMap(),
-                if (fresco) rtNow.canceledTrips else emptySet(),
-                java.time.Instant.now().epochSecond,
-                // Le stesse previsioni che usa il tabellone della fermata.
-                //
-                // Senza, il motore applicava a tutta la corsa il primo
-                // ritardo dichiarato, e il tabellone la previsione della
-                // fermata giusta: sul feed delle 07:30 le due cose
-                // divergevano in media di 78 secondi, oltre il minuto su un
-                // terzo delle corse. Stesso bus, stessa fermata, due orari.
-                live = app.departureBoards.live(),
-            )
-        } else {
-            dev.antigravity.fluidtransit.routing.Raptor.Realtime.NONE
-        }
+        // Il tempo reale si costruisce SEMPRE, non solo quando lo snapshot dei
+        // mezzi e' gia' risolto. Toccando la notifica "Esci tra 12 min" con
+        // l'app chiusa il calcolo parte appena il bundle e' pronto, prima del
+        // primo giro dei veicoli: `resolved` era ancora nullo, il motore
+        // partiva con `Realtime.NONE` anche se le previsioni e il modello dei
+        // ritardi c'erano, e il dettaglio mostrava orari di tabella senza
+        // pallino live — mentre la notifica aveva calcolato l'uscita coi
+        // ritardi. Le previsioni stanno in `live()`, che non dipende dai mezzi.
+        val liveData = dev.antigravity.fluidtransit.routing.Raptor.Realtime(
+            // Il numero unico per corsa e le cancellazioni solo se il
+            // pacchetto e' ancora buono (delaysFresh); le previsioni
+            // fermata per fermata invecchiano da se'.
+            if (fresco) rtNow?.delayByTrip ?: emptyMap() else emptyMap(),
+            if (fresco) rtNow?.canceledTrips ?: app.canceledTrips.value else emptySet(),
+            java.time.Instant.now().epochSecond,
+            // Le stesse previsioni che usa il tabellone della fermata.
+            //
+            // Senza, il motore applicava a tutta la corsa il primo
+            // ritardo dichiarato, e il tabellone la previsione della
+            // fermata giusta: sul feed delle 07:30 le due cose
+            // divergevano in media di 78 secondi, oltre il minuto su un
+            // terzo delle corse. Stesso bus, stessa fermata, due orari.
+            live = app.departureBoards.live(),
+        )
         journeysFailed = false
         journeysSearching = true
         // I viaggi si mostrano mentre arrivano.
@@ -1468,6 +1569,13 @@ fun MapScreen(
             val raptor = app.raptorFor(reader)
             val fromPlace = dev.antigravity.fluidtransit.routing.Raptor.Place(from.first, from.second)
             val toPlace = dev.antigravity.fluidtransit.routing.Raptor.Place(to.lat, to.lon)
+            // Il calcolo e' una chiamata bloccante su una corsia sola: se
+            // questa coroutine viene cancellata (partenza, orario o
+            // destinazione cambiati, pannello chiuso) deve fermarsi fra una
+            // scansione e l'altra, non finire per intero mentre quello nuovo
+            // aspetta dietro. Misurato: piu' di venti secondi a calcolo, e tre
+            // cambi di partenza di fila ne accodavano tre.
+            val abbandonato = { !isActive }
             runCatching {
             when (journeyTimeMode) {
                 // "Arriva entro" no: quello scandisce all'indietro e i
@@ -1477,19 +1585,27 @@ fun MapScreen(
                     fromPlace, toPlace, Instant.ofEpochSecond(journeyTimeEpoch), liveData,
                     // Mai un bus gia' partito.
                     notBefore = Instant.now(),
+                    shouldStop = abbandonato,
                 )
 
                 "depart" -> raptor.plan(
                     fromPlace, toPlace, Instant.ofEpochSecond(journeyTimeEpoch), liveData,
                     onPartial = { parziali.trySend(it) },
+                    shouldStop = abbandonato,
                 )
 
                 else -> raptor.plan(
                     fromPlace, toPlace, Instant.now(), liveData,
                     onPartial = { parziali.trySend(it) },
+                    shouldStop = abbandonato,
                 )
             }
-            }.getOrNull()
+            }.getOrElse {
+                // Un calcolo abbandonato non e' un calcolo fallito: la
+                // cancellazione risale, non diventa "non sono riuscito".
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                null
+            }
         }
         // Un calcolo fallito non e' "nessun viaggio": il primo dice che non
         // abbiamo saputo rispondere, il secondo che la risposta e' no. Erano
@@ -1515,6 +1631,30 @@ fun MapScreen(
         }
     }
 
+    // I ritardi nuovi rifanno l'elenco, al massimo una volta al minuto e solo
+    // con l'elenco aperto (non col dettaglio di un viaggio, che non deve
+    // cambiare sotto gli occhi). Vale anche per i viaggi "parti alle" e
+    // "arriva entro", cioe' quelli di una routine, che il giro di "Parti ora"
+    // qui sotto non ricalcola mai: restavano con i ritardi di quando si erano
+    // aperti.
+    LaunchedEffect(rtDelays?.generatedAt, rtPredictions, panel is Panel.Journeys) {
+        val sig = rtDelays?.generatedAt to rtPredictions
+        if (sig == journeysLiveSig) return@LaunchedEffect
+        val attesa = JourneyLiveRefresh.waitMs(
+            listOpen = panel is Panel.Journeys,
+            lastCalcAtMs = journeysCalcAtMs,
+            nowMs = System.currentTimeMillis(),
+            hadLive = journeysHadLive,
+        ) ?: return@LaunchedEffect
+        kotlinx.coroutines.delay(attesa)
+        // Un calcolo ancora in corso non si interrompe per rifarlo: si
+        // aspetta che finisca (al massimo un minuto) e si rifa' con i dati
+        // che nel frattempo sono arrivati.
+        var giri = 0
+        while (journeysSearching && giri++ < 30) kotlinx.coroutines.delay(2_000)
+        if (panel is Panel.Journeys && !journeysSearching) liveRefresh++
+    }
+
     // Gli avvisi delle linee del viaggio aperto.
     //
     // Il motore calcola sul percorso di tabella: se una delle linee oggi e'
@@ -1525,33 +1665,27 @@ fun MapScreen(
         ?.filterIsInstance<dev.antigravity.fluidtransit.routing.Raptor.Leg.Ride>()
         ?.map { it.route }
         ?.distinct()
-    val avvisiDiViaggio by produceState<List<String>?>(
-        initialValue = emptyList(),
-        currentJourneyRoutes, ready?.buildId,
+    val avvisiDiViaggio by produceState(
+        initialValue = SheetAlerts.View.EMPTY,
+        currentJourneyRoutes, ready?.buildId, avvisiFeed,
     ) {
         val reader = ready?.reader
         val routes = currentJourneyRoutes
         if (reader == null || routes.isNullOrEmpty()) {
-            value = emptyList()
+            value = SheetAlerts.View.EMPTY
             return@produceState
         }
         val linee = routes.associate { r ->
             reader.routeIdHash(r) to reader.routeShortName(r).ifEmpty { reader.routeLongName(r) }
         }
-        // Null = non scaricati, e si dice. Prima diventava una lista vuota,
-        // cioe' "nessun avviso": un'affermazione sulla rete mentre il guasto
-        // era nostro.
-        val tutti = app.realtime.fetchAlertsOrNull()
-        if (tutti == null) {
-            value = null
-            return@produceState
-        }
+        // Null = non scaricati, e si dice: vedi la fermata.
+        val feed = avvisiFeed ?: return@produceState
         // In corso e annunciati, come sulla fermata: vedi `SheetAlerts`. Un
         // viaggio si sceglie spesso la sera per la mattina dopo, ed e' allora
         // che uno sciopero annunciato serve.
         dev.antigravity.fluidtransit.data.time.UiClock.ticks().collect { adesso ->
-            value = SheetAlerts.rows(
-                tutti, linee, adesso, withLineNames = true, maxBodyChars = 80,
+            value = SheetAlerts.view(
+                feed, linee, adesso, withLineNames = true, maxBodyChars = 80,
             )
         }
     }
@@ -1718,8 +1852,16 @@ fun MapScreen(
         if (!delaysActive) return@LaunchedEffect
         lifecycleOwner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
             while (true) {
-                rt.refreshDelays()
-                rt.refreshPredictions()
+                // Il giro dei tabelloni (`DepartureBoards.startPump`) e' lo
+                // stesso giro, a 30 s: quando c'e' lo si lascia fare. Due
+                // giri sfasati facevano circa dieci richieste al minuto
+                // invece di sei, e la radio non tornava mai a riposo. Questo
+                // resta solo per un pannello senza nessun tabellone, come la
+                // scheda di una corsa lontana da ogni fermata.
+                if (!app.departureBoards.isPumping) {
+                    rt.refreshDelays()
+                    rt.refreshPredictions()
+                }
                 kotlinx.coroutines.delay(30_000)
             }
         }
@@ -1771,7 +1913,10 @@ fun MapScreen(
     val recentSuggestions = remember(recents, ready?.buildId, dovePerLaDistanza) {
         recents.map { it.toSuggestion(dovePerLaDistanza, ready?.reader) }
     }
-    val nearby by produceState(initialValue = emptyList<Suggestion>(), searchOpen, ready?.buildId) {
+    val nearby by produceState(
+        initialValue = emptyList<Suggestion>(),
+        searchOpen, ready?.buildId, stopGroups,
+    ) {
         val reader = ready?.reader
         if (!searchOpen || reader == null) {
             value = emptyList()
@@ -1781,15 +1926,18 @@ fun MapScreen(
             controller.lastLocation(), controller.cameraCenter(),
         ) ?: return@produceState
         value = withContext(Dispatchers.Default) {
-            // `stopsNear` esce gia' dalla piu' vicina: prendere le prime
-            // cinque vuol dire prendere le cinque piu' vicine.
-            reader.stopsNear(center.first, center.second, 700.0)
-                .take(5)
-                .map { s ->
+            // `stopsNear` esce gia' dalla piu' vicina: le prime fermate vere
+            // sono le piu' vicine. Una riga per fermata, non per banchina
+            // (vedi `nearbyStops`): titolo, chiave e coordinate sono quelli
+            // del rappresentante, come nella ricerca; la distanza e' quella
+            // della banchina piu' vicina, che e' quella che si raggiunge.
+            nearbyStops(reader.stopsNear(center.first, center.second, 700.0), stopGroups, 5)
+                .map { n ->
+                    val rep = n.representative
                     Suggestion(
                         kind = "stop",
-                        key = java.lang.Long.toHexString(reader.stopIdHash(s)),
-                        title = reader.stopName(s),
+                        key = java.lang.Long.toHexString(reader.stopIdHash(rep)),
+                        title = reader.stopName(rep),
                         // Con la distanza, come i recenti e i risultati: e'
                         // l'unico elenco dei tre che non ce l'aveva, ed e'
                         // quello ordinato PER distanza — quindi l'unica cosa
@@ -1798,12 +1946,12 @@ fun MapScreen(
                             dev.antigravity.fluidtransit.routing.Words.distance(
                                 dev.antigravity.fluidtransit.routing.BundleReader.haversine(
                                     center.first, center.second,
-                                    reader.stopLat(s), reader.stopLon(s),
+                                    reader.stopLat(n.nearest), reader.stopLon(n.nearest),
                                 ),
                             ),
                         colorRgb = 0,
-                        lat = reader.stopLat(s),
-                        lon = reader.stopLon(s),
+                        lat = reader.stopLat(rep),
+                        lon = reader.stopLon(rep),
                     )
                 }
         }
@@ -2060,9 +2208,11 @@ fun MapScreen(
                     from = originRef,
                     to = destRef,
                     defaultFrom = if (locationGranted && controller.lastLocation() != null) {
-                        "La tua posizione"
+                        dev.antigravity.fluidtransit.routing.OriginText.ROW_HERE
                     } else {
-                        "Il centro della mappa"
+                        dev.antigravity.fluidtransit.routing.OriginText.rowMapCenter(
+                            locationGranted, serviceOn,
+                        )
                     },
                     // Una frase sola per le due righe che la mostrano, e col
                     // giorno quando non e' oggi. Il "domani" si decide quando
@@ -2118,7 +2268,13 @@ fun MapScreen(
                 },
                 // I civici arrivano dopo, ma entrano nella stessa lista e si
                 // ordinano insieme agli altri: stessa scala di pertinenza.
-                results = risultati,
+                // Riempiendo una riga del pianificatore le linee non si
+                // offrono: non sono posti (vedi `isPlannerPoint`).
+                results = if (plannerField != null) {
+                    risultati.filter { it.isPlannerPoint() }
+                } else {
+                    risultati
+                },
                 saved = savedSuggestions,
                 // Tutto tranne le linee, che hanno la loro fila.
                 //
@@ -2128,7 +2284,11 @@ fun MapScreen(
                 // erano due ricerche identiche e complete.
                 recents = recentSuggestions.filter { it.kind != "route" },
                 nearby = nearby,
-                recentLines = recentSuggestions.filter { it.kind == "route" },
+                recentLines = if (plannerField != null) {
+                    emptyList()
+                } else {
+                    recentSuggestions.filter { it.kind == "route" }
+                },
                 onOpen = { searchOpen = true },
                 onClose = {
                     searchOpen = false
@@ -2170,7 +2330,7 @@ fun MapScreen(
                     val field = plannerField
                     if (field == null) {
                         pick(s)
-                    } else {
+                    } else if (s.isPlannerPoint()) {
                         // La ricerca sta compilando una riga del
                         // pianificatore, non portando da qualche parte.
                         //
@@ -2679,7 +2839,8 @@ fun MapScreen(
                                     },
                                     onDismiss = { panel = null },
                                     onRouteTap = ::showRoute,
-                                    alerts = avvisiDiFermata,
+                                    alerts = avvisiDiFermata.rows,
+                                    alertsNote = avvisiDiFermata.staleNote,
                                     onOpenAlerts = onOpenAlerts,
                                     onWhyTap = { r, rect ->
                                         whyRow = r
@@ -2755,7 +2916,8 @@ fun MapScreen(
                                             )
                                         },
                                         onDismiss = ::exitRouteMode,
-                                        alerts = avvisiDiLinea,
+                                        alerts = avvisiDiLinea.rows,
+                                        alertsNote = avvisiDiLinea.staleNote,
                                         onOpenAlerts = onOpenAlerts,
                                     )
                                 } else if (routeFailedFor == state.routeIndex) {
@@ -2851,7 +3013,7 @@ fun MapScreen(
                                                 app.departureBoards.live(),
                                             )
                                             if (plan != null) {
-                                                app.navigation.start(context, plan)
+                                                avviaNavigazione(plan)
                                                 panel = null
                                             } else {
                                                 // Il piano non si costruisce quando la
@@ -2878,7 +3040,8 @@ fun MapScreen(
                                             }
                                         },
                                         onDismiss = ::exitRouteMode,
-                                        alerts = avvisiDiCorsa,
+                                        alerts = avvisiDiCorsa.rows,
+                                        alertsNote = avvisiDiCorsa.staleNote,
                                         onOpenAlerts = onOpenAlerts,
                                     )
                                 } else if (tripFailedFor == state.ref.vehKey) {
@@ -2987,6 +3150,12 @@ fun MapScreen(
                                             SAME_PLACE_M
                                     } ?: false,
                                     fromLabel = journeyFrom,
+                                    fromMapCenter = partenzaDalCentro,
+                                    onUseLocation = if (partenzaDalCentro) {
+                                        { toccaPosizione(FollowMode.FREE) }
+                                    } else {
+                                        null
+                                    },
                                     timeLabel = remember(journeyTimeMode, journeyTimeEpoch) {
                                         dev.antigravity.fluidtransit.routing.Times.journeyTimeLabel(
                                             journeyTimeMode, journeyTimeEpoch,
@@ -3008,15 +3177,19 @@ fun MapScreen(
                                         toName = state.to.name,
                                         onDismiss = { panel = Panel.Journeys(state.to) },
                                         backdrop = backdrop,
-                                        alerts = avvisiDiViaggio,
+                                        alerts = avvisiDiViaggio.rows,
+                                        alertsNote = avvisiDiViaggio.staleNote,
                                         onOpenAlerts = onOpenAlerts,
                                         onStart = {
                                             val plan = buildNavPlan(reader, j.raw, state.to.name)
-                                            app.navigation.start(context, plan)
+                                            avviaNavigazione(plan)
                                             panel = null
-                                            chiediNotifiche(NotifMotivo.VIAGGIO)
                                         },
-                                        onCreateRoutine = { days, anchor, minutes ->
+                                        // Una routine salva la partenza per sempre: il centro
+                                        // della mappa, al primo avvio, e' la campagna fra
+                                        // Siena e Colle, e la routine "Esci alle 8" partirebbe
+                                        // da li'. Senza una partenza vera il modulo non c'e'.
+                                        onCreateRoutine = { days: Set<Int>, anchor: String, minutes: Int ->
                                             val from = journeyOrigin
                                             if (from != null) {
                                                 val routine =
@@ -3038,7 +3211,7 @@ fun MapScreen(
                                                     .scheduleNextCompute(context, routine)
                                                 chiediNotifiche(NotifMotivo.ROUTINE)
                                             }
-                                        },
+                                        }.takeIf { !partenzaDalCentro },
                                     )
                                 }
                             }

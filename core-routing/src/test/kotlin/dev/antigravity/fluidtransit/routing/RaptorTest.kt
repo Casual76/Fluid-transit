@@ -6,6 +6,7 @@ import java.time.LocalDateTime
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
@@ -146,6 +147,54 @@ class RaptorTest {
     private val nearB = Raptor.Place(43.004600, 11.000100)
     private val nearC = Raptor.Place(43.009100, 11.000100)
     private val nearD = Raptor.Place(43.050200, 11.050100)
+
+    @Test
+    fun `un calcolo abbandonato esce subito, in avanti e all'indietro`() {
+        BundleReader(writeBundle()).use { r ->
+            val raptor = Raptor(r)
+            assertFailsWith<java.util.concurrent.CancellationException> {
+                raptor.plan(nearA, nearD, epochAt(feedStart, 7, 50), shouldStop = { true })
+            }
+            assertFailsWith<java.util.concurrent.CancellationException> {
+                raptor.planArriveBy(nearA, nearD, epochAt(feedStart, 9, 0), shouldStop = { true })
+            }
+        }
+    }
+
+    @Test
+    fun `abbandonare a meta' una scansione non sporca il calcolo dopo`() {
+        // Il difetto: il vecchio calcolo finiva comunque, e quello nuovo
+        // aspettava dietro. Adesso si interrompe: la garanzia da provare e'
+        // che lo scratch lasciato a meta' non falsi la scansione seguente
+        // sullo stesso motore.
+        BundleReader(writeBundle()).use { r ->
+            val raptor = Raptor(r)
+            val atteso = raptor.plan(nearA, nearD, epochAt(feedStart, 7, 50))
+            // Lascia passare i primi controlli (l'ingresso, la scansione, il
+            // primo round) e poi si ferma dentro la scansione.
+            var chiamate = 0
+            assertFailsWith<java.util.concurrent.CancellationException> {
+                raptor.plan(
+                    nearA, nearD, epochAt(feedStart, 7, 50),
+                    shouldStop = { ++chiamate > 3 },
+                )
+            }
+            val dopo = raptor.plan(nearA, nearD, epochAt(feedStart, 7, 50))
+            assertEquals(
+                atteso.map { it.departure to it.arrival },
+                dopo.map { it.departure to it.arrival },
+            )
+        }
+    }
+
+    @Test
+    fun `senza abbandono il calcolo e' quello di sempre`() {
+        BundleReader(writeBundle()).use { r ->
+            val raptor = Raptor(r)
+            val journeys = raptor.plan(nearA, nearD, epochAt(feedStart, 7, 50), shouldStop = { false })
+            assertTrue(journeys.any { !it.isWalkOnly })
+        }
+    }
 
     @Test
     fun `da A a D con il cambio in banchina a C`() {

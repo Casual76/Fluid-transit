@@ -125,4 +125,56 @@ class SheetAlertsTest {
     fun `una lista vuota di avvisi resta vuota`() {
         assertTrue(righe(emptyList()).isEmpty())
     }
+
+    // --- il giro degli avvisi: si riprova, e si dice quando e' vecchio ---
+
+    private fun vista(feed: SheetAlerts.Feed) =
+        SheetAlerts.view(feed, linee, adesso, withLineNames = true, maxBodyChars = 80)
+
+    @Test
+    fun `dopo un download fallito si riprova presto, non fra cinque minuti`() {
+        // Il difetto: in galleria il download falliva, e la scheda restava su
+        // "Avvisi non arrivati" anche a rete tornata, fino a chiuderla e
+        // riaprirla. Il ritmo dopo un null e' quello del ritentativo.
+        assertEquals(SheetAlerts.RETRY_MS, SheetAlerts.nextPollMs(SheetAlerts.Feed(null, null)))
+    }
+
+    @Test
+    fun `servendo una lista vecchia si riprova presto`() {
+        val vecchia = SheetAlerts.Feed(emptyList(), adesso - 600)
+        assertEquals(SheetAlerts.RETRY_MS, SheetAlerts.nextPollMs(vecchia))
+    }
+
+    @Test
+    fun `dopo un successo si aspetta come Oggi e la schermata Avvisi`() {
+        assertEquals(
+            dev.antigravity.fluidtransit.data.rt.RealtimeClient.ALERTS_POLL_MS,
+            SheetAlerts.nextPollMs(SheetAlerts.Feed(emptyList(), null)),
+        )
+    }
+
+    @Test
+    fun `un download fallito si dice, non diventa nessun avviso`() {
+        val v = vista(SheetAlerts.Feed(null, null))
+        assertEquals(null, v.rows)
+        assertEquals(null, v.staleNote)
+    }
+
+    @Test
+    fun `una lista vecchia porta la sua eta'`() {
+        val sciopero = avviso(setOf(12L), "Sciopero", fra(-3600))
+        val v = vista(SheetAlerts.Feed(listOf(sciopero), adesso - 1800))
+        assertEquals(1, v.rows?.size)
+        assertEquals(
+            dev.antigravity.fluidtransit.routing.AlertText.stale(adesso - 1800, adesso),
+            v.staleNote,
+        )
+    }
+
+    @Test
+    fun `una lista fresca non ha nota`() {
+        val v = vista(SheetAlerts.Feed(emptyList(), null))
+        assertEquals(emptyList<String>(), v.rows)
+        assertEquals(null, v.staleNote)
+    }
 }

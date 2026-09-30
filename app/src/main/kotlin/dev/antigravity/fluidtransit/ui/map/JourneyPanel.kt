@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.DirectionsWalk
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Icon
@@ -213,6 +214,26 @@ sealed class UiLeg {
 }
 
 /**
+ * L'uscita da un vicolo cieco: dare all'app la posizione da cui partire.
+ *
+ * Senza, "Sei gia' li'" e "Nessun viaggio" non avevano un tasto: il mirino
+ * e' nascosto dal pannello, e chi non aveva mai dato il permesso non aveva
+ * modo di sapere che la posizione era la cura.
+ */
+@Composable
+private fun UseLocationButton(onUseLocation: (() -> Unit)?, backdrop: GlassBackdropState) {
+    if (onUseLocation == null) return
+    Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
+        GlassActionButton(
+            text = dev.antigravity.fluidtransit.routing.OriginText.USE_LOCATION,
+            icon = Icons.Rounded.MyLocation,
+            backdrop = backdrop,
+            onClick = onUseLocation,
+        )
+    }
+}
+
+/**
  * Le soluzioni di viaggio nel pannello dal basso, come deciso: orari,
  * durata, la sequenza delle pillole colorate, i minuti live. Un tocco apre
  * il dettaglio nella stessa superficie.
@@ -234,6 +255,19 @@ fun JourneysContent(
     searching: Boolean = false,
     /** Partenza e arrivo sono lo stesso posto: non c'e' niente da calcolare. */
     samePlace: Boolean = false,
+    /**
+     * La partenza e' il centro della mappa perche' non abbiamo una posizione.
+     *
+     * Cambia cosa dicono "Sei gia' li'" e "Nessun viaggio": il centro della
+     * mappa e' spesso il posto appena cercato, o la campagna fra Siena e
+     * Colle al primo avvio, e il consiglio giusto non e' cambiare orario.
+     */
+    fromMapCenter: Boolean = false,
+    /**
+     * Il tasto "Usa la mia posizione": null quando non c'e' niente da chiedere
+     * (la partenza e' gia' una posizione vera, o scelta apposta).
+     */
+    onUseLocation: (() -> Unit)? = null,
     fromLabel: String,
     timeLabel: String,
     backdrop: GlassBackdropState,
@@ -326,22 +360,21 @@ fun JourneysContent(
         // esattamente alla domanda sbagliata.
         samePlace -> {
             FluidEmptyState(
-                title = "Sei gia' li'",
-                detail = "Partenza e arrivo sono lo stesso posto. Se non e' " +
-                    "quello che volevi, scegli da dove parti: senza GPS la " +
-                    "partenza e' il centro della mappa, che dopo una ricerca " +
-                    "e' proprio il posto trovato.",
+                title = dev.antigravity.fluidtransit.routing.OriginText.SAME_PLACE_TITLE,
+                detail = dev.antigravity.fluidtransit.routing.OriginText.samePlaceDetail(fromMapCenter),
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
+            UseLocationButton(onUseLocation, backdrop)
             Spacer(Modifier.height(12.dp))
         }
 
         journeys.isEmpty() -> {
             FluidEmptyState(
-                title = "Nessun viaggio trovato",
-                detail = "In questa finestra il bus non ci arriva. Prova a cambiare orario.",
+                title = dev.antigravity.fluidtransit.routing.OriginText.NO_JOURNEY_TITLE,
+                detail = dev.antigravity.fluidtransit.routing.OriginText.noJourneyDetail(fromMapCenter),
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
+            UseLocationButton(onUseLocation, backdrop)
             Spacer(Modifier.height(12.dp))
         }
 
@@ -471,6 +504,8 @@ fun JourneyDetailContent(
     onStart: (() -> Unit)? = null,
     /** Gli avvisi in corso sulle linee di QUESTO viaggio, gia' filtrati. */
     alerts: List<String>? = emptyList(),
+    /** "Aggiornati alle...": gli avvisi sono quelli di un giro vecchio. */
+    alertsNote: String? = null,
     onOpenAlerts: (() -> Unit)? = null,
 ) {
     Row(
@@ -535,7 +570,7 @@ fun JourneyDetailContent(
     // deviata, il viaggio proposto puo' non esistere come e' scritto. E'
     // l'unica cosa che puo' rendere sbagliato tutto quello che c'e' sotto.
     dev.antigravity.fluidtransit.ui.common.AlertRows(
-        alerts, onOpenAlerts, tail = "sulle linee di questo viaggio",
+        alerts, onOpenAlerts, tail = "sulle linee di questo viaggio", staleNote = alertsNote,
     )
 
     // La riserva di questo pannello: quella della scheda fermata, piu' le

@@ -197,7 +197,14 @@ class Raptor(private val reader: BundleReader) {
          * puo' mostrare quello che c'e' mentre il resto arriva.
          */
         onPartial: ((List<Journey>) -> Unit)? = null,
+        /**
+         * Chiamata fra una scansione e l'altra, e a ogni giro di una
+         * scansione: se risponde vero il calcolo e' stato abbandonato e si
+         * esce con una `CancellationException`. Vedi [checkStop].
+         */
+        shouldStop: () -> Boolean = NEVER_STOP,
     ): List<Journey> {
+        checkStop(shouldStop)
         val access = walkableStops(from)
         val egress = walkableStops(to)
         val out = ArrayList<Journey>()
@@ -229,7 +236,8 @@ class Raptor(private val reader: BundleReader) {
                 t < departAt.epochSecond + windowSeconds
             ) {
                 runs++
-                val found = earliestArrival(from, to, access, egress, t, realtime)
+                checkStop(shouldStop)
+                val found = earliestArrival(from, to, access, egress, t, realtime, shouldStop)
                 if (found.isEmpty()) break
                 var minDep = Long.MAX_VALUE
                 for (j in found) {
@@ -285,6 +293,8 @@ class Raptor(private val reader: BundleReader) {
         windowSeconds: Int = 3 * 3600,
         maxJourneys: Int = 5,
         notBefore: Instant? = null,
+        /** Come in [plan]: il calcolo abbandonato esce con una `CancellationException`. */
+        shouldStop: () -> Boolean = NEVER_STOP,
     ): List<Journey> {
         val scadenza = arriveBy.epochSecond
         val pavimento = maxOf(
@@ -297,6 +307,7 @@ class Raptor(private val reader: BundleReader) {
         var aPiedi: Journey? = null
         var fine = scadenza
         while (fine > pavimento && trovati.size < maxJourneys) {
+            checkStop(shouldStop)
             val inizio = maxOf(pavimento, fine - ARRIVE_BY_STEP_SECONDS)
             val parte = plan(
                 from, to,
@@ -304,6 +315,7 @@ class Raptor(private val reader: BundleReader) {
                 realtime = realtime,
                 windowSeconds = (fine - inizio).toInt(),
                 maxJourneys = maxJourneys * 3,
+                shouldStop = shouldStop,
             )
             for (j in parte) {
                 if (j.isWalkOnly) {
@@ -351,6 +363,24 @@ class Raptor(private val reader: BundleReader) {
      * fino a diciotto, quindi ogni finestra si guarda tutta.
      */
     private val ARRIVE_BY_STEP_SECONDS = 3600L
+
+    /**
+     * Un calcolo abbandonato deve smettere di consumare la corsia.
+     *
+     * Chi cambia partenza, orario o destinazione nel pianificatore cancella
+     * la coroutine che calcolava, ma il calcolo e' una chiamata bloccante su
+     * un thread solo: andava avanti fino in fondo — piu' di venti secondi
+     * misurati sull'emulatore, e "arriva entro" ne fa piu' d'uno — e quello
+     * nuovo aspettava dietro, insieme all'assistente e alle routine che
+     * condividono la corsia. Cambiare tre volte l'origine voleva dire
+     * aspettare la somma di tre calcoli morti. La cooperazione e' qui, fra una
+     * scansione e l'altra e a ogni giro di scansione: lo scratch si ripulisce
+     * all'inizio di ogni scansione, quindi interrompere a meta' non sporca la
+     * prossima.
+     */
+    private fun checkStop(shouldStop: () -> Boolean) {
+        if (shouldStop()) throw java.util.concurrent.CancellationException("calcolo abbandonato")
+    }
 
     // -------------------------------------------------------------- il core
 
@@ -457,6 +487,9 @@ class Raptor(private val reader: BundleReader) {
          */
         const val LIVE_WINDOW_SECONDS = 2 * 60 * 60
 
+        /** Il valore di `shouldStop` di chi non ha niente da abbandonare. */
+        private val NEVER_STOP: () -> Boolean = { false }
+
         const val INF = Long.MAX_VALUE / 4
         const val KIND_NONE = 0.toByte()
         const val KIND_RIDE = 1.toByte()
@@ -481,6 +514,7 @@ class Raptor(private val reader: BundleReader) {
         egress: List<Reached>,
         departEpoch: Long,
         rt: Realtime,
+        shouldStop: () -> Boolean = NEVER_STOP,
     ): List<Journey> {
         // Lo scratch si ripulisce dalle tracce della query precedente.
         for (i in 0 until markedCount) isMarked[marked[i]] = false
@@ -515,6 +549,7 @@ class Raptor(private val reader: BundleReader) {
         val q = HashMap<Int, Int>(256) // pattern -> prima posizione marcata
 
         for (round in 1..k) {
+            checkStop(shouldStop)
             q.clear()
             for (i in 0 until markedCount) {
                 val stop = marked[i]

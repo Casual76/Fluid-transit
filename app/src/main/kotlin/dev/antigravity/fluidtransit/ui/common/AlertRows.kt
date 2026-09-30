@@ -44,6 +44,12 @@ fun AlertRows(
      * sarebbe una riga che promette piu' di quello che apre.
      */
     tail: String = "su queste linee",
+    /**
+     * "Aggiornati alle 14:10: adesso non riusciamo a scaricarli", quando le
+     * righe sono quelle di un giro vecchio: un dato vecchio si mostra, ma dice
+     * di quando e'. Sta in fondo, sotto gli avvisi che qualifica.
+     */
+    staleNote: String? = null,
 ) {
     if (alerts == null) {
         AlertRow(
@@ -53,7 +59,7 @@ fun AlertRows(
         )
         return
     }
-    if (alerts.isEmpty()) return
+    if (alerts.isEmpty() && staleNote == null) return
     for (a in alerts.take(MAX_ROWS)) {
         AlertRow(a, onOpenAlerts, modifier)
     }
@@ -65,6 +71,7 @@ fun AlertRows(
             modifier,
         )
     }
+    if (staleNote != null) AlertRow(staleNote, onOpenAlerts, modifier)
 }
 
 private const val MAX_ROWS = 2

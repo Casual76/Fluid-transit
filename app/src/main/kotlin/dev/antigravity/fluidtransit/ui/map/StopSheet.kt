@@ -117,6 +117,8 @@ fun StopPanelContent(
      * fermata deve saperlo prima di aspettarla.
      */
     alerts: List<String>? = emptyList(),
+    /** "Aggiornati alle...": gli avvisi sono quelli di un giro vecchio. */
+    alertsNote: String? = null,
     onOpenAlerts: (() -> Unit)? = null,
     /** Il tocco su una riga: "perche' questo numero", aperto sulla riga stessa. */
     onWhyTap: (
@@ -247,7 +249,7 @@ fun StopPanelContent(
 
     // Gli avvisi delle linee di questa fermata, sopra tutto il resto: se la
     // linea che aspetti oggi e' deviata, saperlo dopo gli orari non serve.
-    dev.antigravity.fluidtransit.ui.common.AlertRows(alerts, onOpenAlerts)
+    dev.antigravity.fluidtransit.ui.common.AlertRows(alerts, onOpenAlerts, staleNote = alertsNote)
 
     // "Parti da qui": la fermata aperta diventa l'origine del pianificatore.
     // E' una delle quattro strade decise per scegliere una partenza diversa

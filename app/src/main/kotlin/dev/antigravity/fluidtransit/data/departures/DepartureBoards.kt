@@ -50,6 +50,18 @@ class DepartureBoards(private val app: FluidTransitApp) {
 
     private val cache = ConcurrentHashMap<Key, StateFlow<DepartureBoard>>()
     private val watchers = AtomicInteger(0)
+
+    /**
+     * Il giro dei ritardi e delle previsioni sta girando perche' qualcuno
+     * guarda un tabellone.
+     *
+     * Serve a chi ha un giro suo — la mappa con un pannello aperto — per non
+     * raddoppiare le richieste: `fetchDelays` e `fetchPredictions` non hanno
+     * un'eta' minima, e due giri sfasati facevano circa dieci richieste al
+     * minuto invece di sei, con la radio mai a riposo su rete mobile e il
+     * budget del Worker Free che questo giro unico era nato per risparmiare.
+     */
+    val isPumping: Boolean get() = watchers.get() > 0
     private var pump: Job? = null
 
     private data class Key(val stops: List<Int>, val limit: Int, val horizon: Int)

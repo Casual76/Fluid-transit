@@ -466,6 +466,8 @@ fun RouteFullContent(
      * sbagliato tutto il resto di quel pannello.
      */
     alerts: List<String>? = emptyList(),
+    /** "Aggiornati alle...": gli avvisi sono quelli di un giro vecchio. */
+    alertsNote: String? = null,
     onOpenAlerts: (() -> Unit)? = null,
 ) {
     val dir = info.directions.getOrNull(direction) ?: info.directions.firstOrNull() ?: return
@@ -566,7 +568,7 @@ fun RouteFullContent(
         // In cima, sotto la testata: se questa linea oggi e' deviata o
         // sostituita, tutto quello che c'e' sotto — orari, fermate, minuti —
         // puo' essere sbagliato, e saperlo dopo non serve a niente.
-        dev.antigravity.fluidtransit.ui.common.AlertRows(alerts, onOpenAlerts, tail = "su questa linea")
+        dev.antigravity.fluidtransit.ui.common.AlertRows(alerts, onOpenAlerts, tail = "su questa linea", staleNote = alertsNote)
 
         // --- oggi: prima/ultima corsa e frequenza ------------------------
         //

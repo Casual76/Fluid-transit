@@ -58,6 +58,122 @@ object Places {
         }
         return sb.toString().trim()
     }
+
+    /**
+     * La forma con cui si CERCA: [normalize] piu' punteggiatura, abbreviazioni
+     * e numeri romani dei nomi-data. Si usa dai due lati, sull'indice e sulla
+     * query, e solo li'.
+     *
+     * Perche' non dentro [normalize]: quella e' anche la chiave con cui il
+     * bundler ordina e deduplica i luoghi e con cui `StopGroups` raggruppa le
+     * banchine. Cambiarla cambierebbe l'OUTPUT del bundle di stanotte, e
+     * "P.ZA X" e "PIAZZA X" potrebbero fondersi in un gruppo senza che
+     * nessuno l'abbia deciso. Qui si cambia solo cio' che si legge, quindi
+     * vale anche per i luoghi.bin e i bundle gia' pubblicati.
+     *
+     * Il sintomo da cui nasce: nel feed i nomi sono pieni di abbreviazioni
+     * (COLLE P.ZA ARNOLFO, Serravalle P.se, 125 nomi che finiscono col
+     * punto), e chi scriveva "S. Marco" aveva i token "s." e "marco": "s."
+     * non sta in "san marco", con due parole servono entrambe, e la fermata
+     * non usciva. Stesso per "via Roma, 12" (la virgola restava attaccata a
+     * "roma," e a "12,"), per "piazza arnolfo" contro "P.ZA ARNOLFO", e per
+     * "27 aprile" contro "XXVII APRILE" (nomi di fermata veri del feed).
+     */
+    fun searchForm(s: String): String {
+        val raw = normalize(s).split(SEPARATORS).map { it.trim('/') }.filter { it.isNotEmpty() }
+        // Prima si espande sul pezzo INTERO, coi punti dentro: "p.za" diviso
+        // per i punti sarebbe "p" e "za", e la tabella non lo riconoscerebbe.
+        class Part(val text: String, val dotted: Boolean)
+        val parts = ArrayList<Part>(raw.size + 2)
+        for (r in raw) {
+            val whole = ABBREVIATIONS[r.replace(".", "")]
+            if (whole != null) {
+                parts.add(Part(whole, false))
+                continue
+            }
+            val pieces = r.split('.').filter { it.isNotEmpty() }
+            for ((i, p) in pieces.withIndex()) {
+                // Il punto dopo la sigla conta: senza, una "v" sola puo'
+                // essere il 5 romano di "via v novembre".
+                parts.add(Part(p, dotted = i < pieces.size - 1 || r.endsWith('.')))
+            }
+        }
+        val words = ArrayList<String>(parts.size)
+        for ((i, p) in parts.withIndex()) {
+            val hasNext = i < parts.size - 1
+            words.add(
+                when {
+                    // Da sole una "s" o una "v" sono una query di un carattere
+                    // (una sigla di linea): si espandono solo davanti a un nome.
+                    p.text == "s" && hasNext -> "san"
+                    p.text == "v" && p.dotted && hasNext -> "via"
+                    else -> p.text
+                },
+            )
+        }
+        // Un romano accanto a un mese e' una data: XXVII aprile e 27 aprile
+        // devono essere la stessa parola, da qualunque lato arrivino.
+        for (i in 0 until words.size - 1) {
+            if (words[i + 1] in MONTHS) romanDay(words[i])?.let { words[i] = it.toString() }
+        }
+        return words.joinToString(" ")
+    }
+
+    /** La parola e' il nome di un mese. */
+    fun isMonth(word: String): Boolean = word in MONTHS
+
+    /** Il civico senza segni: "12/A", "12 a" e "12a" diventano la stessa cosa. */
+    fun civicKey(number: String): String = normalize(number).filter { it.isLetterOrDigit() }
+
+    /**
+     * Il valore di un numero romano da 1 a 31, o null.
+     *
+     * Solo fino a 31 perche' e' il giorno del mese: un "L" o un "C" accanto a
+     * un mese non sono una data. Si rigenera la scrittura e si confronta,
+     * cosi' "iiii" o "vx" non passano per numeri.
+     */
+    private fun romanDay(word: String): Int? {
+        if (word.isEmpty() || word.any { it != 'i' && it != 'v' && it != 'x' }) return null
+        val v = word.map { ROMAN_VALUES.getValue(it) }
+        var total = 0
+        for (i in v.indices) total += if (i + 1 < v.size && v[i] < v[i + 1]) -v[i] else v[i]
+        if (total !in 1..31) return null
+        return total.takeIf { toRoman(it) == word }
+    }
+
+    private fun toRoman(n: Int): String {
+        var rest = n
+        val sb = StringBuilder()
+        for ((value, symbol) in listOf(10 to "x", 9 to "ix", 5 to "v", 4 to "iv", 1 to "i")) {
+            while (rest >= value) {
+                sb.append(symbol)
+                rest -= value
+            }
+        }
+        return sb.toString()
+    }
+
+    private val ROMAN_VALUES = mapOf('i' to 1, 'v' to 5, 'x' to 10)
+
+    /** Tutto cio' che non e' lettera, cifra, punto o barra separa due parole. */
+    private val SEPARATORS = Regex("[^\\p{L}\\p{N}./]+")
+
+    private val MONTHS = setOf(
+        "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
+        "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre",
+    )
+
+    /**
+     * Le abbreviazioni dei nomi di strada e di fermata, per chiave SENZA
+     * punti. Piccola e fissa apposta: ogni voce in piu' e' un nome che la
+     * ricerca riscrive. Le sigle di una lettera ("s", "v") non stanno qui ma
+     * in [searchForm], perche' dipendono da cio' che hanno accanto.
+     */
+    private val ABBREVIATIONS = mapOf(
+        "pza" to "piazza", "pzza" to "piazza", "ple" to "piazzale", "pzle" to "piazzale",
+        "vle" to "viale", "cso" to "corso", "pta" to "porta", "vlo" to "vicolo",
+        "lgo" to "largo", "flli" to "fratelli", "sta" to "santa", "fraz" to "frazione",
+    )
 }
 
 /** Un record della sezione veloce, per il writer. */
@@ -259,8 +375,8 @@ class PlacesSearch(private val reader: PlacesReader) {
         val hay = Array(n) { "" }
         val end = IntArray(n)
         for (i in 0 until n) {
-            val name = Places.normalize(reader.fastName(i))
-            val extra = (Places.normalize(reader.fastContext(i)) + " " + reader.fastKeywords(i)).trim()
+            val name = Places.searchForm(reader.fastName(i))
+            val extra = (Places.searchForm(reader.fastContext(i)) + " " + reader.fastKeywords(i)).trim()
             end[i] = name.length
             hay[i] = Relevance.haystack(name, extra)
         }
@@ -272,9 +388,9 @@ class PlacesSearch(private val reader: PlacesReader) {
         val hay = Array(n) { "" }
         val end = IntArray(n)
         for (s in 0 until n) {
-            val name = Places.normalize(reader.streetName(s))
+            val name = Places.searchForm(reader.streetName(s))
             end[s] = name.length
-            hay[s] = Relevance.haystack(name, Places.normalize(reader.streetContext(s)))
+            hay[s] = Relevance.haystack(name, Places.searchForm(reader.streetContext(s)))
         }
         Norm(hay, end)
     }
@@ -289,6 +405,32 @@ class PlacesSearch(private val reader: PlacesReader) {
     fun warmUp() {
         norm
         streetNorm
+    }
+
+    /**
+     * La prima passata sull'indice, esatta e poi — solo se non ha trovato
+     * NIENTE — tollerante a un refuso per parola.
+     *
+     * Le fermate e le linee lo facevano gia' (`SearchIndex.search`), i luoghi
+     * no: "Essellunga", "farmcia", "Liceo Agnoleti" e "Via Bolognesse 12"
+     * finivano tutti in "Niente con questo nome", proprio sulla specie di
+     * ricerca (negozi, scuole, vie) per cui esiste il file dei luoghi. Il
+     * criterio e' "nessun candidato" e non "lista vuota": con tre parole ne
+     * basta una di meno, e "via bolognesse 12" trova per caso decine di
+     * vie che hanno "via" e "12" — rumore, non una risposta.
+     */
+    private fun scan(tokens: List<String>, index: Norm, count: Int): Relevance.Session {
+        fun pass(fuzzy: Boolean): Relevance.Session {
+            val s = Relevance.Session(tokens, fuzzy)
+            for (i in 0 until count) s.observe(i, index.hay[i], index.nameEnd[i])
+            return s
+        }
+        val exact = pass(fuzzy = false)
+        // Sotto le quattro lettere il refuso non si tollera (vedi Relevance):
+        // una seconda passata su 170.816 voci per non cambiare niente e' solo
+        // tempo perso.
+        if (exact.candidateCount > 0 || tokens.none { it.length >= 4 }) return exact
+        return pass(fuzzy = true)
     }
 
     /**
@@ -310,8 +452,7 @@ class PlacesSearch(private val reader: PlacesReader) {
 
         // Prima passata: si guarda tutto l'indice, si raccoglie quanto ogni
         // voce combacia e quanto ogni parola e' rara.
-        val session = Relevance.Session(tokens)
-        for (i in 0 until reader.fastCount) session.observe(i, index.hay[i], index.nameEnd[i])
+        val session = scan(tokens, index, reader.fastCount)
 
         // Seconda passata: il punteggio vero. Una parola comune come "via"
         // lascia in gara decine di migliaia di voci, quindi qui si contano
@@ -358,6 +499,16 @@ class PlacesSearch(private val reader: PlacesReader) {
      * via. Le vie candidate si pesano TUTTE prima di leggere i numeri: una
      * scansione interrotta presto premiava "Romagnosi" e "Romana" (che
      * vengono prima in ordine alfabetico) e non arrivava mai a "Roma".
+     *
+     * Quale token e' il civico: l'ULTIMO che comincia per cifra, non il
+     * primo. Fra le vie toscane ce ne sono di intitolate a una data (Via 25
+     * Aprile, Via 4 Novembre, Piazza 2 Giugno): scrivendo "via 4 novembre 12"
+     * il primo numero e' il nome e il 12 e' il civico, e leggendolo al
+     * contrario si offrivano "Via 4 Novembre 4", "4a", "40"... e il 12
+     * richiesto non usciva mai. Un numero solo non e' per forza un civico:
+     * se sta accanto a un mese, o se la via candidata lo ha gia' nel nome,
+     * e' il nome di una via — "via 25 aprile" non deve produrre
+     * "Via 25 Aprile 25".
      */
     fun civici(
         query: String,
@@ -366,8 +517,13 @@ class PlacesSearch(private val reader: PlacesReader) {
         refLon: Double = Double.NaN,
     ): List<Hit> {
         val tokens = Relevance.tokens(query)
-        val number = tokens.firstOrNull { it.first().isDigit() } ?: return emptyList()
-        val nameTokens = tokens.filter { it != number }
+        val digitAt = tokens.indices.filter { tokens[it].first().isDigit() }
+        val at = digitAt.lastOrNull() ?: return emptyList()
+        val oneNumber = digitAt.size == 1
+        if (oneNumber && at + 1 < tokens.size && Places.isMonth(tokens[at + 1])) return emptyList()
+        val numberToken = tokens[at]
+        val number = Places.civicKey(numberToken)
+        val nameTokens = tokens.filterIndexed { i, _ -> i != at }
         if (nameTokens.isEmpty()) return emptyList()
         val hasRef = !refLat.isNaN() && !refLon.isNaN()
         val index = streetNorm
@@ -380,11 +536,12 @@ class PlacesSearch(private val reader: PlacesReader) {
         // Le stesse due passate della ricerca rapida: qui la pesatura per
         // rarita' conta il doppio, perche' "via" e' in quasi tutti i nomi e
         // la parola che sceglie davvero e' l'altra.
-        val session = Relevance.Session(nameTokens)
-        for (s in 0 until reader.streetCount) session.observe(s, index.hay[s], index.nameEnd[s])
+        val session = scan(nameTokens, index, reader.streetCount)
         val candidates = ArrayList<Candidate>(session.candidateCount.coerceAtMost(1024))
         for (k in 0 until session.candidateCount) {
             val s = session.candidateId(k)
+            // Il numero e' gia' nel nome della via: e' una via-data, non un civico.
+            if (oneNumber && numberInName(index, s, numberToken)) continue
             val dist = if (hasRef) {
                 BundleReader.haversine(refLat, refLon, reader.streetLat(s), reader.streetLon(s))
             } else {
@@ -399,14 +556,21 @@ class PlacesSearch(private val reader: PlacesReader) {
         }
         candidates.sortByDescending { it.score }
 
+        val onlyDigits = number.all { it.isDigit() }
         val out = ArrayList<Hit>(limit * 2)
         for (c in candidates.take(12)) {
             val s = c.street
             val first = reader.streetFirstEntry(s)
             val count = reader.streetEntryCount(s)
             for (e in first until first + count) {
-                val num = Places.normalize(reader.civNumber(e))
-                if (num == number || (num.startsWith(number) && num.length <= number.length + 1)) {
+                // Senza segni: "12/A", "12 a" e "12a" sono lo stesso civico, e
+                // "12" vuole anche il 12A (una lettera dopo) ma non il 120:
+                // "4" offriva "40"-"49", che nessuno aveva chiesto.
+                val num = Places.civicKey(reader.civNumber(e))
+                val exact = num == number
+                val near = !exact && onlyDigits && num.length == number.length + 1 &&
+                    num.startsWith(number) && num.last().isLetter()
+                if (exact || near) {
                     out.add(
                         Hit(
                             kind = 4,
@@ -416,7 +580,7 @@ class PlacesSearch(private val reader: PlacesReader) {
                             lon = reader.civLon(e),
                             // Il civico esatto vale piu' del quasi-esatto, e
                             // un indirizzo completo batte il luogo omonimo.
-                            score = c.score + if (num == number) 22 else 8,
+                            score = c.score + if (exact) 22 else 8,
                         ),
                     )
                 }
@@ -425,6 +589,10 @@ class PlacesSearch(private val reader: PlacesReader) {
         out.sortByDescending { it.score }
         return out.take(limit)
     }
+
+    /** Il token e' una parola intera del NOME della via [s] (non del contorno). */
+    private fun numberInName(index: Norm, s: Int, token: String): Boolean =
+        index.hay[s].substring(0, index.nameEnd[s]).split(' ').contains(token)
 
     private fun dedup(hits: List<Hit>): List<Hit> {
         val seen = HashSet<String>()

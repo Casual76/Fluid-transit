@@ -82,7 +82,11 @@ class SearchIndex private constructor(
         refLat: Double = Double.NaN,
         refLon: Double = Double.NaN,
     ): List<Hit> {
-        val tokens = Relevance.tokens(query)
+        // "linea 23", "bus 23", "fermata careggi": la parola-tipo non sta in
+        // nessun nome, e con uno o due token servono tutti. Si toglie e fa da
+        // filtro (vedi Relevance.kindHints).
+        val hints = Relevance.kindHints(Relevance.tokens(query))
+        val tokens = hints.rest
         if (tokens.isEmpty()) return emptyList()
         val hasRef = !refLat.isNaN() && !refLon.isNaN()
 
@@ -107,14 +111,16 @@ class SearchIndex private constructor(
         // confrontabili fra loro e con quelli dei luoghi.
         fun sessione(fuzzy: Boolean): Relevance.Session {
             val s = Relevance.Session(tokens, fuzzy)
-            for (i in routeNorm.indices) {
-                // Con un carattere solo si guarda la sigla e non il
-                // capolinea: "6" non deve tirare fuori ogni linea che passa
-                // da "via 6 agosto".
-                if (soloSigla) s.observe(i, routeShortOf(i), routeNameEnd[i])
-                else s.observe(i, routeNorm[i], routeNameEnd[i])
+            if (!hints.stopsOnly) {
+                for (i in routeNorm.indices) {
+                    // Con un carattere solo si guarda la sigla e non il
+                    // capolinea: "6" non deve tirare fuori ogni linea che passa
+                    // da "via 6 agosto".
+                    if (soloSigla) s.observe(i, routeShortOf(i), routeNameEnd[i])
+                    else s.observe(i, routeNorm[i], routeNameEnd[i])
+                }
             }
-            if (soloSigla) return s
+            if (soloSigla || hints.routesOnly) return s
             for (i in stopNorm.indices) {
                 s.observe(routeNorm.size + i, stopNorm[i], stopNorm[i].length)
             }
@@ -202,12 +208,12 @@ class SearchIndex private constructor(
             }
             val nStops = representatives.size
             val stopNames = Array(nStops) { r.stopName(representatives[it]) }
-            val stopNorm = Array(nStops) { Relevance.normalize(stopNames[it]) }
+            val stopNorm = Array(nStops) { Relevance.searchForm(stopNames[it]) }
             val stopLat = DoubleArray(nStops) { r.stopLat(representatives[it]) }
             val stopLon = DoubleArray(nStops) { r.stopLon(representatives[it]) }
 
             val nRoutes = r.routeCount
-            val routeShort = Array(nRoutes) { Relevance.normalize(r.routeShortName(it)) }
+            val routeShort = Array(nRoutes) { Relevance.searchForm(r.routeShortName(it)) }
             val routeNames = Array(nRoutes) { i ->
                 val short = r.routeShortName(i)
                 if (short.isNotEmpty()) short else r.routeLongName(i)
@@ -215,7 +221,7 @@ class SearchIndex private constructor(
             // Il nome della linea e' la sigla; il capolinea e' contorno, e
             // pesa meno — cosi' "6" batte "linea 12 per via del 6 agosto".
             val routeNorm = Array(nRoutes) { i ->
-                Relevance.haystack(routeShort[i], Relevance.normalize(r.routeLongName(i)))
+                Relevance.haystack(routeShort[i], Relevance.searchForm(r.routeLongName(i)))
             }
             val routeNameEnd = IntArray(nRoutes) { routeShort[it].length }
             val routeDest = Array(nRoutes) { i ->

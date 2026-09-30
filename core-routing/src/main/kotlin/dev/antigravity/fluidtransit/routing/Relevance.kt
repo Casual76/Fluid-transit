@@ -33,12 +33,55 @@ object Relevance {
     /** Il candidato non c'entra abbastanza: si scarta. */
     const val NO_MATCH = Int.MIN_VALUE
 
-    /** Le parole della query, normalizzate come l'indice. */
+    /**
+     * Le parole della query, nella stessa forma dell'indice ([searchForm]):
+     * "S. Marco", "p.za", "via Roma, 12" e "27 aprile" diventano le parole
+     * con cui i nomi sono scritti nell'indice.
+     */
     fun tokens(query: String): List<String> =
-        normalize(query).split(' ').filter { it.isNotEmpty() }
+        searchForm(query).split(' ').filter { it.isNotEmpty() }
 
     /** Minuscole, senza accenti, apostrofi come spazi: scrittura e ricerca uguali. */
     fun normalize(s: String): String = Places.normalize(s)
+
+    /**
+     * La forma di ricerca: [normalize] piu' punteggiatura, abbreviazioni e
+     * numeri romani delle date. SOLO per chi costruisce un indice di ricerca
+     * o legge una query: le chiavi del bundle restano con [normalize].
+     */
+    fun searchForm(s: String): String = Places.searchForm(s)
+
+    /**
+     * La query senza le parole che dicono COSA si cerca.
+     *
+     * L'app stessa dice "Linea 23 verso Careggi" e "Fermata · a 350 m", e la
+     * barra suggerisce "Fermata, linea o luogo", quindi chi scrive "linea 23",
+     * "bus 23" o "fermata careggi" scrive una parola che non sta in nessun
+     * nome: con uno o due token servono tutti, e la ricerca rispondeva "Niente
+     * con questo nome" per una linea e una fermata che esistono. Le parole-tipo
+     * si tolgono e servono da filtro (solo linee, solo fermate) — ma solo se ne
+     * resta almeno un'altra: "fermata" da sola si cerca com'e'.
+     *
+     * Non sta in [tokens]: "bus" e' anche una parola-categoria dei luoghi e
+     * "Linea Gotica" e' un nome vero. Lo applica chi sa di cercare fra fermate
+     * e linee, e lo passa ai luoghi gia' spogliato.
+     */
+    class KindHints(val rest: List<String>, val routesOnly: Boolean, val stopsOnly: Boolean) {
+        /** La query spogliata, pronta da dare a chi ricerca. */
+        val text: String get() = rest.joinToString(" ")
+    }
+
+    fun kindHints(tokens: List<String>): KindHints {
+        val hints = tokens.filter { it in ROUTE_WORDS || it in STOP_WORDS }
+        val rest = tokens.filter { it !in ROUTE_WORDS && it !in STOP_WORDS }
+        if (hints.isEmpty() || rest.isEmpty()) return KindHints(tokens, routesOnly = false, stopsOnly = false)
+        val routes = hints.any { it in ROUTE_WORDS }
+        val stops = hints.any { it in STOP_WORDS }
+        return KindHints(rest, routesOnly = routes && !stops, stopsOnly = stops && !routes)
+    }
+
+    private val ROUTE_WORDS = setOf("linea", "linee", "line", "bus", "autobus", "corsa")
+    private val STOP_WORDS = setOf("fermata", "fermate", "stop")
 
     /** Concatena nome e contorno come li vogliono [score] e [Session]. */
     fun haystack(nameNorm: String, extraNorm: String): String =

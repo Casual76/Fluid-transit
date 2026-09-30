@@ -101,6 +101,15 @@ fun SearchGlass(
     open: Boolean,
     query: String,
     results: List<Suggestion>,
+    /**
+     * I [results] non sono ancora quelli di [query].
+     *
+     * Una lista vuota mentre la ricerca lavora non e' "niente con questo
+     * nome": e' "non ho ancora finito". Col primo carattere, o con una
+     * query che arriva intera dal microfono, il messaggio negativo compariva
+     * subito e restava per tutta la digitazione.
+     */
+    searching: Boolean = false,
     saved: List<Suggestion>,
     recents: List<Suggestion>,
     nearby: List<Suggestion>,
@@ -309,6 +318,10 @@ fun SearchGlass(
                 // aveva fatto.
                 if (query.isNotEmpty()) {
                     if (results.isEmpty()) {
+                        // Lo stato "in costruzione" o "fallita" della ricerca
+                        // di fermate e linee si dice comunque: e' un fatto
+                        // nostro, non un'attesa della scansione.
+                        if (searching && transitSearch == TransitSearch.READY) return@LazyColumn
                         item {
                             Text(
                                 text = if (transitSearch == TransitSearch.BUILDING) {

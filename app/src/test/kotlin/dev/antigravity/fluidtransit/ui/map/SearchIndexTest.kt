@@ -167,6 +167,60 @@ class SearchIndexTest {
     }
 
     @Test
+    fun `linea 1 e bus 1 trovano la linea, e solo quella`() {
+        // L'app dice "Linea 23 verso..." e la gente la scrive cosi': la
+        // parola-tipo non sta in nessun nome e prima la ricerca non trovava
+        // niente.
+        bundle().use { r ->
+            val idx = SearchIndex.build(r, null)
+            for (q in listOf("linea 1", "bus 1", "Linea 1", "autobus 1")) {
+                val hits = idx.search(q)
+                assertTrue("'$q' doveva trovare la linea: ${hits.map { it.title }}", hits.any { it is SearchIndex.Hit.Route })
+                assertTrue("'$q' non cerca fermate: ${hits.map { it.title }}", hits.none { it is SearchIndex.Hit.Stop })
+            }
+        }
+    }
+
+    @Test
+    fun `fermata alfa trova la fermata, e solo le fermate`() {
+        bundle().use { r ->
+            val hits = SearchIndex.build(r, null).search("fermata alfa")
+            assertEquals(listOf("Piazza Alfa"), hits.map { it.title })
+        }
+    }
+
+    @Test
+    fun `una parola-tipo da sola resta una ricerca normale`() {
+        bundle().use { r ->
+            val idx = SearchIndex.build(r, null)
+            // "fermata" non e' in nessun nome e non c'e' altro da cercare:
+            // esattamente come prima, niente.
+            assertTrue(idx.search("fermata").isEmpty())
+            assertTrue(idx.search("linea").isEmpty())
+        }
+    }
+
+    @Test
+    fun `le abbreviazioni e le date dei nomi di fermata si trovano scrivendo per esteso`() {
+        // Nomi veri del feed: COLLE P.ZA ARNOLFO, XXVII APRILE SANTA REPARATA.
+        val file = TestBundle.write(
+            tmp,
+            stopNames = listOf("COLLE P.ZA ARNOLFO", "S. Marco", "XXVII APRILE SANTA REPARATA", "V.LE Lavagnini"),
+        )
+        BundleReader(file).use { r ->
+            val idx = SearchIndex.build(r, null)
+            fun first(q: String) = idx.search(q).firstOrNull { it is SearchIndex.Hit.Stop }?.title
+            assertEquals("COLLE P.ZA ARNOLFO", first("piazza arnolfo"))
+            assertEquals("S. Marco", first("san marco"))
+            assertEquals("S. Marco", first("S. Marco"))
+            assertEquals("XXVII APRILE SANTA REPARATA", first("27 aprile"))
+            assertEquals("XXVII APRILE SANTA REPARATA", first("xxvii aprile"))
+            assertEquals("V.LE Lavagnini", first("viale lavagnini"))
+            assertEquals("COLLE P.ZA ARNOLFO", first("fermata piazza arnolfo"))
+        }
+    }
+
+    @Test
     fun `il punto di riferimento non cambia chi si trova`() {
         // La vicinanza pesa sul punteggio, non sull'insieme: chi cerca una
         // fermata lontana la deve comunque trovare, altrimenti la ricerca

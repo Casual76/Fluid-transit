@@ -2293,10 +2293,11 @@ fun MapScreen(
                 // Riempiendo una riga del pianificatore le linee non si
                 // offrono: non sono posti (vedi `isPlannerPoint`).
                 results = if (plannerField != null) {
-                    risultati.filter { it.isPlannerPoint() }
+                    risultati.items.filter { it.isPlannerPoint() }
                 } else {
-                    risultati
+                    risultati.items
                 },
+                searching = risultati.searching,
                 saved = savedSuggestions,
                 // Tutto tranne le linee, che hanno la loro fila.
                 //

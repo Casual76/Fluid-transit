@@ -6,6 +6,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberUpdatedState
 import dev.antigravity.fluidtransit.data.places.PlacesManager
 import dev.antigravity.fluidtransit.routing.BundleReader
+import dev.antigravity.fluidtransit.routing.Relevance
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -36,13 +37,13 @@ internal fun rememberSearchResults(
     places: PlacesManager.State?,
     reader: BundleReader?,
     reference: () -> Pair<Double, Double>?,
-): List<Suggestion> {
+): SearchOutcome {
     val placesReady = places as? PlacesManager.State.Ready
     // La posizione si legge quando serve, non quando si compone.
     val dove by rememberUpdatedState(reference)
 
     val rapidi by produceState(
-        initialValue = emptyList<Suggestion>(),
+        initialValue = Computed("", emptyList()),
         query, searchIndex, placesReady, reader,
     ) {
         // Un carattere basta, ed e' il caso piu' comune che non funzionava.
@@ -55,12 +56,13 @@ internal fun rememberSearchResults(
         // LUOGHI, che sono mezzo milione e su un carattere non direbbero
         // niente di utile.
         if (query.isEmpty()) {
-            value = emptyList()
+            value = Computed(query, emptyList())
             return@produceState
         }
         delay(FAST_DEBOUNCE_MS)
         val ref = dove()
-        value = withContext(Dispatchers.Default) {
+        val placeQuery = placeQueryOf(query)
+        val items = withContext(Dispatchers.Default) {
             val rLat = ref?.first ?: Double.NaN
             val rLon = ref?.second ?: Double.NaN
             val transit = searchIndex?.search(query, TRANSIT_LIMIT, rLat, rLon).orEmpty().map { hit ->
@@ -107,10 +109,10 @@ internal fun rememberSearchResults(
                     )
                 }
             }
-            val luoghi = if (query.length < MIN_PLACE_QUERY) {
+            val luoghi = if (placeQuery.length < MIN_PLACE_QUERY) {
                 emptyList()
             } else {
-                placesReady?.search?.fast(query, PLACE_LIMIT, rLat, rLon).orEmpty()
+                placesReady?.search?.fast(placeQuery, PLACE_LIMIT, rLat, rLon).orEmpty()
             }.map { h ->
                 Suggestion(
                     kind = "place",
@@ -128,20 +130,27 @@ internal fun rememberSearchResults(
             // linea. L'icona di ogni riga dice cos'e'.
             transit + luoghi
         }
+        // Il risultato porta con se' per QUALE query e' stato calcolato: e'
+        // l'unico modo di distinguere "non c'e' niente" da "non ho ancora
+        // finito" (vedi SearchOutcome).
+        value = Computed(query, items)
     }
 
-    val civici by produceState(initialValue = emptyList<Suggestion>(), query, placesReady) {
-        value = emptyList()
+    val civiciApply = civicSearchApplies(placeQueryOf(query), placesReady != null)
+    val civici by produceState(initialValue = Computed("", emptyList()), query, placesReady) {
+        value = Computed("", emptyList())
         // Un civico ha un numero dentro, e una via da sola non e' un civico:
         // chiedere l'indice dei civici per "via roma" costa e non serve.
-        if (placesReady == null || query.length < MIN_CIVIC_QUERY || query.none { it.isDigit() }) {
+        val civicQuery = placeQueryOf(query)
+        if (placesReady == null || !civicSearchApplies(civicQuery, true)) {
+            value = Computed(query, emptyList())
             return@produceState
         }
         delay(SLOW_DEBOUNCE_MS)
         val ref = dove()
-        value = withContext(Dispatchers.Default) {
+        val items = withContext(Dispatchers.Default) {
             placesReady.search.civici(
-                query,
+                civicQuery,
                 CIVIC_LIMIT,
                 ref?.first ?: Double.NaN,
                 ref?.second ?: Double.NaN,
@@ -158,10 +167,64 @@ internal fun rememberSearchResults(
                 )
             }
         }
+        value = Computed(query, items)
     }
 
-    return (rapidi + civici).sortedByDescending { it.score }
+    return SearchOutcome(
+        items = (rapidi.items + civici.items).sortedByDescending { it.score },
+        searching = isSearching(query, rapidi.forQuery, civici.forQuery, civiciApply),
+    )
 }
+
+/**
+ * Cosa e' uscito dalla ricerca, e se sta ancora lavorando.
+ *
+ * Senza `searching` una lista vuota voleva dire due cose: "non c'e' niente"
+ * e "non ho ancora finito". Scrivendo la prima lettera il primo frame ha
+ * la query piena e i risultati vuoti, e la barra diceva subito "Niente con
+ * questo nome" — per tutta la raffica di digitazione (il debounce riparte a
+ * ogni tasto) e di nuovo quando la query arriva intera dal microfono o da
+ * un chip dell'assistente, finche' non finiva la scansione dei luoghi e la
+ * seconda passata tollerante ai refusi. E' la lista vuota letta come
+ * buona notizia, col ritardo che e' nostro.
+ */
+internal class SearchOutcome(
+    val items: List<Suggestion>,
+    /** I risultati sono di un'altra query, o quelli dei civici non sono ancora arrivati. */
+    val searching: Boolean,
+)
+
+private class Computed(val forQuery: String, val items: List<Suggestion>)
+
+/**
+ * La query che va ai luoghi e ai civici: senza "linea", "fermata", "bus".
+ *
+ * "fermata careggi" arrivava ai luoghi con una parola che non sta in nessun
+ * nome, e "bus 23" diventava una ricerca di vie che si chiamano "bus".
+ */
+private fun placeQueryOf(query: String): String {
+    val tokens = Relevance.tokens(query)
+    val hints = Relevance.kindHints(tokens)
+    // "linea 23" chiede una linea: i luoghi e gli indirizzi con un 23 dentro
+    // sarebbero rumore, e non si cercano.
+    if (hints.routesOnly) return ""
+    return if (hints.rest.size == tokens.size) query else hints.text
+}
+
+/** Il passo dei civici si fa solo per qualcosa che somiglia a un indirizzo. */
+internal fun civicSearchApplies(query: String, placesReady: Boolean): Boolean =
+    placesReady && query.length >= MIN_CIVIC_QUERY && query.any { it.isDigit() }
+
+/**
+ * Sta ancora cercando? Vero finche' il risultato dei rapidi non e' della
+ * query di adesso, o quello dei civici — se si applicano — non lo e'.
+ */
+internal fun isSearching(
+    query: String,
+    rapidiFor: String,
+    civiciFor: String,
+    civiciApply: Boolean,
+): Boolean = query.isNotEmpty() && (rapidiFor != query || (civiciApply && civiciFor != query))
 
 /** Sotto due lettere qualunque cosa somiglia a qualunque altra. */
 /** Sotto due caratteri i luoghi non dicono niente: sono mezzo milione. */

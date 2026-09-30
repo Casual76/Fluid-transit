@@ -659,18 +659,26 @@ jobs:
           echo "pubblicato buildId=$buildId ($gzBytes byte bundle, $(stat -c%s work/$overlayAsset) byte overlay)"
 
           # Pulizia: si tengono 3 asset per tipo, per le app rimaste su un
-          # indice vecchio. I buildId sono hash, quindi l'ordine per nome
-          # NON e' cronologico: gli asset appena pubblicati si escludono
-          # esplicitamente, o la "pulizia" potrebbe colpire proprio loro.
+          # indice vecchio. Gli asset appena pubblicati si escludono
+          # esplicitamente, e gli altri si ordinano per DATA di caricamento.
+          #
+          # Si ordinavano per nome, e i nomi portano un hash: l'ordine era a
+          # caso. Il 30/09/2026 la pulizia ha tenuto gli asset del 7 e del 25
+          # settembre e ha cancellato quelli del giorno prima — cioe' proprio
+          # quelli a cui erano agganciate le app aperte. Sull'emulatore la
+          # mappa e' rimasta senza rete: l'overlay dell'indice in memoria
+          # rispondeva 404.
+          #
           # Un fallimento qui non annulla la pubblicazione — e siccome un
           # grep che filtra tutto esce 1, qui pipefail e -e si spengono.
           set +e
           set +o pipefail
           for pattern in '^toscana-.*\.ftb\.gz$' '^rete-.*\.pmtiles$' '^luoghi-.*\.bin\.gz$'; do
-            gh release view dati --json assets -q '.assets[].name' \
+            gh release view dati --json assets \
+                 -q '.assets | sort_by(.updatedAt) | .[].name' \
               | grep "$pattern" | grep -v -F "$asset" | grep -v -F "$overlayAsset" \
               | grep -v -F "$placesAsset" \
-              | sort | head -n -2 \
+              | head -n -2 \
               | while read -r old; do
                   echo "rimuovo asset vecchio: $old"
                   gh release delete-asset dati "$old" --yes || true

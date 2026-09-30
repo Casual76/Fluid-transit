@@ -47,6 +47,11 @@ fun main(args: Array<String>) {
     var matched = 0
     var kept = 0
     var points = 0L
+    // Gli errori dentro il matcher, contati. Il 30/09/2026 una regex andava
+    // in StackOverflowError su 2.346 tracce: l'errore uccideva il thread del
+    // pool, la traccia restava GPS e il log diceva solo "74% aderite", come
+    // se fosse colpa del grafo.
+    val internalErrors = java.util.concurrent.atomic.AtomicInteger()
 
     val writer = out.bufferedWriter(bufferSize = 1 shl 20)
     writer.write("shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence\n")
@@ -56,7 +61,14 @@ fun main(args: Array<String>) {
         val results = arrayOfNulls<MapMatcher.Matched>(batch.size)
         val pool = java.util.concurrent.Executors.newFixedThreadPool(THREADS)
         for (i in batch.indices) {
-            pool.execute { results[i] = matcher.match(batch[i].lat, batch[i].lon) }
+            pool.execute {
+                results[i] = try {
+                    matcher.match(batch[i].lat, batch[i].lon)
+                } catch (t: Throwable) {
+                    internalErrors.incrementAndGet()
+                    null
+                }
+            }
         }
         pool.shutdown()
         pool.awaitTermination(10, java.util.concurrent.TimeUnit.MINUTES)
@@ -136,6 +148,12 @@ fun main(args: Array<String>) {
 
     val total = matched + kept
     println("matching: $matched tracce aderite alla strada, $kept rimaste GPS, su $total")
+    if (internalErrors.get() > 0) {
+        System.err.println(
+            "::warning::${internalErrors.get()} tracce rimaste GPS per un errore del matcher, " +
+                "non del grafo: va guardato il codice, non OSM",
+        )
+    }
     println("scritto ${out.name}: $points punti, ${out.length() / 1024} KB")
     // Il tasso di successo si dichiara, ma NON si butta via niente.
     //

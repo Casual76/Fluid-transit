@@ -67,8 +67,8 @@ class MapMatcher(baseUrl: String) {
 
         val outLat = ArrayList<Double>(la.size * 2)
         val outLon = ArrayList<Double>(la.size * 2)
-        for (m in SHAPE_RE.findAll(response)) {
-            decodePolyline6(m.groupValues[1].replace("\\\\", "\\"), outLat, outLon)
+        for (shape in ValhallaJson.shapes(response)) {
+            decodePolyline6(shape, outLat, outLon)
         }
         if (outLat.size < 2) return null
 
@@ -104,8 +104,6 @@ class MapMatcher(baseUrl: String) {
 
         /** Tetto di punti per richiesta, sotto i limiti di servizio di Valhalla. */
         const val MAX_POINTS = 900
-
-        val SHAPE_RE = Regex("\"shape\":\"((?:[^\"\\\\]|\\\\.)*)\"")
 
         /** Indici dei punti da mandare: spaziati e in numero limitato. */
         fun downsample(la: DoubleArray, lo: DoubleArray): IntArray {
@@ -175,5 +173,54 @@ class MapMatcher(baseUrl: String) {
             val dy = (lat2 - lat1) * ky
             return Math.sqrt(dx * dx + dy * dy)
         }
+    }
+}
+
+/**
+ * Le polilinee di una risposta di Valhalla, lette a mano.
+ *
+ * Erano estratte con `"shape":"((?:[^"\\]|\\.)*)"`, e in Java
+ * un'alternanza sotto `*` si ricorre a ogni carattere: su una polilinea
+ * lunga — una tratta extraurbana codificata con precisione 1e-6 sono decine
+ * di migliaia di caratteri — la pila finisce. Il 30/09/2026 il job del
+ * bundle ha stampato 2.346 `StackOverflowError`: delle 2.362 tracce rimaste
+ * GPS su 9.211, tutte tranne sedici erano morte qui, non nel grafo.
+ * L'errore uccideva il thread senza passare dal conteggio dei fallimenti, e
+ * il "74-76% di tracce aderite" che si leggeva nei log da settimane — e che
+ * teneva gli overlay alla revisione bassa — era questo difetto. Nessuno se
+ * n'era accorto, perche' il ripiego sulla traccia grezza e' silenzioso per
+ * progetto.
+ *
+ * Qui si scandisce la stringa una volta, senza ricorsione. Le polilinee usano
+ * i caratteri da `?` a `~`, e l'unico che JSON deve proteggere e' la barra
+ * rovescia: ogni `\x` diventa `x`.
+ */
+internal object ValhallaJson {
+
+    private const val KEY = "\"shape\":\""
+
+    fun shapes(json: String): List<String> {
+        val out = ArrayList<String>(2)
+        var from = 0
+        while (true) {
+            val start = json.indexOf(KEY, from)
+            if (start < 0) break
+            var i = start + KEY.length
+            val sb = StringBuilder()
+            while (i < json.length) {
+                val c = json[i]
+                if (c == '"') break
+                if (c == '\\' && i + 1 < json.length) {
+                    sb.append(json[i + 1])
+                    i += 2
+                    continue
+                }
+                sb.append(c)
+                i++
+            }
+            out.add(sb.toString())
+            from = i + 1
+        }
+        return out
     }
 }

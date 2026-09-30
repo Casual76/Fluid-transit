@@ -90,8 +90,13 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
     // si legge "Nessun avviso in corso" — cioe' una frase rassicurante.
     // Con la rete giu' durante uno sciopero l'app diceva esattamente il
     // contrario del vero, e lo diceva con sicurezza.
+    // Da quando la lista e' vecchia, se l'ultimo download non e' riuscito:
+    // la lista si mostra lo stesso, ma dice di quando e'.
+    var vecchiDa by remember { mutableStateOf<Long?>(null) }
     val esito by produceState(initialValue = null as Result<List<GtfsRtLite.RtAlert>>?, round) {
-        value = app.realtime.fetchAlertsOrNull()
+        val lista = app.realtime.fetchAlertsOrNull()
+        vecchiDa = app.realtime.alertsStaleSinceEpoch()
+        value = lista
             ?.let { Result.success(it) }
             ?: Result.failure(java.io.IOException("avvisi non scaricati"))
     }
@@ -171,6 +176,16 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
             }
             return@FluidScreen
         }
+        vecchiDa?.let { da ->
+            item {
+                Text(
+                    text = AlertText.stale(da, now) + ": tira giu' per riprovare.",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
+            }
+        }
         if (attivi.isEmpty() && futuri.isEmpty()) {
             item {
                 FluidEmptyState(
@@ -209,13 +224,18 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
 private const val PROSSIMI_GIORNI = 14
 
 /**
- * Un avviso per elemento della lista, non tutti in uno.
+ * Un avviso per elemento della lista, non tutti in uno, e una scheda sua.
  *
  * Stavano tutti dentro un solo elemento, cioe' la lista pigra non era pigra:
  * aprendo la schermata si componevano insieme tutte le schede, un centinaio
- * nei giorni di sciopero, prima di mostrare la prima. Il gruppo resta un
- * gruppo solo a vederlo, perche' ogni pezzo arrotonda solo il suo lato
- * ([FluidGroupSegment]).
+ * nei giorni di sciopero, prima di mostrare la prima.
+ *
+ * Il primo tentativo li aveva tagliati in pezzi di un gruppo solo
+ * ([dev.antigravity.fluidengine.ui.theme.FluidGroupSegment]), ma il pezzo non
+ * richiude da se' lo spazio che la lista mette fra un elemento e l'altro:
+ * ne uscivano lastre staccate da 14 dp, con gli angoli vivi verso il vuoto e
+ * i divisori tagliati via dal bordo aperto. Una scheda per avviso, invece, fa
+ * di quello spazio la separazione fra una scheda e l'altra.
  */
 private fun androidx.compose.foundation.lazy.LazyListScope.alertItems(
     section: String,
@@ -228,14 +248,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.alertItems(
         count = alerts.size,
         key = { i -> "$section-$i-${alerts[i].header.hashCode()}-${alerts[i].startEpoch}" },
     ) { i ->
-        val segment = when {
-            alerts.size == 1 -> dev.antigravity.fluidengine.ui.theme.FluidGroupSegment.Whole
-            i == 0 -> dev.antigravity.fluidengine.ui.theme.FluidGroupSegment.First
-            i == alerts.lastIndex -> dev.antigravity.fluidengine.ui.theme.FluidGroupSegment.Last
-            else -> dev.antigravity.fluidengine.ui.theme.FluidGroupSegment.Middle
-        }
-        FluidListGroup(segment = segment) {
-            if (i > 0) dev.antigravity.fluidengine.ui.theme.FluidListDivider()
+        FluidListGroup {
             AlertCard(alerts[i], linee, nowEpoch, mine)
         }
     }
@@ -290,7 +303,12 @@ private fun AlertCard(
             // e nasconde gli altri; tagliarli a 220 caratteri, com'era prima,
             // toglie proprio il pezzo che serve. Quindi: sei righe, e chi
             // vuole legge il resto.
-            var aperto by remember(alert) { mutableStateOf(false) }
+            //
+            // Salvato, non solo ricordato: da quando ogni avviso e' un elemento
+            // suo della lista, uscendo dallo schermo la scheda si scompone, e
+            // tornandoci l'avviso aperto si era richiuso sotto il dito. La
+            // chiave dell'elemento basta a tenerli distinti.
+            var aperto by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
             // "Leggi tutto" compare se il testo e' stato DAVVERO tagliato.
             //
             // Prima la porta si apriva sopra i 240 caratteri, ma il taglio e'
@@ -299,7 +317,7 @@ private fun AlertCard(
             // righe finiva con i puntini e nessun modo di aprirlo — visto
             // sull'emulatore, "Fermata spostata per lavori" tagliato a
             // meta' di "a causa di lav...".
-            var troncato by remember(alert) { mutableStateOf(false) }
+            var troncato by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
             Spacer(Modifier.height(6.dp))
             Text(
                 text = corpo,

@@ -133,10 +133,13 @@ fun TodayTab(
             starredStops = stopIndexes,
         )
     }
+    // Da quando gli avvisi sono vecchi, se l'ultimo download non e' riuscito.
+    var avvisiVecchiDa by remember { mutableStateOf<Long?>(null) }
     val esitoAvvisi by produceState<
         Result<List<dev.antigravity.fluidtransit.data.rt.GtfsRtLite.RtAlert>>?,
         >(null, favVersion, stopIndexes, ready?.buildId) {
         val all = app.realtime.fetchAlertsOrNull()
+        avvisiVecchiDa = app.realtime.alertsStaleSinceEpoch()
         if (all == null) {
             value = Result.failure(java.io.IOException("avvisi non scaricati"))
             return@produceState
@@ -500,7 +503,11 @@ fun TodayTab(
                 FluidListGroup {
                     FluidListRow(
                         title = "Nessun avviso sulle tue linee",
-                        subtitle = "Apri per vedere quelli di tutta la Toscana",
+                        // Detto con la data, se e' di prima: "nessun avviso"
+                        // di mezz'ora fa non e' "nessun avviso" adesso.
+                        subtitle = avvisiVecchiDa?.let {
+                            dev.antigravity.fluidtransit.routing.AlertText.stale(it, adesso)
+                        } ?: "Apri per vedere quelli di tutta la Toscana",
                         onClick = onOpenAlerts,
                     )
                 }

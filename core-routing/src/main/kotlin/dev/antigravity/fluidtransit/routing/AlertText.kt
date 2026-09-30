@@ -55,6 +55,26 @@ object AlertText {
     /** La stessa cosa in una riga, in cima a una scheda. */
     const val UNAVAILABLE_ROW = "Avvisi non arrivati: non sappiamo se ce ne sono"
 
+    /**
+     * Gli avvisi mostrati sono quelli dell'ultimo download riuscito, perche'
+     * quello di adesso non e' riuscito.
+     *
+     * E' la regola dei minuti applicata agli avvisi: un dato vecchio si
+     * mostra, ma dice di quando e'. Senza, una lista di sei ore prima si
+     * leggeva come la situazione di adesso.
+     */
+    fun stale(checkedEpoch: Long, nowEpoch: Long): String =
+        "Aggiornati ${moment(checkedEpoch, nowEpoch)}: adesso non riusciamo a scaricarli"
+
+    /**
+     * Quanti avvisi restano fuori da una scheda che ne mostra solo i primi.
+     *
+     * "Altri 1 avviso" usciva su ogni fermata con tre avvisi: il plurale
+     * davanti e il singolare dietro.
+     */
+    fun more(count: Int, tail: String): String =
+        if (count == 1) "Un altro avviso $tail" else "Altri $count avvisi $tail"
+
     fun active(startEpoch: Long, endEpoch: Long, nowEpoch: Long): Boolean =
         (startEpoch == 0L || startEpoch <= nowEpoch) &&
             (endEpoch == 0L || endEpoch >= nowEpoch)

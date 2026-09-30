@@ -575,7 +575,12 @@ fun MapScreen(
         // Null = non scaricati, e si dice. Prima diventava una lista vuota,
         // cioe' "nessun avviso": un'affermazione sulla rete mentre il guasto
         // era nostro.
-        val tutti = runCatching { app.realtime.fetchAlertsOrNull() }.getOrNull()
+        // Senza runCatching: fetchAlertsOrNull non lancia, dice null. Il
+        // runCatching di prima inghiottiva anche la CancellationException di
+        // un produttore superato — si apre la fermata A e subito la B — che
+        // proseguiva e scriveva null nello stato ormai della B: "Avvisi non
+        // arrivati" su una scheda i cui avvisi stavano solo arrivando.
+        val tutti = app.realtime.fetchAlertsOrNull()
         if (tutti == null) {
             value = null
             return@produceState
@@ -617,7 +622,7 @@ fun MapScreen(
         // Null = non scaricati, e si dice. Prima diventava una lista vuota,
         // cioe' "nessun avviso": un'affermazione sulla rete mentre il guasto
         // era nostro.
-        val tutti = runCatching { app.realtime.fetchAlertsOrNull() }.getOrNull()
+        val tutti = app.realtime.fetchAlertsOrNull()
         if (tutti == null) {
             value = null
             return@produceState
@@ -661,7 +666,7 @@ fun MapScreen(
         // Null = non scaricati, e si dice. Prima diventava una lista vuota,
         // cioe' "nessun avviso": un'affermazione sulla rete mentre il guasto
         // era nostro.
-        val tutti = runCatching { app.realtime.fetchAlertsOrNull() }.getOrNull()
+        val tutti = app.realtime.fetchAlertsOrNull()
         if (tutti == null) {
             value = null
             return@produceState
@@ -1175,7 +1180,7 @@ fun MapScreen(
         // Null = non scaricati, e si dice. Prima diventava una lista vuota,
         // cioe' "nessun avviso": un'affermazione sulla rete mentre il guasto
         // era nostro.
-        val tutti = runCatching { app.realtime.fetchAlertsOrNull() }.getOrNull()
+        val tutti = app.realtime.fetchAlertsOrNull()
         if (tutti == null) {
             value = null
             return@produceState

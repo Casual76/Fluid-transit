@@ -53,6 +53,8 @@ class RealtimeClient(
      * far perdere fiducia.
      */
     private val online: () -> Boolean = { true },
+    /** L'orologio degli avvisi: iniettabile perche' la loro regola dipende dall'eta'. */
+    private val clockMs: () -> Long = System::currentTimeMillis,
 ) {
     enum class Source { PROXY, DIRECT, SCHEDULE_ONLY }
 
@@ -376,14 +378,34 @@ class RealtimeClient(
      * esattamente il contrario del vero, e lo diceva con sicurezza. Qui il
      * fallimento smette di somigliare a una buona notizia.
      *
-     * La cache vale come risposta: sono gli avvisi di cinque minuti fa, non
-     * un'invenzione.
+     * Quando il download fallisce la cache vale ancora come risposta, ma non
+     * a qualunque eta', e non in silenzio. Prima valeva sempre: aperta l'app
+     * alle 08:00 con zero avvisi e persa la rete alle 14:00, la schermata
+     * diceva "Nessun avviso in corso" con una lista di sei ore prima — e uno
+     * sciopero annunciato alle nove non c'era. Adesso:
+     *
+     * - una cache con degli avvisi dentro si serve anche vecchia: sono avvisi
+     *   veri, e buttarli trasformerebbe uno sciopero noto in "non sappiamo";
+     * - una cache VUOTA piu' vecchia di [ALERTS_EMPTY_TRUST_MS] non si serve:
+     *   "non ce ne sono" detto con mezz'ora di ritardo e' un'affermazione che
+     *   non possiamo piu' fare, e diventa null;
+     * - in tutti e due i casi [alertsStaleSinceEpoch] dice da quando la
+     *   risposta e' vecchia, perche' chi la mostra lo possa dire.
      */
     suspend fun fetchAlertsOrNull(): List<GtfsRtLite.RtAlert>? =
         alertsLock.withLock { fetchAlertsLocked() }
 
+    /**
+     * Quando gli avvisi serviti sono stati confermati l'ultima volta, se
+     * l'ultimo tentativo di scaricarli e' fallito; null se sono freschi.
+     */
+    fun alertsStaleSinceEpoch(): Long? =
+        if (alertsLastFailed && alertsCache != null) alertsCacheAt / 1000 else null
+
+    private var alertsLastFailed = false
+
     private suspend fun fetchAlertsLocked(): List<GtfsRtLite.RtAlert>? = withContext(Dispatchers.IO) {
-        val now = System.currentTimeMillis()
+        val now = clockMs()
         alertsCache?.let { if (now - alertsCacheAt < 5 * 60_000) return@withContext it }
         runCatching {
             // Col condizionale come le altre due sezioni: gli alerts sono la
@@ -402,7 +424,10 @@ class RealtimeClient(
                     alertsCacheAt = now
                 }
             }
-        }.getOrElse { alertsCache }
+        }.onSuccess { alertsLastFailed = false }.getOrElse {
+            alertsLastFailed = true
+            alertsCache?.takeUnless { it.isEmpty() && now - alertsCacheAt > ALERTS_EMPTY_TRUST_MS }
+        }
     }
 
     /** true se e' ora di provare l'origine diretta, false se si riprova col proxy. */
@@ -548,6 +573,9 @@ class RealtimeClient(
          */
         const val SNAPSHOT_FRESH_SECONDS = 180L
         private const val DIRECT_HOLD_MS = 5 * 60_000L
+
+        /** Oltre questa eta' "zero avvisi" non si ripete: vedi [fetchAlertsOrNull]. */
+        const val ALERTS_EMPTY_TRUST_MS = 30 * 60_000L
 
         /**
          * Quanto piu' fresca deve essere l'origine per valere il cambio.

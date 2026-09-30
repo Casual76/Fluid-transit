@@ -16,7 +16,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import dev.antigravity.fluidtransit.routing.Words
 
 /**
  * Gli avvisi in corso, in cima a una scheda.
@@ -61,7 +60,7 @@ fun AlertRows(
     val resto = alerts.size - MAX_ROWS
     if (resto > 0) {
         AlertRow(
-            "Altri " + Words.count(resto, "avviso", "avvisi") + " " + tail,
+            dev.antigravity.fluidtransit.routing.AlertText.more(resto, tail),
             onOpenAlerts,
             modifier,
         )

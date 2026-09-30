@@ -568,13 +568,42 @@ class RealtimeClientTest {
     }
 
     @Test
-    fun `una volta scaricati, gli avvisi valgono anche se il giro dopo fallisce`() {
-        // Gli avvisi di cinque minuti fa non sono un'invenzione: meglio
-        // quelli di un "non lo so", e infatti la cache risponde.
+    fun `un corpo vuoto e' zero avvisi, non un errore`() {
         kotlinx.coroutines.runBlocking {
             val rt = client()
             proxy.enqueue(MockResponse().setResponseCode(200).setBody(Buffer()))
-            assertNotNull("un corpo vuoto e' zero avvisi, non un errore", rt.fetchAlertsOrNull())
+            assertNotNull(rt.fetchAlertsOrNull())
+            assertNull("appena scaricati non sono vecchi", rt.alertsStaleSinceEpoch())
+        }
+    }
+
+    @Test
+    fun `zero avvisi di sei ore fa non diventano 'nessun avviso in corso'`() {
+        // Aperta alle 08:00 con zero avvisi, rete persa alle 14:00: la cache
+        // diceva ancora "non ce ne sono", e la schermata lo ripeteva come un
+        // fatto mentre uno sciopero annunciato alle nove non c'era.
+        kotlinx.coroutines.runBlocking {
+            var adesso = 1_790_000_000_000L
+            val rt = RealtimeClient(
+                proxyAllowed = { true },
+                proxyBase = proxy.url("/rt/v1").toString().trimEnd('/'),
+                directVehiclesUrl = origin.url("/vehicles").toString(),
+                clockMs = { adesso },
+            )
+            proxy.enqueue(MockResponse().setResponseCode(200).setBody(Buffer()))
+            assertNotNull(rt.fetchAlertsOrNull())
+
+            // Dieci minuti dopo il giro fallisce: zero avvisi di dieci minuti
+            // fa si possono ancora dire, ma si dice di quando sono.
+            adesso += 10 * 60_000L
+            proxy.enqueue(MockResponse().setResponseCode(503))
+            assertNotNull(rt.fetchAlertsOrNull())
+            assertEquals(1_790_000_000L, rt.alertsStaleSinceEpoch())
+
+            // Sei ore dopo no: "non lo sappiamo".
+            adesso += 6 * 3600_000L
+            proxy.enqueue(MockResponse().setResponseCode(503))
+            assertNull(rt.fetchAlertsOrNull())
         }
     }
 

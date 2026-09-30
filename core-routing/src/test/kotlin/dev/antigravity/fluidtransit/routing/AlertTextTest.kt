@@ -167,6 +167,24 @@ class AlertTextTest {
     }
 
     @Test
+    fun `gli avvisi rimasti fuori si contano in italiano`() {
+        assertEquals("Un altro avviso su queste linee", AlertText.more(1, "su queste linee"))
+        assertEquals("Altri 2 avvisi su questa linea", AlertText.more(2, "su questa linea"))
+        assertEquals("Altri 5 avvisi su queste linee", AlertText.more(5, "su queste linee"))
+    }
+
+    @Test
+    fun `avvisi vecchi dicono di quando sono`() {
+        // 30/09/2026 08:05 e 14:00, ora di Roma.
+        val alle8 = java.time.ZonedDateTime.of(2026, 9, 30, 8, 5, 0, 0, Ftb.ROME).toEpochSecond()
+        val alle14 = alle8 + (5 * 60 + 55) * 60
+        assertEquals(
+            "Aggiornati oggi alle 08:05: adesso non riusciamo a scaricarli",
+            AlertText.stale(alle8, alle14),
+        )
+    }
+
+    @Test
     fun `un avviso senza code torna identico`() {
         val raw = "Deviazione in via Nazionale fino a stasera."
         assertEquals(raw, AlertText.body(raw))

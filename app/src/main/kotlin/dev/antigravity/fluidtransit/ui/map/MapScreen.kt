@@ -1380,7 +1380,10 @@ fun MapScreen(
             }
 
             is dev.antigravity.fluidtransit.ai.tools.AssistantAction.StartNavigation -> {
-                val origin = controller.lastLocation() ?: controller.cameraCenter()
+                // Solo dove sei: il centro della mappa e' un posto che nessuno ha scelto, e con la
+                // mappa portata su un'altra citta' la guida partiva da li' mentre l'assistente
+                // diceva "navigazione avviata". Senza posizione il fallimento e' NO_ORIGIN.
+                val origin = controller.lastLocation()
                 when {
                     reader == null -> dev.antigravity.fluidtransit.ai.tools.ActionOutcome.NO_DATA
                     origin == null -> dev.antigravity.fluidtransit.ai.tools.ActionOutcome.NO_ORIGIN

@@ -271,6 +271,74 @@ class AssistantToolsTest {
     }
 
     @Test
+    fun `gli intervalli dei giorni si leggono in tutte le forme che si sentono`() {
+        val feriali = setOf(1, 2, 3, 4, 5)
+        // La frase che l'app stessa scrive (DaysText.label), apostrofi compresi.
+        assertEquals(feriali, parseRoutineDays("dal lunedi' al venerdi'"))
+        assertEquals(feriali, parseRoutineDays("dal lunedì al venerdì"))
+        assertEquals(feriali, parseRoutineDays("da lunedi a venerdi"))
+        assertEquals(feriali, parseRoutineDays("fra lunedi e venerdi"))
+        assertEquals(feriali, parseRoutineDays("tra lunedi e venerdi"))
+        // Al contrario gira intorno alla settimana, non tiene i soli estremi.
+        assertEquals(setOf(5, 6, 7, 1), parseRoutineDays("da venerdi a lunedi"))
+    }
+
+    @Test
+    fun `una routine senza partenza detta e senza posizione non arriva alla conferma`() = runBlocking {
+        val sink = Sink()
+        val bridge = Bridge(here0 = null, stops = listOf(careggi()))
+        val out = CreateRoutineTool().run(
+            args("a" to "Careggi", "giorni" to "feriali", "ora" to "8:30"),
+            ctx(bridge, sink),
+        )
+        assertTrue(out, out.startsWith("errore: non so dove ti trovi"))
+        assertTrue(sink.actions.isEmpty())
+    }
+
+    @Test
+    fun `uno stesso autobus su due pali si conta una volta ma un anello ripassa`() {
+        fun d(trip: Int, hour: Int) = BundleReader.Departure(
+            tripIndex = trip,
+            patternIndex = 0,
+            routeIndex = 0,
+            serviceDate = LocalDate.of(2026, 9, 30),
+            instant = Instant.parse("2026-09-30T0${hour}:00:00Z"),
+            positionInPattern = 0,
+        )
+        // Palo preferito: la corsa 1 passa due volte (anello), la 2 una. Sul palo di fronte la
+        // corsa 1 e la 3 (che qui non ha passaggi sul preferito).
+        val preferito = listOf(d(1, 5), d(1, 7), d(2, 6))
+        val difronte = listOf(d(1, 5), d(3, 6))
+        val out = StopDayScheduleTool.onePolePerTrip(listOf(preferito, difronte))
+        assertEquals(listOf(1 to 5, 1 to 7, 2 to 6, 3 to 6), out.map { it.tripIndex to it.instant.atZone(java.time.ZoneOffset.UTC).hour })
+    }
+
+    @Test
+    fun `un'ora di oggi gia' passata si dice, e adesso non e' un'ora`() = runBlocking {
+        val sink = Sink()
+        val bridge = Bridge(here0 = 43.0 to 11.0, stops = listOf(careggi()))
+        // Sono le 07:10: le 06:00 di OGGI sono passate, e slittare a domani e' roba del campo vuoto.
+        val passata = JourneyTool().run(
+            args("a" to "Careggi", "arriva_entro" to "6:00", "giorno" to "oggi"),
+            ctx(bridge, sink),
+        )
+        assertEquals(Resolve.PASSED_TODAY, passata)
+        assertTrue(bridge.planCalls.isEmpty())
+        val uscire = WhenToLeaveTool().run(
+            args("a" to "Careggi", "entro" to "6:00", "giorno" to "oggi"),
+            ctx(bridge, sink),
+        )
+        assertEquals(Resolve.PASSED_TODAY, uscire)
+        // "adesso" dove lo schema dice "vuoto per adesso": si calcola per adesso.
+        JourneyTool().run(
+            args("a" to "Careggi", "parti_alle" to "adesso"),
+            ctx(bridge, sink),
+        )
+        val call = bridge.planCalls.single()
+        assertNull(call.departAt)
+    }
+
+    @Test
     fun `quello che non si capisce non crea una routine a meta`() {
         assertTrue(parseRoutineDays("domani").isEmpty())
         assertTrue(parseRoutineDays("feriali e boh").isEmpty())

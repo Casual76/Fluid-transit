@@ -437,7 +437,7 @@ fun TodayTab(
                         FluidListRow(
                             title = r.label.ifEmpty { "→ ${r.toName}" },
                             subtitle = buildString {
-                                append(daysShort(r.days))
+                                append(dev.antigravity.fluidtransit.routing.DaysText.short(r.days))
                                 append(" · ")
                                 append(if (r.anchor == "arrive") "entro le " else "parti alle ")
                                 append(dev.antigravity.fluidtransit.routing.Times.clockOfDay(r.anchorMinutes))
@@ -687,13 +687,6 @@ fun TodayTab(
             }
         },
     )
-}
-
-private fun daysShort(days: Set<Int>): String {
-    if (days.size == 7) return "Tutti i giorni"
-    if (days == setOf(1, 2, 3, 4, 5)) return "Lun–Ven"
-    val names = listOf("Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom")
-    return days.sorted().joinToString(" ") { names[it - 1] }
 }
 
 /**

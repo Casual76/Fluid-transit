@@ -170,13 +170,17 @@ class StopDayScheduleTool : AiTool {
     val mezzanotteDopo = date.plusDays(1).atStartOfDay(ctx.zone).toInstant()
     val soloIlGiorno = args.str("alle") == null
     // Tutte le banchine della fermata, come fa il tabellone: da un palo solo "il primo bus di
-    // domani" e "l'ultimo" erano quelli di una direzione. Una corsa che tocca due pali dello
-    // stesso gruppo (il capolinea: arriva su uno, riparte dall'altro) si conta una volta, per
-    // (corsa, giorno di servizio) come `Departures.merged`.
-    val departures = ctx.transit.siblings(stop).toList().ifEmpty { listOf(stop) }
-      .flatMap { reader.nextDepartures(it, start, limit = Int.MAX_VALUE, horizonSeconds = window.horizonSeconds, zone = ctx.zone) }
+    // domani" e "l'ultimo" erano quelli di una direzione. La regola e' quella di
+    // `Departures.oneRowPerBus`: di ogni corsa si tiene il palo preferito (il trovato per
+    // primo) e da quello TUTTI i passaggi. Un dedup per (corsa, giorno) secco toglieva anche il
+    // secondo passaggio di un anello dalla stessa fermata (215 pattern su 8.331), e se era il
+    // piu' tardi "l'ultimo bus di stasera" era sbagliato.
+    val poli = (listOf(stop) + ctx.transit.siblings(stop).filter { it != stop }).distinct()
+    val daiPoli = poli.map { palo ->
+      reader.nextDepartures(palo, start, limit = Int.MAX_VALUE, horizonSeconds = window.horizonSeconds, zone = ctx.zone)
+    }
+    val departures = onePolePerTrip(daiPoli)
       .sortedBy { it.instant }
-      .distinctBy { it.tripIndex to it.serviceDate }
       .filter { lineFilter == null || it.routeIndex == lineFilter }
       .filter { !soloIlGiorno || it.serviceDate == date || it.instant < mezzanotteDopo }
     // Il giorno con le parole di `Times.dateLabel`: al modello serve sapere che "domani" e' il 1
@@ -212,9 +216,26 @@ class StopDayScheduleTool : AiTool {
   // si dice: l'eco non deve rispondere "01:00" come se fosse stamattina.
   private fun label(minutes: Int): String = WhenText.serviceClock(minutes * 60)
 
-  private companion object {
+  internal companion object {
     /** Quante righe scrivere: oltre, il testo per il modello sfora il suo tetto di caratteri. */
     const val SHOWN = 40
+
+    /**
+     * I passaggi di piu' pali senza la stessa corsa due volte: [perPalo] e' in ordine di
+     * preferenza, e di ogni (corsa, giorno di servizio) si tiene il primo palo che la vede, con
+     * tutti i suoi passaggi (un anello che ripassa dalla stessa fermata ne ha due).
+     */
+    fun onePolePerTrip(perPalo: List<List<BundleReader.Departure>>): List<BundleReader.Departure> {
+      val preferito = HashMap<Pair<Int, LocalDate>, Int>()
+      perPalo.forEachIndexed { i, righe ->
+        for (d in righe) preferito.putIfAbsent(d.tripIndex to d.serviceDate, i)
+      }
+      val out = ArrayList<BundleReader.Departure>()
+      perPalo.forEachIndexed { i, righe ->
+        for (d in righe) if (preferito[d.tripIndex to d.serviceDate] == i) out.add(d)
+      }
+      return out
+    }
   }
 }
 
@@ -311,6 +332,7 @@ class WhenToLeaveTool : AiTool {
     val day = if (dayText == null) null else Resolve.parseDay(today, dayText)
       ?: return "errore: giorno non capito (oggi, domani, un giorno della settimana, o aaaa-mm-gg)"
     val arriveBy = Resolve.timeOn(ctx, day, args.str("entro")) ?: return "errore: ora di arrivo non capita (es. 08:30)"
+    if (Resolve.alreadyPassedToday(ctx, day, arriveBy)) return Resolve.PASSED_TODAY
     if (day != null) {
       ctx.transit.reader?.let { r -> Resolve.coverageError(r, day, today)?.let { return it } }
     }

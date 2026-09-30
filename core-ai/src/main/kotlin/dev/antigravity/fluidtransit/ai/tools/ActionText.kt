@@ -1,6 +1,7 @@
 package dev.antigravity.fluidtransit.ai.tools
 
 import dev.antigravity.fluidtransit.routing.DaysText
+import dev.antigravity.fluidtransit.routing.Times
 
 /**
  * Cosa dice la scheda di conferma.
@@ -32,7 +33,7 @@ object ActionText {
             val da = action.from?.name?.let { "da $it" } ?: "da dove ti trovi adesso"
             val ancora = if (action.anchor == "depart") "partenza" else "arrivo"
             "Routine per ${action.to.name}: ${DaysText.label(action.days)}, " +
-                "$ancora alle ${clock(action.anchorMinutes)}, $da?"
+                "$ancora alle ${Times.clockOfDay(action.anchorMinutes)}, $da?"
         }
 
         is AssistantAction.UnstarStop -> "Tolgo la stella alla fermata ${action.name}?"
@@ -42,7 +43,7 @@ object ActionText {
             (if (action.enabled) "Accendo" else "Spengo") + " la routine ${action.label}?"
 
         is AssistantAction.RemoveRoutine -> "Elimino la routine ${action.label}?"
-        AssistantAction.RefreshData -> "Riscarico gli orari? Usa i dati del telefono."
+        AssistantAction.RefreshData -> "Riscarico gli orari? Serve una connessione a internet."
 
         // Queste non chiedono conferma e la scheda non le mostra mai: la frase
         // c'e' lo stesso, cosi' il `when` resta senza `else` e chi cambia
@@ -53,6 +54,4 @@ object ActionText {
         is AssistantAction.ShowJourneys -> "Mostro gli itinerari verso ${action.to.name}?"
         AssistantAction.StopNavigation -> "Fermo la navigazione?"
     }
-
-    private fun clock(minutes: Int): String = "%02d:%02d".format(minutes / 60, minutes % 60)
 }

@@ -127,7 +127,9 @@ class CreateRoutineTool : AiTool {
     override val parameters = Schema.obj(
         mapOf(
             "a" to Schema.place,
-            "da" to Schema.str("da dove si parte; vuoto per dove si trova di solito"),
+            "da" to Schema.str(
+                "da dove si parte; vuoto per dove si trova adesso (la posizione resta fissata nella routine)",
+            ),
             "giorni" to Schema.str(
                 "i giorni: \"feriali\", \"tutti\", \"weekend\", oppure elenco tipo \"lun,mer,ven\"",
             ),
@@ -145,6 +147,12 @@ class CreateRoutineTool : AiTool {
         val fromText = args.str("da")?.takeUnless { Resolve.isHere(it) }
         val from = fromText?.let {
             Resolve.target(ctx, it) ?: return Resolve.notFound(ctx, "non trovo il punto di partenza \"$it\"")
+        }
+        // Senza partenza detta vale la posizione del momento, e senza posizione la routine non
+        // nasce: dirlo dopo il tocco di conferma era un fallimento che si poteva dire prima.
+        if (from == null && ctx.transit.here == null) {
+            return "errore: non so dove ti trovi (la posizione non e' disponibile): " +
+                "chiedi all'utente da dove parte"
         }
         val days = parseRoutineDays(args.str("giorni"))
         if (days.isEmpty()) return "non ho capito in che giorni: dimmi \"feriali\", \"tutti\", \"weekend\" o l'elenco"
@@ -183,18 +191,26 @@ class CreateRoutineTool : AiTool {
  * una routine su una parte soltanto di cio' che e' stato detto.
  */
 internal fun parseRoutineDays(text: String?): Set<Int> {
-    val t = text?.lowercase()?.replace('ì', 'i')?.trim() ?: return emptySet()
+    // Via l'apostrofo: la frase che l'app stessa scrive e che il modello riprende e' "dal
+    // lunedi' al venerdi'", e con l'apostrofo finale la regola degli intervalli non combaciava
+    // piu' (restavano i due estremi, cioe' {1, 5}).
+    val t = text?.lowercase()?.replace('ì', 'i')?.replace("'", "")?.replace("\u2019", "")?.trim()
+        ?: return emptySet()
     val words = t.split(Regex("[^a-z]+")).filter { it.isNotEmpty() }
     if (words.isEmpty()) return emptySet()
     val out = mutableSetOf<Int>()
-    // Gli intervalli prima: "dal lunedi al venerdi", "lun-ven". Le parole dei
-    // due estremi si rileggono poi da sole, e sono gia' dentro.
+    // Gli intervalli prima: "dal lunedi al venerdi", "da lunedi a venerdi", "lun-ven", "fra
+    // lunedi e venerdi". Le parole dei due estremi si rileggono poi da sole, e sono gia'
+    // dentro. Un intervallo al contrario ("da venerdi a lunedi") gira intorno alla settimana:
+    // venerdi, sabato, domenica, lunedi.
     val dayWord = "(lun|mar|mer|gio|ven|sab|dom)[a-z]*"
-    Regex("(?:dal? )?$dayWord\\s*(?:-|al? )\\s*$dayWord").findAll(t).forEach { m ->
+    fun aggiungi(m: MatchResult) {
         val from = ROUTINE_DAY_PREFIX.getValue(m.groupValues[1])
         val to = ROUTINE_DAY_PREFIX.getValue(m.groupValues[2])
-        if (from <= to) out += from..to
+        if (from <= to) out += from..to else out += (from..7) + (1..to)
     }
+    Regex("(?:dal? )?$dayWord\\s*(?:-|al? )\\s*$dayWord").findAll(t).forEach(::aggiungi)
+    Regex("(?:tra|fra) $dayWord e $dayWord").findAll(t).forEach(::aggiungi)
     var i = 0
     while (i < words.size) {
         val w = words[i]
@@ -228,4 +244,4 @@ private val ROUTINE_DAY_PREFIX = mapOf(
 private val ROUTINE_DAY_FULL =
     listOf("lunedi", "martedi", "mercoledi", "giovedi", "venerdi", "sabato", "domenica")
 private val ROUTINE_FILLER =
-    setOf("dal", "al", "a", "e", "i", "il", "le", "la", "di", "giorni", "giorno", "mattine", "ogni")
+    setOf("dal", "al", "a", "da", "tra", "fra", "e", "i", "il", "le", "la", "di", "giorni", "giorno", "mattine", "ogni")

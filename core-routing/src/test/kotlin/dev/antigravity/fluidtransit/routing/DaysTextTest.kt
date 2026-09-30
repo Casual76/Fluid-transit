@@ -23,4 +23,13 @@ class DaysTextTest {
         assertEquals("mai", DaysText.label(emptySet()))
         assertEquals("mai", DaysText.label(setOf(0, 8)))
     }
+
+    @Test
+    fun `la versione stretta salta i giorni che non sono giorni`() {
+        assertEquals("Tutti i giorni", DaysText.short((1..7).toSet()))
+        assertEquals("Lun–Ven", DaysText.short(setOf(1, 2, 3, 4, 5)))
+        assertEquals("Sab Dom", DaysText.short(setOf(7, 6)))
+        assertEquals("Lun Mer", DaysText.short(setOf(3, 0, 1, 8)))
+        assertEquals("Mai", DaysText.short(setOf(0, 8)))
+    }
 }

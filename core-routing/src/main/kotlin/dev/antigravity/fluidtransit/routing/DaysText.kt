@@ -29,4 +29,24 @@ object DaysText {
             else -> valid.joinToString(", ") { BREVI[it - 1] }
         }
     }
+
+    private val BREVI_MAIUSCOLI = listOf("Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom")
+
+    /**
+     * La versione per una riga stretta (la scheda Oggi): "Lun–Ven", "Sab Dom".
+     *
+     * Era una terza copia in `TodayTab`, che diceva cose diverse dalla
+     * conferma dell'assistente per la stessa routine e non scartava i giorni
+     * fuori 1..7: un giorno 0 o 8 nei dati mandava in crash la scheda con un
+     * IndexOutOfBounds, mentre [label] lo saltava.
+     */
+    fun short(days: Set<Int>): String {
+        val valid = days.filter { it in 1..7 }.toSortedSet()
+        return when {
+            valid.isEmpty() -> "Mai"
+            valid.size == 7 -> "Tutti i giorni"
+            valid == setOf(1, 2, 3, 4, 5) -> "Lun–Ven"
+            else -> valid.joinToString(" ") { BREVI_MAIUSCOLI[it - 1] }
+        }
+    }
 }

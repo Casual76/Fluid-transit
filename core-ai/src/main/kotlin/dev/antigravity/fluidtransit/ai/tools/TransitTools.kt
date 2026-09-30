@@ -139,6 +139,27 @@ internal object Resolve {
         return at.toEpochSecond()
     }
 
+    /**
+     * Vero se [epoch], detto per un giorno esplicito, e' oggi ed e' passato da piu' di cinque
+     * minuti. Senza giorno un'ora passata slitta a domani; con "oggi" detto il modello
+     * compila spesso quel campo anche per un'ora che per oggi e' finita, e il viaggio veniva
+     * calcolato su un istante gia' passato (un itinerario partito ore prima, o "nessun
+     * collegamento a quell'ora") senza una parola che lo dicesse.
+     */
+    fun alreadyPassedToday(ctx: ToolContext, date: LocalDate?, epoch: Long?): Boolean =
+        date != null && epoch != null && date == today(ctx) && epoch < ctx.nowEpoch - 5 * 60
+
+    const val PASSED_TODAY = "errore: quell'ora e' gia' passata oggi: intendi domani?"
+
+    /**
+     * "adesso", "ora", "subito" detti dove lo schema dice "vuoto per adesso": sono l'assenza
+     * dell'ora, non un'ora che non si capisce.
+     */
+    fun isNow(text: String?): Boolean =
+        text?.lowercase()?.trim()?.trimEnd('.', '!', '?', ' ') in NOW_WORDS
+
+    private val NOW_WORDS = setOf("adesso", "ora", "subito", "ora adesso", "subito adesso", "al momento")
+
     /** Il giorno di oggi nel fuso del contesto. */
     fun today(ctx: ToolContext): LocalDate =
         Instant.ofEpochMilli(ctx.nowMillis).atZone(ctx.zone).toLocalDate()
@@ -514,7 +535,7 @@ class JourneyTool : AiTool {
         val dayText = args.str("giorno")
         val day = if (dayText == null) null else Resolve.parseDay(today, dayText)
             ?: return "errore: giorno non capito (oggi, domani, un giorno della settimana, o aaaa-mm-gg)"
-        val partiText = args.str("parti_alle")
+        val partiText = args.str("parti_alle")?.takeUnless { Resolve.isNow(it) }
         val arrivaText = args.str("arriva_entro")
         // Un'ora detta e non capita ("8 e mezza", "domani mattina") non e'
         // "parti adesso": si dice, come fa quando_uscire.
@@ -525,6 +546,9 @@ class JourneyTool : AiTool {
         val arriveBy = Resolve.timeOn(ctx, day, arrivaText)
         if (arrivaText != null && arriveBy == null) {
             return "errore: ora di arrivo non capita (es. 08:30)"
+        }
+        if (Resolve.alreadyPassedToday(ctx, day, departAt) || Resolve.alreadyPassedToday(ctx, day, arriveBy)) {
+            return Resolve.PASSED_TODAY
         }
         if (day != null && day != today && departAt == null && arriveBy == null) {
             return "errore: per un altro giorno serve anche l'ora (parti_alle o arriva_entro)"

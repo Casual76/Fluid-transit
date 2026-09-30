@@ -1,6 +1,7 @@
 package dev.antigravity.fluidtransit.ui.assistant
 
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
@@ -210,16 +211,24 @@ fun AssistantOverlay(
         // ha appena messo la chiave non lo scopre: tre esempi, toccabili.
         if (state is AssistantState.Idle && draft.isBlank()) {
             FluidHairline(modifier = Modifier.padding(horizontal = 20.dp))
+            // Come il corpo della risposta, prende quello che avanza e scorre: a riposo la
+            // tastiera e' aperta proprio perche' si e' appena toccato il campo, e con
+            // intestazione e tre righe da 48 dp (circa 190 dp) fissi, un telefono piccolo o in
+            // orizzontale col carattere grande tagliava il campo di scrittura e il microfono.
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 8.dp),
             ) {
                 Text(
                     text = "Per esempio",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 2.dp),
+                    modifier = Modifier
+                        .padding(bottom = 2.dp)
+                        .semantics { heading() },
                 )
                 for (esempio in dev.antigravity.fluidtransit.ai.orchestrator.AssistantHints.EXAMPLES) {
                     Text(

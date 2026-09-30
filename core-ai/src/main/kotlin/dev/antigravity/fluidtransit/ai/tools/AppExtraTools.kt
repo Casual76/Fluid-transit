@@ -5,6 +5,7 @@ import dev.antigravity.fluidtransit.ai.tools.Args.int
 import dev.antigravity.fluidtransit.ai.tools.Args.list
 import dev.antigravity.fluidtransit.ai.tools.Args.str
 import dev.antigravity.fluidtransit.routing.DaysText
+import dev.antigravity.fluidtransit.routing.Times
 import kotlinx.serialization.json.JsonObject
 
 /** Lo stato dell'orario offline, e con `aggiorna` lo riscarica (chiede conferma: consuma rete). */
@@ -132,7 +133,7 @@ class RoutineListTool : AiTool {
       line("routine", routines.size)
       routines.forEach { r ->
         line(
-          "#${r.id} ${r.label} → ${r.destination} · ${DaysText.label(r.days)} · ${if (r.anchor == "arrive") "arrivo" else "partenza"} alle ${"%02d:%02d".format(r.anchorMinutes / 60, r.anchorMinutes % 60)}" +
+          "#${r.id} ${r.label} → ${r.destination} · ${DaysText.label(r.days)} · ${if (r.anchor == "arrive") "arrivo" else "partenza"} alle ${Times.clockOfDay(r.anchorMinutes)}" +
             (if (r.enabled) "" else " · spenta") + (r.lastAdvice?.takeIf { it.isNotBlank() }?.let { " · ultimo consiglio: $it" } ?: ""),
         )
       }

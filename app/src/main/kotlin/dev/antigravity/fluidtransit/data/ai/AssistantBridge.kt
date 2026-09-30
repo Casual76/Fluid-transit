@@ -28,10 +28,10 @@ import dev.antigravity.fluidtransit.ui.map.ResolvedRt
 import dev.antigravity.fluidtransit.ui.map.SearchIndex
 import java.time.Instant
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -142,7 +142,13 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
 
     override val delays: DelayModel get() = app.delayModel
 
-    /** La stessa fonte delle quattro schermate e del widget, niente di meno. */
+    /**
+     * La stessa fonte delle quattro schermate e del widget, niente di meno.
+     *
+     * Con un palo solo `DepartureBoards.compute` estende da se' il tabellone a tutte le
+     * banchine del gruppo, mettendo per prima quella chiesta: e' la regola della scheda
+     * fermata, quindi chi chiama passa il palo trovato e non deve espandere i fratelli.
+     */
     override suspend fun board(
         stopIndex: Int,
         limit: Int,
@@ -268,17 +274,29 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
         if (!serveRitardi && !serveMezzi) return
         if (serveRitardi) liveAskedAt = now
         if (serveMezzi) vehiclesAskedAt = now
-        runCatching {
-            withTimeoutOrNull(LIVE_WAIT_MS) {
-                coroutineScope {
-                    if (serveRitardi) {
-                        launch { runCatching { app.realtime.refreshDelays() } }
-                        launch { runCatching { app.realtime.refreshPredictions() } }
-                    }
-                    if (serveMezzi) launch { runCatching { app.realtime.refreshVehicles() } }
-                }
+        // I giri partono nello scope dell'app e qui si aspetta soltanto: la
+        // richiesta di rete e' una chiamata bloccante (callTimeout 30 s) e non
+        // si interrompe, quindi un tetto messo attorno a un coroutineScope
+        // aspettava comunque i figli fino alla fine. `join` invece e'
+        // cancellabile: dopo LIVE_WAIT_MS si torna, e i giri finiscono da soli.
+        val giri = buildList {
+            if (serveRitardi) {
+                // In fila e non in parallelo: fetchPredictions esce subito se
+                // la sorgente non e' ancora PROXY, e in un processo freddo a
+                // stabilirla e' il giro dei ritardi (vedi fetchDelays).
+                add(
+                    app.applicationScope.launch {
+                        runCatching { app.realtime.refreshDelays() }
+                        runCatching { app.realtime.refreshPredictions() }
+                    },
+                )
+            }
+            if (serveMezzi) {
+                add(app.applicationScope.launch { runCatching { app.realtime.refreshVehicles() } })
             }
         }
+        // Niente runCatching attorno: la cancellazione di chi chiede deve passare.
+        withTimeoutOrNull(LIVE_WAIT_MS) { giri.joinAll() }
     }
 
     /**

@@ -341,7 +341,15 @@ class FluidTransitApp : Application() {
                 private var davanti = 0
 
                 override fun onActivityStarted(activity: android.app.Activity) {
-                    if (davanti++ == 0) bundleManager.refreshOnForeground()
+                    if (davanti++ == 0) {
+                        bundleManager.refreshOnForeground()
+                        // Anche i luoghi si riprovano al ritorno: il file si
+                        // tentava una volta per processo, e un telefono che
+                        // tiene l'app in memoria per giorni — il caso normale
+                        // — non lo rivedeva piu' dopo un primo avvio sui dati
+                        // mobili. Costa un confronto se e' troppo presto.
+                        placesManager.refreshIfNeeded()
+                    }
                 }
 
                 override fun onActivityStopped(activity: android.app.Activity) {

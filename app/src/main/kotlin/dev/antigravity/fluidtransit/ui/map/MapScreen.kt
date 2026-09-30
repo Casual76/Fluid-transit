@@ -1751,6 +1751,7 @@ fun MapScreen(
                 query = query,
                 placesReady = placesState is
                     dev.antigravity.fluidtransit.data.places.PlacesManager.State.Ready,
+                placesWait = placesWaitOf(placesState),
                 transitSearch = when {
                     searchIndex != null -> TransitSearch.READY
                     searchIndexFailed -> TransitSearch.FAILED

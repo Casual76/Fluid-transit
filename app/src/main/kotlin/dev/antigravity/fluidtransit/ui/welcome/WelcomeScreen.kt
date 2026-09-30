@@ -28,6 +28,7 @@ import dev.antigravity.fluidengine.ui.fluid.FluidProgressBar
 import dev.antigravity.fluidengine.ui.fluid.FluidSpinner
 import dev.antigravity.fluidtransit.data.bundle.BundleManager
 import dev.antigravity.fluidtransit.data.bundle.BundleManager.BundleState
+import dev.antigravity.fluidtransit.data.bundle.BundleRefreshPolicy
 
 /**
  * Il primo avvio: l'app spiega cosa sta scaricando e aspetta gli orari.
@@ -110,7 +111,10 @@ fun WelcomeScreen(manager: BundleManager, state: BundleState) {
 
                 is BundleState.AskMetered -> {
                     Text(
-                        text = "Sei su rete mobile.\nGli orari pesano circa ${state.bytes / (1024 * 1024)} MB: scarico ora o aspetto il Wi-Fi?",
+                        // Gli stessi megabyte della domanda sugli orari nuovi
+                        // (Stato dei dati): con la divisione intera un indice
+                        // piccolo diventava "circa 0 MB".
+                        text = "Sei su rete mobile.\nGli orari pesano circa ${BundleRefreshPolicy.megabytes(state.bytes)} MB: scarico ora o aspetto il Wi-Fi?",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,

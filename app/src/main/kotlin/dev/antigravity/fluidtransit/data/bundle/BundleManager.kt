@@ -3,13 +3,17 @@ package dev.antigravity.fluidtransit.data.bundle
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
+import dev.antigravity.fluidtransit.data.net.Metered
 import dev.antigravity.fluidtransit.data.store.Durable
 import dev.antigravity.fluidtransit.routing.BundleReader
+import dev.antigravity.fluidtransit.routing.Ftb
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.time.LocalDate
+import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.GZIPInputStream
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +39,11 @@ import org.json.JSONObject
  * Su rete a consumo il primo download chiede il permesso ([BundleState.AskMetered]);
  * "aspetta il Wi-Fi" registra un callback di rete e parte da solo quando
  * arriva una rete non a consumo. E' la decisione presa nel piano, tradotta.
+ *
+ * Con gli orari gia' in tasca la stessa decisione vale per l'aggiornamento,
+ * ma lo stato non cambia: l'app resta sulla sua schermata e la domanda
+ * ([UpdateOffer]) sta a parte. Cambiare [BundleState] per un aggiornamento
+ * vorrebbe dire rimettere la schermata di benvenuto sopra la mappa.
  */
 class BundleManager(
     private val context: Context,
@@ -63,8 +72,42 @@ class BundleManager(
         data class Failed(val message: String) : BundleState
     }
 
+    /**
+     * Orari nuovi che aspettano una decisione, mentre quelli in tasca restano in uso.
+     *
+     * Sta fuori da [BundleState] perche' `AppRoot` mostra la schermata di
+     * benvenuto per qualunque stato diverso da Ready: pubblicare qui un
+     * "scarico" o un "aspetto" avrebbe tirato via la mappa e il pannello
+     * aperti per fare posto a "Serve solo la prima volta", su un'app che gli
+     * orari li ha gia'.
+     */
+    sealed interface UpdateOffer {
+        /** Rete a consumo e orari in scadenza: c'e' un bundle nuovo di circa [bytes], non lo scarico senza chiedere. */
+        data class Offered(val bytes: Long) : UpdateOffer
+
+        /** L'utente ha scelto di aspettare il Wi-Fi: parte da solo appena c'e'. */
+        data class WaitingForWifi(val bytes: Long) : UpdateOffer
+
+        /** L'utente ha detto di si': si scarica e, a scaricato, gli orari si sostituiscono. */
+        data class Downloading(val progress: Float) : UpdateOffer
+
+        /**
+         * Un aggiornamento che serviva non e' riuscito.
+         *
+         * Si mostra solo quando gli orari in tasca stanno finendo o quando
+         * l'utente l'aveva chiesto: con orari ancora buoni un giro andato a
+         * vuoto non e' una notizia.
+         */
+        data class Failed(val message: String) : UpdateOffer
+    }
+
     private val _state = MutableStateFlow<BundleState>(BundleState.Missing)
     val state: StateFlow<BundleState> = _state
+
+    private val _updateOffer = MutableStateFlow<UpdateOffer?>(null)
+
+    /** Null quando non c'e' niente da decidere. */
+    val updateOffer: StateFlow<UpdateOffer?> = _updateOffer
 
     private val dir = File(context.filesDir, "bundles")
     private val active = File(dir, "active.ftb")
@@ -82,7 +125,16 @@ class BundleManager(
     /** Quanto vive ancora il lettore vecchio dopo lo scambio. */
     private val RETIRE_GRACE_MS = 60_000L
     private val mutex = Mutex()
-    private var wifiCallback: ConnectivityManager.NetworkCallback? = null
+
+    /**
+     * Il callback "aspetto il Wi-Fi" in carica, se c'e'.
+     *
+     * Un riferimento atomico e non una `var`: lo tocca il thread principale
+     * (i tasti), lo tocca il thread della rete (il callback che scatta) e lo
+     * tocca IO. Chi lo prende lo prende una volta sola, ed e' la garanzia che
+     * un callback rimasto in giro non possa partire due volte.
+     */
+    private val wifiCallback = AtomicReference<ConnectivityManager.NetworkCallback?>(null)
 
     /** Da chiamare una volta, all'avvio. Non blocca: lo stato arriva sul flow. */
     fun start() {
@@ -111,7 +163,9 @@ class BundleManager(
             // si sostituisce senza passare dalla schermata di benvenuto.
             if (state.value is BundleState.Ready) {
                 lastCheckAt = System.currentTimeMillis()
-                mutex.withLock { refreshSilently() }
+                // Un giro che non ha trovato nemmeno una rete non ha controllato
+                // niente: non deve valere un'ora di silenzio (vedi refreshOnForeground).
+                if (!mutex.withLock { refreshSilently() }) lastCheckAt = 0L
             }
         }
     }
@@ -132,15 +186,24 @@ class BundleManager(
      * mostrati come se fossero di oggi.
      *
      * Il controllo costa una richiesta di poche centinaia di byte, e su rete
-     * a consumo non parte nemmeno: un'ora di intervallo e' generosa.
+     * a consumo non scarica: con orari ancora buoni non fa nemmeno la
+     * richiesta, con orari in scadenza offre l'aggiornamento e aspetta un si'.
+     * Un'ora di intervallo e' generosa.
+     *
+     * L'ora si conta solo da un controllo vero. Un giro che non ha trovato
+     * nemmeno una rete — l'app aperta in metropolitana, o nel secondo prima
+     * che il sistema apra la rete al processo — non ha guardato niente, e
+     * contarlo lasciava un telefono con gli orari scaduti senza la domanda
+     * "aggiorno?" per un'ora dopo il ritorno della rete.
      */
     fun refreshOnForeground() {
         scope.launch(Dispatchers.IO) {
             if (state.value !is BundleState.Ready) return@launch
             val now = System.currentTimeMillis()
-            if (now - lastCheckAt < CHECK_EVERY_MS) return@launch
+            val prima = lastCheckAt
+            if (now - prima < CHECK_EVERY_MS) return@launch
             lastCheckAt = now
-            mutex.withLock { refreshSilently() }
+            if (!mutex.withLock { refreshSilently() }) lastCheckAt = prima
         }
     }
 
@@ -149,96 +212,256 @@ class BundleManager(
     }.getOrNull()
 
     /**
-     * Aggiornamento silenzioso: nessun cambio di stato finche' il nuovo
-     * bundle non e' installato. Su rete a consumo non fa niente - il bundle
-     * di ieri e' ancora valido e la domanda non vale la pena.
+     * Aggiornamento senza cambiare stato: [BundleState.Ready] resta Ready per
+     * tutto il tempo, finche' il nuovo bundle non e' installato.
+     *
+     * Che cosa e' lecito fare con la rete lo decide [BundleRefreshPolicy]: su
+     * rete non a consumo si scarica; su rete a consumo con orari ancora buoni
+     * non si fa niente (il bundle di ieri e' valido e la domanda non vale la
+     * pena); su rete a consumo con orari scaduti o in scadenza si OFFRE
+     * l'aggiornamento invece di farlo, e la scelta sta in [updateOffer].
+     *
+     * L'ultimo caso, prima, scaricava e basta. Chi usa solo i dati mobili
+     * aveva cosi' un modo di aggiornare degli orari scaduti, ma i megabyte
+     * partivano dal suo piano senza che nessuno glielo dicesse: il contrario
+     * di quello che l'app fa gia' al primo avvio, dove su rete a consumo si
+     * chiede prima.
+     *
+     * @param userApproved l'utente ha detto "aggiorna ora": la rete non conta
+     *   piu', e il progresso si vede nella domanda.
+     * @return `false` se il giro non ha trovato una rete per noi (vedi
+     *   `Metered`): non ha controllato niente, e chi lo ha chiamato non lo
+     *   deve contare come un controllo. Un giro che ha deciso di non fare
+     *   niente su rete a consumo, o che e' andato male, e' un controllo.
      */
-    private suspend fun refreshSilently() {
-        val current = state.value as? BundleState.Ready ?: return
+    private suspend fun refreshSilently(userApproved: Boolean = false): Boolean {
+        val current = state.value as? BundleState.Ready ?: return true
         val cm = context.getSystemService(ConnectivityManager::class.java)
-        // Solo su una rete che sappiamo non a consumo: "non lo so ancora"
-        // all'avvio si aspetta un attimo invece di saltare il giro, perche'
-        // il prossimo controllo e' fra un'ora (vedi Metered).
-        //
-        // Tranne quando gli orari in tasca sono scaduti o scadono domani. Chi
-        // usa solo i dati mobili non avrebbe avuto nessun modo di
-        // aggiornarli: il controllo in sottofondo aspettava un Wi-Fi che non
-        // arrivava, e nessun tasto lo forzava. Con gli orari scaduti l'app
-        // non serve a niente, e sei mega sono il prezzo giusto.
-        val consumo = dev.antigravity.fluidtransit.data.net.Metered.await(cm)
-        val scadono = !java.time.LocalDate.now(dev.antigravity.fluidtransit.routing.Ftb.ROME)
-            .plusDays(1).isBefore(current.reader.feedEnd)
-        if (consumo == null) return
-        if (consumo && !scadono) return
-        runCatching {
+        // "Non lo so ancora" all'avvio si aspetta un attimo invece di saltare
+        // il giro, perche' il prossimo controllo e' fra un'ora (vedi Metered).
+        // Con il si' dell'utente la rete non serve nemmeno guardarla.
+        val consumo: Boolean? = if (userApproved) null else Metered.await(cm)
+        val scadono = BundleRefreshPolicy.expiring(LocalDate.now(Ftb.ROME), current.reader.feedEnd)
+        val rete = BundleRefreshPolicy.network(consumo, scadono, userApproved)
+        if (rete == BundleRefreshPolicy.Network.Skip) return consumo != null
+        try {
             val index = fetchIndex()
-            if (index.buildId == java.lang.Long.toHexString(current.buildId)) {
-                // Stesso bundle, ma l'overlay puo' essere cambiato lo stesso:
-                // la pipeline delle tile ha una sua versione (il map matching
-                // e' arrivato cosi') e pubblica sotto un nome nuovo anche a
-                // parita' di orari.
-                if (index.overlayUrl != null && index.overlayUrl != current.overlayUrl) {
+            val stesso = index.buildId == java.lang.Long.toHexString(current.buildId)
+            // Stesso bundle, ma l'overlay puo' essere cambiato lo stesso: la
+            // pipeline delle tile ha una sua versione (il map matching e'
+            // arrivato cosi') e pubblica sotto un nome nuovo anche a parita'
+            // di orari.
+            val overlayNuovo = index.overlayUrl != null && index.overlayUrl != current.overlayUrl
+            // Gli orari in tasca sono gia' quelli dell'indice: se c'era una
+            // domanda aperta (un Wi-Fi arrivato nel frattempo ha gia'
+            // aggiornato) non c'e' piu' niente da offrire ne' da aspettare.
+            if (stesso) _updateOffer.value = null
+            when (BundleRefreshPolicy.step(rete, stesso, overlayNuovo)) {
+                BundleRefreshPolicy.Step.Nothing -> Unit
+
+                BundleRefreshPolicy.Step.OverlayOnly -> {
                     writeMeta(index)
                     _state.value = BundleState.Ready(current.reader, current.buildId, index.overlayUrl)
                 }
-                return
+
+                BundleRefreshPolicy.Step.Install -> {
+                    installFrom(index) { done ->
+                        // Il progresso si pubblica solo se qualcuno lo sta
+                        // guardando: il giro in sottofondo non ha una riga
+                        // che lo mostri.
+                        if (userApproved) {
+                            _updateOffer.value = UpdateOffer.Downloading(
+                                if (index.bytes > 0) (done.toFloat() / index.bytes).coerceIn(0f, 1f) else 0f,
+                            )
+                        }
+                    }
+                    _updateOffer.value = null
+                }
+
+                BundleRefreshPolicy.Step.Offer -> offer(index)
             }
-            installFrom(index)
+        } catch (e: Exception) {
+            // Un giro andato a vuoto con orari ancora buoni non e' una
+            // notizia: quelli in tasca servono. Con orari finiti, o con un si'
+            // dell'utente appena dato, il silenzio sarebbe la peggiore delle
+            // risposte: la riga della domanda resterebbe su "Scarico" per
+            // sempre, o sparirebbe, e gli orari scaduti resterebbero scaduti
+            // senza che nessuno sappia perche'.
+            if (userApproved || scadono) {
+                _updateOffer.value = UpdateOffer.Failed(e.message ?: "errore sconosciuto")
+            }
+        }
+        return true
+    }
+
+    /** Pubblica la domanda "aggiorno sulla rete mobile?", senza disturbare chi ha gia' scelto. */
+    private fun offer(index: BundleIndex) {
+        val bytes = index.bytes.takeIf { it > 0 } ?: EXPECTED_BYTES
+        val attuale = _updateOffer.value
+        // Chi ha detto "aspetto il Wi-Fi" o sta scaricando non si disturba:
+        // rifare la domanda a ogni controllo e' il modo in cui una scelta
+        // diventa una seccatura.
+        if (attuale == null || attuale is UpdateOffer.Offered || attuale is UpdateOffer.Failed) {
+            _updateOffer.value = UpdateOffer.Offered(bytes)
+        }
+    }
+
+    /**
+     * L'utente ha detto "aggiorna gli orari" sulla domanda, anche su rete mobile.
+     *
+     * Vale anche come "riprova" dopo un aggiornamento fallito. Lo stato non
+     * cambia: gli orari in tasca restano in uso finche' quelli nuovi non sono
+     * scaricati e verificati, e a quel punto il lettore si sostituisce da solo.
+     */
+    fun acceptUpdateOnMetered() {
+        val prima = _updateOffer.value
+        // Senza domanda non c'e' niente da accettare, e con un download gia'
+        // in corso un secondo tocco non ne fa partire un altro.
+        if (prima == null || prima is UpdateOffer.Downloading) return
+        _updateOffer.value = UpdateOffer.Downloading(0f)
+        // Se aspettava il Wi-Fi, adesso non piu': il callback rimasto in
+        // carica scatterebbe sopra un aggiornamento gia' fatto.
+        stopWaitingForWifi()
+        scope.launch(Dispatchers.IO) { mutex.withLock { refreshSilently(userApproved = true) } }
+    }
+
+    /** L'utente preferisce aspettare il Wi-Fi per gli orari nuovi. */
+    fun waitForWifiToUpdate() {
+        val offerta = _updateOffer.value as? UpdateOffer.Offered ?: return
+        _updateOffer.value = UpdateOffer.WaitingForWifi(offerta.bytes)
+        watchForWifi {
+            // Sotto il mutex si guarda com'e' adesso, non com'era al tocco:
+            // nel frattempo l'utente puo' aver cambiato idea.
+            val attesa = _updateOffer.value as? UpdateOffer.WaitingForWifi ?: return@watchForWifi
+            refreshSilently()
+            // Se il giro non ha cambiato niente — la rete e' tornata a
+            // consumo, o non rispondeva — "aspetto il Wi-Fi" non e' piu'
+            // vero: il callback e' gia' scattato e non ne resta nessuno in
+            // carica. Si torna alla domanda, che ha i suoi tasti.
+            if (_updateOffer.value == attesa) _updateOffer.value = UpdateOffer.Offered(attesa.bytes)
         }
     }
 
     /** L'utente ha accettato il download su rete a consumo. */
     fun downloadOnMetered() {
-        scope.launch(Dispatchers.IO) { mutex.withLock { requestDownload(userApprovedMetered = true) } }
+        // Scegliere di scaricare vuol dire smettere di aspettare: il callback
+        // del Wi-Fi rimasto in carica ripartiva a scaricare a bundle gia'
+        // installato (vedi watchForWifi).
+        stopWaitingForWifi()
+        scope.launch(Dispatchers.IO) {
+            mutex.withLock {
+                // Se nel frattempo gli orari sono arrivati non c'e' piu' un
+                // primo scarico da approvare.
+                if (state.value !is BundleState.Ready) requestDownload(userApprovedMetered = true)
+            }
+        }
     }
 
     /** L'utente preferisce aspettare il Wi-Fi. */
     fun waitForWifi() {
+        // Solo dalla domanda del primo scarico: da qualunque altro stato,
+        // Ready compreso, scriverci sopra WaitingForWifi rimetterebbe la
+        // schermata di benvenuto al posto dell'app.
+        if (_state.value !is BundleState.AskMetered) return
         _state.value = BundleState.WaitingForWifi
+        watchForWifi {
+            // Si controlla sotto il mutex, che e' l'unico momento in cui la
+            // risposta e' vera: il callback puo' scattare mentre un "Scarica
+            // ora sulla rete mobile" sta ancora installando, e a bundle
+            // installato ripartire era il difetto. Se il tentativo su rete
+            // mobile e' fallito lo stato e' Failed, e a decidere e' Riprova.
+            if (state.value is BundleState.WaitingForWifi) requestDownload(userApprovedMetered = false)
+        }
+    }
+
+    /**
+     * Mette un callback "quando arriva una rete non a consumo, fai [action]".
+     *
+     * Le capacita' della rete, non la domanda "la rete attiva e' a consumo?":
+     * in onAvailable le capacita' possono non essere ancora note, e la
+     * risposta di ripiego e' "si'" — il Wi-Fi appena agganciato veniva
+     * scartato e non se ne aspettava un altro.
+     *
+     * Scatta una volta sola. Prima si scollegava solo dentro il proprio
+     * scatto, quindi un "Scarica ora sulla rete mobile" a callback gia'
+     * registrato lo lasciava in giro: a download finito, l'app in mano, il
+     * telefono entrava in un Wi-Fi e la schermata di benvenuto tornava sopra
+     * la mappa a dire "Sto scaricando gli orari di tutta la regione".
+     */
+    private fun watchForWifi(action: suspend () -> Unit) {
+        // Uno alla volta: uno rimasto in carica non deve poter scattare sopra
+        // la scelta nuova.
+        stopWaitingForWifi()
         val cm = context.getSystemService(ConnectivityManager::class.java)
-        if (wifiCallback != null) return
         val callback = object : ConnectivityManager.NetworkCallback() {
-            // Le capacita' della rete, non la domanda "la rete attiva e' a
-            // consumo?": in onAvailable le capacita' possono non essere
-            // ancora note, e la risposta di ripiego e' "si'" — il Wi-Fi
-            // appena agganciato veniva scartato e non se ne aspettava un
-            // altro.
             override fun onCapabilitiesChanged(network: Network, caps: android.net.NetworkCapabilities) {
-                if (dev.antigravity.fluidtransit.data.net.Metered.isMetered(caps)) return
-                if (wifiCallback !== this) return
+                if (Metered.isMetered(caps)) return
+                // Se qualcun altro l'ha gia' tolto — un tasto, o un altro
+                // scatto dello stesso callback — non e' piu' il suo turno.
+                if (!wifiCallback.compareAndSet(this, null)) return
                 runCatching { cm.unregisterNetworkCallback(this) }
-                wifiCallback = null
-                scope.launch(Dispatchers.IO) { mutex.withLock { requestDownload(userApprovedMetered = false) } }
+                scope.launch(Dispatchers.IO) { mutex.withLock { action() } }
             }
         }
-        wifiCallback = callback
+        wifiCallback.set(callback)
         cm.registerDefaultNetworkCallback(callback)
     }
 
+    /**
+     * Smette di aspettare il Wi-Fi, se si stava aspettando.
+     *
+     * `runCatching` perche' scollegare due volte lo stesso callback lancia
+     * IllegalArgumentException, e i tasti e il callback stesso possono
+     * arrivarci insieme.
+     */
+    private fun stopWaitingForWifi() {
+        val callback = wifiCallback.getAndSet(null) ?: return
+        val cm = context.getSystemService(ConnectivityManager::class.java)
+        runCatching { cm.unregisterNetworkCallback(callback) }
+    }
+
     fun retry() {
-        scope.launch(Dispatchers.IO) { mutex.withLock { requestDownload(userApprovedMetered = true) } }
+        // Da Ready non c'e' il primo scarico da smettere di aspettare: l'unico
+        // callback in carica e' quello di "aspetto il Wi-Fi per gli orari
+        // nuovi" (waitForWifiToUpdate), e scollegarlo lascerebbe la domanda a
+        // dire "aspetto" con nessuno ad aspettare. Succede quando l'assistente
+        // controlla i dati mentre l'utente ha scelto di aspettare.
+        if (state.value !is BundleState.Ready) stopWaitingForWifi()
+        scope.launch(Dispatchers.IO) {
+            mutex.withLock {
+                // Con gli orari in tasca "riprova" non riscarica da capo: si
+                // guarda in silenzio se ce ne sono di nuovi, sulla rete che
+                // c'e' e con le sue regole. Prima passava da requestDownload,
+                // che da Ready pubblica Downloading: la richiesta di
+                // aggiornare i dati fatta all'assistente — due volte, dalla
+                // sua azione e dal suo strumento — riportava l'app sulla
+                // schermata di benvenuto, su qualunque rete, mobile compresa.
+                if (state.value is BundleState.Ready) {
+                    refreshSilently()
+                } else {
+                    requestDownload(userApprovedMetered = true)
+                }
+            }
+        }
     }
 
     private suspend fun requestDownload(userApprovedMetered: Boolean) {
+        // Da Ready non si scarica "da capo". Pubblicare Downloading fa scegliere
+        // ad AppRoot la schermata di benvenuto, cioe' butta via la mappa e il
+        // pannello aperti per dire "Serve solo la prima volta" a un'app che gli
+        // orari li ha. Chi ha gia' un bundle passa da refreshSilently, che non
+        // cambia stato: questa e' solo la strada del primo scarico.
+        if (state.value is BundleState.Ready) return
         val cm = context.getSystemService(ConnectivityManager::class.java)
         // Si chiede solo davanti a una rete che SAPPIAMO a consumo. Senza
         // rete ancora aperta si prova: se davvero non c'e', il download
         // fallisce e lo dice con le sue parole, che sono vere; "Sei su rete
         // mobile" su un Wi-Fi non lo era.
-        if (!userApprovedMetered &&
-            dev.antigravity.fluidtransit.data.net.Metered.await(cm) == true
-        ) {
+        if (!userApprovedMetered && Metered.await(cm) == true) {
             _state.value = BundleState.AskMetered(EXPECTED_BYTES)
             return
         }
-        // Uscendo da Ready si perde il riferimento al lettore: se non lo si
-        // ritira, la sua mappa resta in piedi per sempre. Oggi ci si arriva
-        // solo quando un bundle non c'e' (primo avvio, riprova dopo un
-        // errore), quindi non e' un difetto che si vede — ma e' una riga per
-        // non farlo diventare tale il giorno che questa strada si apre.
-        val uscente = (state.value as? BundleState.Ready)?.reader
         _state.value = BundleState.Downloading(0f)
-        retire(uscente)
         try {
             val index = fetchIndex()
             installFrom(index) { done ->

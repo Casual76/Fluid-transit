@@ -65,6 +65,7 @@ import dev.antigravity.fluidengine.ui.fluid.GlassDefaults
 import dev.antigravity.fluidengine.ui.fluid.GlassEdge
 import dev.antigravity.fluidengine.ui.fluid.GlassRole
 import dev.antigravity.fluidengine.ui.fluid.glassSurface
+import dev.antigravity.fluidtransit.data.places.PlacesManager
 
 /** Un suggerimento nel pannello: cosa mostra e dove porta. */
 class Suggestion(
@@ -122,6 +123,15 @@ fun SearchGlass(
      * ha ancora finito di scaricare dove guardare.
      */
     placesReady: Boolean = true,
+    /**
+     * Perche' gli indirizzi non ci sono, quando [placesReady] e' falso.
+     *
+     * "Si stanno ancora scaricando" e' vero solo se il file sta arrivando. Con
+     * la rete a consumo non parte, dopo un errore si riprova da solo fra
+     * qualche minuto, e se l'ultimo aggiornamento notturno non li comprende non
+     * arriva niente: dirlo sempre prometteva un download che non c'era.
+     */
+    placesWait: PlacesWait = PlacesWait.DOWNLOADING,
     /**
      * Dove sta la ricerca di fermate e linee: pronta, ancora da costruire
      * (si fa dopo l'apertura degli orari, qualche secondo al primo avvio), o
@@ -312,9 +322,24 @@ fun SearchGlass(
                                 } else if (placesReady) {
                                     "Niente con questo nome. Prova con meno lettere."
                                 } else {
-                                    "Fermate e linee non ne hanno. Gli indirizzi e i " +
-                                        "luoghi si stanno ancora scaricando: ci vuole " +
-                                        "qualche minuto, la prima volta."
+                                    "Fermate e linee non ne hanno. " + when (placesWait) {
+                                        PlacesWait.DOWNLOADING ->
+                                            "Gli indirizzi e i luoghi si stanno ancora " +
+                                                "scaricando: ci vuole qualche minuto, la " +
+                                                "prima volta."
+
+                                        PlacesWait.WIFI ->
+                                            "Gli indirizzi e i luoghi arrivano da soli col " +
+                                                "Wi-Fi: per ora non sono sul telefono."
+
+                                        PlacesWait.FAILED ->
+                                            "Gli indirizzi e i luoghi non si sono scaricati: " +
+                                                "riprovo da solo fra qualche minuto."
+
+                                        PlacesWait.ABSENT ->
+                                            "Gli indirizzi e i luoghi non sono ancora sul " +
+                                                "telefono."
+                                    }
                                 },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -540,3 +565,20 @@ private fun SuggestionRow(s: Suggestion, onPick: (Suggestion) -> Unit, divider: 
 
 /** Lo stato della ricerca di fermate e linee, per le parole del "niente". */
 enum class TransitSearch { READY, BUILDING, FAILED }
+
+/** Perche' gli indirizzi e i luoghi non ci sono, per le parole del "niente". */
+enum class PlacesWait { DOWNLOADING, WIFI, FAILED, ABSENT }
+
+/**
+ * Dallo stato di chi scarica i luoghi a cosa dire nella barra.
+ *
+ * Con `Missing` non si promette niente: e' lo stato di prima del primo
+ * tentativo e anche quello di un aggiornamento senza luoghi, e in nessuno dei
+ * due c'e' un download di cui parlare.
+ */
+internal fun placesWaitOf(state: PlacesManager.State): PlacesWait = when (state) {
+    is PlacesManager.State.Downloading -> PlacesWait.DOWNLOADING
+    is PlacesManager.State.WaitingForWifi -> PlacesWait.WIFI
+    is PlacesManager.State.Failed -> PlacesWait.FAILED
+    is PlacesManager.State.Missing, is PlacesManager.State.Ready -> PlacesWait.ABSENT
+}

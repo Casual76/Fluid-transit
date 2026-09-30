@@ -11,7 +11,11 @@ import dev.antigravity.fluidengine.ui.theme.FluidListGroup
 import dev.antigravity.fluidengine.ui.theme.FluidListRow
 import dev.antigravity.fluidengine.ui.theme.FluidSectionTitle
 import dev.antigravity.fluidtransit.FluidTransitApp
+import dev.antigravity.fluidtransit.data.bundle.BundleFailure
 import dev.antigravity.fluidtransit.data.bundle.BundleManager.BundleState
+import dev.antigravity.fluidtransit.data.bundle.BundleManager.UpdateOffer
+import dev.antigravity.fluidtransit.data.bundle.BundleRefreshPolicy
+import dev.antigravity.fluidtransit.data.places.PlacesManager
 import dev.antigravity.fluidtransit.routing.Words
 import java.time.Instant
 import kotlinx.coroutines.Dispatchers
@@ -87,6 +91,74 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
                                 else -> "ok"
                             },
                         )
+                        // Gli orari nuovi che aspettano una decisione.
+                        //
+                        // Con gli orari in scadenza e la rete a consumo l'app non
+                        // scarica da sola: chiede. La domanda sta qui, sotto la
+                        // riga che dice che gli orari stanno finendo, e non sulla
+                        // schermata di benvenuto: l'app gli orari li ha gia', e
+                        // mentre si decide deve restare in piedi com'e'.
+                        val offerta by app.bundleManager.updateOffer.collectAsStateWithLifecycle()
+                        val motivo = if (daysLeft < 0) {
+                            "Gli orari in tasca sono scaduti."
+                        } else {
+                            "Gli orari in tasca stanno per scadere."
+                        }
+                        when (val o = offerta) {
+                            null -> Unit
+
+                            is UpdateOffer.Offered -> {
+                                FluidListRow(
+                                    title = "Aggiorna gli orari, circa ${BundleRefreshPolicy.megabytes(o.bytes)} MB su rete mobile",
+                                    // "L'ultimo controllo" e non "sei": la rete puo'
+                                    // essere cambiata da quando la domanda e' stata
+                                    // fatta, e la riga non si ricalcola da sola.
+                                    subtitle = "$motivo L'ultimo controllo l'ho fatto su rete mobile, " +
+                                        "e li' non scarico senza chiedere.",
+                                    onClick = app.bundleManager::acceptUpdateOnMetered,
+                                )
+                                FluidListRow(
+                                    title = "Aspetta il Wi-Fi",
+                                    subtitle = "Gli orari nuovi arrivano da soli appena c'e' un Wi-Fi",
+                                    onClick = app.bundleManager::waitForWifiToUpdate,
+                                )
+                            }
+
+                            is UpdateOffer.WaitingForWifi -> {
+                                FluidListRow(
+                                    title = "Aspetto il Wi-Fi per aggiornare gli orari",
+                                    subtitle = "$motivo Appena c'e' una rete non a consumo, parto da solo.",
+                                    meta = "in attesa",
+                                )
+                                FluidListRow(
+                                    title = "Aggiorna ora, circa ${BundleRefreshPolicy.megabytes(o.bytes)} MB su rete mobile",
+                                    subtitle = "Non aspetto piu': scarico con la rete che c'e'",
+                                    onClick = app.bundleManager::acceptUpdateOnMetered,
+                                )
+                            }
+
+                            is UpdateOffer.Downloading -> FluidListRow(
+                                title = "Sto scaricando gli orari nuovi",
+                                subtitle = "Puoi continuare a usare l'app: a scaricamento finito gli orari si sostituiscono da soli",
+                                meta = "${(o.progress * 100).toInt()}%",
+                            )
+
+                            is UpdateOffer.Failed -> {
+                                FluidListRow(
+                                    title = "Aggiornamento degli orari non riuscito",
+                                    // La stessa frase della schermata di
+                                    // benvenuto, col testo tecnico appresso.
+                                    subtitle = BundleFailure.words(o.message)
+                                        .let { p -> p.title + (p.technical?.let { "\n$it" } ?: "") },
+                                    meta = "errore",
+                                )
+                                FluidListRow(
+                                    title = "Riprova ora",
+                                    subtitle = "Usa la rete che c'e', anche se e' mobile",
+                                    onClick = app.bundleManager::acceptUpdateOnMetered,
+                                )
+                            }
+                        }
                         FluidListRow(
                             title = "Versione dei dati",
                             subtitle = "L'impronta del bundle: cambia a ogni aggiornamento notturno",
@@ -331,7 +403,7 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
             val placesState by app.placesManager.state.collectAsStateWithLifecycle()
             FluidListGroup {
                 when (val p = placesState) {
-                    is dev.antigravity.fluidtransit.data.places.PlacesManager.State.Ready -> FluidListRow(
+                    is PlacesManager.State.Ready -> FluidListRow(
                         title = "Luoghi caricati",
                         subtitle = "%,d fra POI e localita' · %,d vie con civici · %,d numeri"
                             .format(p.reader.fastCount, p.reader.streetCount, p.reader.civiciCount)
@@ -339,15 +411,39 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
                         meta = "ok",
                     )
 
-                    is dev.antigravity.fluidtransit.data.places.PlacesManager.State.Downloading -> FluidListRow(
+                    is PlacesManager.State.Downloading -> FluidListRow(
                         title = "Luoghi in arrivo",
                         subtitle = "L'indice dei posti della Toscana si sta scaricando",
                     )
 
+                    // Ognuna delle cose che non sono "in arrivo" ha la sua
+                    // frase. C'era una frase sola, "Arrivano da soli col
+                    // Wi-Fi", e non era vera: il file si provava una volta
+                    // per processo e poi mai piu', quindi un Wi-Fi arrivato
+                    // a app aperta non scaricava niente, e un errore di rete
+                    // lasciava la stessa promessa a chi non aveva mai avuto
+                    // una rete a consumo.
+                    is PlacesManager.State.WaitingForWifi -> FluidListRow(
+                        title = "Luoghi in attesa del Wi-Fi",
+                        subtitle = "Sono un file grosso: li scarico da solo appena c'e' un Wi-Fi. " +
+                            "Fino ad allora la ricerca trova fermate e linee",
+                        meta = "in attesa",
+                    )
+
+                    is PlacesManager.State.Failed -> FluidListRow(
+                        title = "Luoghi non scaricati",
+                        subtitle = "Il download non e' riuscito: riprovo da solo fra qualche minuto " +
+                            "e a ogni riapertura. Fino ad allora la ricerca trova fermate e linee" +
+                            (BundleFailure.words(p.message).technical?.let { "\n$it" } ?: ""),
+                        meta = "errore",
+                    )
+
+                    // Non ancora provato, o l'ultimo aggiornamento notturno
+                    // non li comprende: in nessuno dei due casi c'e' da
+                    // promettere qualcosa.
                     else -> FluidListRow(
                         title = "Luoghi non ancora scaricati",
-                        subtitle = "Arrivano da soli col Wi-Fi: fino ad allora la ricerca " +
-                            "trova fermate e linee",
+                        subtitle = "Per ora la ricerca trova fermate e linee",
                         meta = "—",
                     )
                 }

@@ -448,7 +448,7 @@ fun MapScreen(
                 // stanno in `RoutineText` perche' non dicano due cose diverse.
                 NotifMotivo.ROUTINE ->
                     "La routine e' salvata. " +
-                        dev.antigravity.fluidtransit.routing.RoutineText.ALERTS_OFF
+                        dev.antigravity.fluidtransit.data.routines.RoutineText.ALERTS_OFF
 
                 NotifMotivo.VIAGGIO ->
                     "Il viaggio lo segui restando nell'app: fuori dall'app non ti " +

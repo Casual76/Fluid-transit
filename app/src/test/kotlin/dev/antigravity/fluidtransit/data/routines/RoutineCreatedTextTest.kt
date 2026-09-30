@@ -1,9 +1,9 @@
-package dev.antigravity.fluidtransit.routing
+package dev.antigravity.fluidtransit.data.routines
 
-import kotlin.test.Test
-import kotlin.test.assertFalse
-import kotlin.test.assertNotEquals
-import kotlin.test.assertTrue
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
 
 /**
  * La routine appena creata non promette un avviso che non puo' arrivare.
@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
  * dire "ti diro' io quando uscire". Nessun errore da cercare, una frase che
  * mentiva.
  */
-class RoutineTextTest {
+class RoutineCreatedTextTest {
 
     @Test
     fun `con le notifiche accese si promette l'avviso`() {
@@ -22,10 +22,10 @@ class RoutineTextTest {
     @Test
     fun `con le notifiche spente non si promette niente e si dice dove trovare il consiglio`() {
         val spente = RoutineText.created(alertsOn = false)
-        assertFalse(spente.contains("ti diro'"), spente)
-        assertTrue(spente.contains("notifiche sono spente"), spente)
-        assertTrue(spente.contains(RoutineText.ALERTS_OFF), spente)
-        assertTrue(spente.contains("scheda Oggi"), spente)
+        assertFalse(spente, spente.contains("ti diro'"))
+        assertTrue(spente, spente.contains("notifiche sono spente"))
+        assertTrue(spente, spente.contains(RoutineText.ALERTS_OFF))
+        assertTrue(spente, spente.contains("scheda Oggi"))
     }
 
     @Test

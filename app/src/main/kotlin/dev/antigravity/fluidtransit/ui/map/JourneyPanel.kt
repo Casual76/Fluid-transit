@@ -811,7 +811,7 @@ private fun RoutineForm(
                 .areNotificationsEnabled()
         }
         Text(
-            text = dev.antigravity.fluidtransit.routing.RoutineText.created(alertsOn),
+            text = dev.antigravity.fluidtransit.data.routines.RoutineText.created(alertsOn),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = inset, vertical = 10.dp),

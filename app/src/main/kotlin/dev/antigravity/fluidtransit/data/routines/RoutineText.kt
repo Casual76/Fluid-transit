@@ -80,4 +80,30 @@ object RoutineText {
         }
 
     const val NESSUN_BUS = "Oggi nessun bus utile"
+
+    /**
+     * Cosa si perde a notifiche spente: la routine resta, l'avviso no.
+     *
+     * Il pannello scriveva "ti diro' io quando uscire" appena si toccava
+     * "Crea la routine", qualunque cosa rispondesse Android alla richiesta
+     * delle notifiche. Con le notifiche spente la promessa era falsa: la
+     * routine risultava attiva in Oggi e ogni "Esci alle..." cadeva in
+     * silenzio, e chi lo scopriva lo scopriva perdendo l'autobus.
+     */
+    const val ALERTS_OFF =
+        "L'avviso per uscire di casa non ti arrivera': il consiglio lo trovi solo " +
+            "nella scheda Oggi."
+
+    /**
+     * La frase sotto il tasto, a routine creata. [alertsOn] vuol dire che
+     * Android lascia arrivare le notifiche dell'app adesso, non che una volta
+     * lo facesse.
+     */
+    fun created(alertsOn: Boolean): String =
+        if (alertsOn) {
+            "Routine creata: la trovi nella scheda Oggi. Nei giorni scelti " +
+                "ti diro' io quando uscire."
+        } else {
+            "Routine creata, ma le notifiche sono spente. $ALERTS_OFF"
+        }
 }

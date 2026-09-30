@@ -85,8 +85,30 @@ class SearchIndex private constructor(
         // "linea 23", "bus 23", "fermata careggi": la parola-tipo non sta in
         // nessun nome, e con uno o due token servono tutti. Si toglie e fa da
         // filtro (vedi Relevance.kindHints).
-        val hints = Relevance.kindHints(Relevance.tokens(query))
-        val tokens = hints.rest
+        //
+        // Ma e' un ripiego d'ordine, non un'esclusione: "terminal bus",
+        // "parcheggio bus" o "linea gotica" hanno la parola-tipo DENTRO il
+        // nome, e spogliata la query cercava "terminal" fra le sole linee e
+        // rispondeva "Niente con questo nome" per una fermata che esiste. Se
+        // il filtro non trova niente si riprova con la query intera e senza
+        // filtro.
+        val all = Relevance.tokens(query)
+        val hints = Relevance.kindHints(all)
+        if (hints.rest.size != all.size) {
+            val filtered = searchTokens(hints.rest, hints.routesOnly, hints.stopsOnly, limit, refLat, refLon)
+            if (filtered.isNotEmpty()) return filtered
+        }
+        return searchTokens(all, routesOnly = false, stopsOnly = false, limit, refLat, refLon)
+    }
+
+    private fun searchTokens(
+        tokens: List<String>,
+        routesOnly: Boolean,
+        stopsOnly: Boolean,
+        limit: Int,
+        refLat: Double,
+        refLon: Double,
+    ): List<Hit> {
         if (tokens.isEmpty()) return emptyList()
         val hasRef = !refLat.isNaN() && !refLon.isNaN()
 
@@ -111,7 +133,7 @@ class SearchIndex private constructor(
         // confrontabili fra loro e con quelli dei luoghi.
         fun sessione(fuzzy: Boolean): Relevance.Session {
             val s = Relevance.Session(tokens, fuzzy)
-            if (!hints.stopsOnly) {
+            if (!stopsOnly) {
                 for (i in routeNorm.indices) {
                     // Con un carattere solo si guarda la sigla e non il
                     // capolinea: "6" non deve tirare fuori ogni linea che passa
@@ -120,7 +142,7 @@ class SearchIndex private constructor(
                     else s.observe(i, routeNorm[i], routeNameEnd[i])
                 }
             }
-            if (soloSigla || hints.routesOnly) return s
+            if (soloSigla || routesOnly) return s
             for (i in stopNorm.indices) {
                 s.observe(routeNorm.size + i, stopNorm[i], stopNorm[i].length)
             }

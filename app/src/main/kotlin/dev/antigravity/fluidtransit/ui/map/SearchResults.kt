@@ -59,9 +59,16 @@ internal fun rememberSearchResults(
             value = Computed(query, emptyList())
             return@produceState
         }
+        // Se cambia un ingresso che non e' la query (l'indice, i luoghi che
+        // diventano pronti, il bundle di ieri/oggi) il risultato in mano e'
+        // della query di adesso ma non piu' di questi ingressi: senza, la
+        // ricerca risultava finita mentre ricalcolava, e con la lista vuota
+        // la barra diceva "Niente con questo nome" prima del risultato. Le
+        // righe restano a schermo; si marca solo che non e' ancora valido.
+        if (value.forQuery == query) value = Computed("", value.items)
         delay(FAST_DEBOUNCE_MS)
         val ref = dove()
-        val placeQuery = placeQueryOf(query)
+        val placeQueries = placeQueriesOf(query)
         val items = withContext(Dispatchers.Default) {
             val rLat = ref?.first ?: Double.NaN
             val rLon = ref?.second ?: Double.NaN
@@ -109,11 +116,13 @@ internal fun rememberSearchResults(
                     )
                 }
             }
-            val luoghi = if (placeQuery.length < MIN_PLACE_QUERY) {
-                emptyList()
-            } else {
-                placesReady?.search?.fast(placeQuery, PLACE_LIMIT, rLat, rLon).orEmpty()
-            }.map { h ->
+            val luoghi = placeQueries
+                .filter { it.length >= MIN_PLACE_QUERY }
+                .flatMap { placesReady?.search?.fast(it, PLACE_LIMIT, rLat, rLon).orEmpty() }
+                .distinctBy { "${it.kind}|${it.name}|${it.context}" }
+                .sortedByDescending { it.score }
+                .take(PLACE_LIMIT)
+                .map { h ->
                 Suggestion(
                     kind = "place",
                     key = "%.5f,%.5f".format(h.lat, h.lon),
@@ -136,25 +145,30 @@ internal fun rememberSearchResults(
         value = Computed(query, items)
     }
 
-    val civiciApply = civicSearchApplies(placeQueryOf(query), placesReady != null)
+    val civiciApply = placeQueriesOf(query).any { civicSearchApplies(it, placesReady != null) }
     val civici by produceState(initialValue = Computed("", emptyList()), query, placesReady) {
         value = Computed("", emptyList())
         // Un civico ha un numero dentro, e una via da sola non e' un civico:
         // chiedere l'indice dei civici per "via roma" costa e non serve.
-        val civicQuery = placeQueryOf(query)
-        if (placesReady == null || !civicSearchApplies(civicQuery, true)) {
+        val civicQueries = placeQueriesOf(query).filter { civicSearchApplies(it, true) }
+        if (placesReady == null || civicQueries.isEmpty()) {
             value = Computed(query, emptyList())
             return@produceState
         }
         delay(SLOW_DEBOUNCE_MS)
         val ref = dove()
         val items = withContext(Dispatchers.Default) {
-            placesReady.search.civici(
-                civicQuery,
-                CIVIC_LIMIT,
-                ref?.first ?: Double.NaN,
-                ref?.second ?: Double.NaN,
-            ).map { h ->
+            civicQueries.flatMap {
+                placesReady.search.civici(
+                    it,
+                    CIVIC_LIMIT,
+                    ref?.first ?: Double.NaN,
+                    ref?.second ?: Double.NaN,
+                )
+            }.distinctBy { "${it.name}|${it.context}" }
+                .sortedByDescending { it.score }
+                .take(CIVIC_LIMIT)
+                .map { h ->
                 Suggestion(
                     kind = "civic",
                     key = "%.5f,%.5f".format(h.lat, h.lon),
@@ -197,18 +211,24 @@ internal class SearchOutcome(
 private class Computed(val forQuery: String, val items: List<Suggestion>)
 
 /**
- * La query che va ai luoghi e ai civici: senza "linea", "fermata", "bus".
+ * Le query che vanno ai luoghi e ai civici: senza "linea", "fermata", "bus",
+ * E con la forma intera.
  *
  * "fermata careggi" arrivava ai luoghi con una parola che non sta in nessun
- * nome, e "bus 23" diventava una ricerca di vie che si chiamano "bus".
+ * nome, e "bus 23" diventava una ricerca di vie che si chiamano "bus". Ma
+ * "linea gotica", "terminal bus" e "via della corsa" hanno la parola-tipo
+ * DENTRO il nome: spogliarla e basta (e non cercare niente quando c'era una
+ * parola di linea) rispondeva "Niente con questo nome" per un luogo o una via
+ * che esistono. Quindi si cercano tutte e due le forme e i risultati si
+ * uniscono; l'unico caso in cui i luoghi non si cercano e' "linea 23", dove
+ * il resto e' una sigla e un luogo con un 23 dentro sarebbe rumore.
  */
-private fun placeQueryOf(query: String): String {
+internal fun placeQueriesOf(query: String): List<String> {
     val tokens = Relevance.tokens(query)
     val hints = Relevance.kindHints(tokens)
-    // "linea 23" chiede una linea: i luoghi e gli indirizzi con un 23 dentro
-    // sarebbero rumore, e non si cercano.
-    if (hints.routesOnly) return ""
-    return if (hints.rest.size == tokens.size) query else hints.text
+    if (hints.rest.size == tokens.size) return listOf(query)
+    if (hints.routesOnly && hints.restIsRouteCode) return emptyList()
+    return listOf(hints.text, query).distinct()
 }
 
 /** Il passo dei civici si fa solo per qualcosa che somiglia a un indirizzo. */

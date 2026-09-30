@@ -55,6 +55,7 @@ class PlacesSearchTest {
                 street("Via XXV Aprile", "Prato", 43.880, "4", "25", "40"),
                 street("Via 4 Novembre", "Empoli", 43.720, "4", "4A", "12", "40", "44"),
                 street("Via Bolognese", "Firenze", 43.800, "12", "14"),
+                street("Via Dante", "Siena", 43.318, "121", "12/1", "1/21"),
             ),
         )
         return f
@@ -138,6 +139,24 @@ class PlacesSearchTest {
             assertTrue(hits.any { it.name == "Via Roma 12/A" }, "'$q': ${hits.map { it.name }}")
         }
         assertEquals("Via Roma 12/A", s.civici("via roma 12/a").first().name)
+    }
+
+    @Test
+    fun `un indirizzo col CAP trova il civico e non prende il CAP per civico`() = search { s ->
+        // "Via Roma 12, 50123 Firenze" e' come si copia un indirizzo da Maps:
+        // l'ultimo numero e' il CAP, il civico e' il 12.
+        val nomi = s.civici("via roma 12 50123 firenze").map { it.name }
+        assertTrue("Via Roma 12" in nomi, "manca il 12: $nomi")
+    }
+
+    @Test
+    fun `121 e 12 barra 1 sono civici diversi`() = search { s ->
+        val cerca121 = s.civici("via dante 121").map { it.name }
+        assertTrue("Via Dante 121" in cerca121)
+        assertTrue("Via Dante 12/1" !in cerca121, "il 12/1 non e' il 121: $cerca121")
+        val internoUno = s.civici("via dante 12/1").map { it.name }
+        assertTrue("Via Dante 12/1" in internoUno, "$internoUno")
+        assertTrue("Via Dante 121" !in internoUno, "il 121 non e' il 12/1: $internoUno")
     }
 
     // --- #38: romani e cifre --------------------------------------------

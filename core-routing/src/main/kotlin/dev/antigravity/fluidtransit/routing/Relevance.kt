@@ -69,6 +69,16 @@ object Relevance {
     class KindHints(val rest: List<String>, val routesOnly: Boolean, val stopsOnly: Boolean) {
         /** La query spogliata, pronta da dare a chi ricerca. */
         val text: String get() = rest.joinToString(" ")
+
+        /**
+         * Il resto e' una sigla di linea ("23", "23a", "t1", "b"): solo allora
+         * "linea 23" non chiede luoghi ne' indirizzi. "linea gotica" o "bus
+         * firenze" hanno un resto che e' un nome, e i luoghi li cercano lo
+         * stesso.
+         */
+        val restIsRouteCode: Boolean
+            get() = rest.isNotEmpty() &&
+                (rest.all { t -> t.any { it.isDigit() } } || (rest.size == 1 && rest[0].length <= 2))
     }
 
     fun kindHints(tokens: List<String>): KindHints {

@@ -190,6 +190,18 @@ class SearchIndexTest {
     }
 
     @Test
+    fun `una parola-tipo dentro il nome non fa sparire la fermata`() {
+        // "Terminal Bus": spogliata la query cercava "terminal" fra le sole
+        // linee e rispondeva niente per una fermata che esiste.
+        val file = TestBundle.write(tmp, stopNames = listOf("Terminal Bus", "Via Linea Gotica", "Corso Gamma", "Borgo Delta"))
+        BundleReader(file).use { r ->
+            val idx = SearchIndex.build(r, null)
+            assertEquals("Terminal Bus", idx.search("terminal bus").firstOrNull()?.title)
+            assertEquals("Via Linea Gotica", idx.search("linea gotica").firstOrNull()?.title)
+        }
+    }
+
+    @Test
     fun `una parola-tipo da sola resta una ricerca normale`() {
         bundle().use { r ->
             val idx = SearchIndex.build(r, null)

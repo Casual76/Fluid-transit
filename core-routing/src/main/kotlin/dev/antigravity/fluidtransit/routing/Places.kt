@@ -85,8 +85,16 @@ object Places {
         // per i punti sarebbe "p" e "za", e la tabella non lo riconoscerebbe.
         class Part(val text: String, val dotted: Boolean)
         val parts = ArrayList<Part>(raw.size + 2)
-        for (r in raw) {
-            val whole = ABBREVIATIONS[r.replace(".", "")]
+        for ((ri, r) in raw.withIndex()) {
+            val key = r.replace(".", "")
+            // "sta" e "ple" sono anche l'inizio di parole comuni (stazione,
+            // stadio, plebiscito): a meta' digitazione, in fondo alla query,
+            // espanderle faceva sparire cio' che si stava scrivendo. Si
+            // espandono se portano il punto ("sta.", "p.le") o se dopo c'e'
+            // un'altra parola ("sta maria"). Sul lato indice sono parole
+            // intere, e il caso con la parola dopo basta.
+            val bare = key in WEAK_ABBREVIATIONS && '.' !in r && ri == raw.lastIndex
+            val whole = if (bare) null else ABBREVIATIONS[key]
             if (whole != null) {
                 parts.add(Part(whole, false))
                 continue
@@ -122,8 +130,26 @@ object Places {
     /** La parola e' il nome di un mese. */
     fun isMonth(word: String): Boolean = word in MONTHS
 
-    /** Il civico senza segni: "12/A", "12 a" e "12a" diventano la stessa cosa. */
-    fun civicKey(number: String): String = normalize(number).filter { it.isLetterOrDigit() }
+    /**
+     * Il civico senza segni: "12/A", "12 a" e "12a" diventano la stessa cosa.
+     *
+     * La barra (o il trattino) fra DUE CIFRE resta, come '/': "12/1" e' un
+     * interno, e togliendola diventava "121" — il civico di un'altra porta, che
+     * chi cercava il 121 si vedeva offrire come esatto insieme al 12/1. Fra
+     * cifra e lettera invece sparisce, perche' e' la stessa scrittura di "12a".
+     */
+    fun civicKey(number: String): String {
+        val n = normalize(number)
+        val sb = StringBuilder(n.length)
+        for ((i, c) in n.withIndex()) {
+            when {
+                c.isLetterOrDigit() -> sb.append(c)
+                (c == '/' || c == '-') && sb.isNotEmpty() && sb.last().isDigit() &&
+                    n.getOrNull(i + 1)?.isDigit() == true -> sb.append('/')
+            }
+        }
+        return sb.toString()
+    }
 
     /**
      * Il valore di un numero romano da 1 a 31, o null.
@@ -169,6 +195,8 @@ object Places {
      * ricerca riscrive. Le sigle di una lettera ("s", "v") non stanno qui ma
      * in [searchForm], perche' dipendono da cio' che hanno accanto.
      */
+    private val WEAK_ABBREVIATIONS = setOf("sta", "ple")
+
     private val ABBREVIATIONS = mapOf(
         "pza" to "piazza", "pzza" to "piazza", "ple" to "piazzale", "pzle" to "piazzale",
         "vle" to "viale", "cso" to "corso", "pta" to "porta", "vlo" to "vicolo",
@@ -517,13 +545,21 @@ class PlacesSearch(private val reader: PlacesReader) {
         refLon: Double = Double.NaN,
     ): List<Hit> {
         val tokens = Relevance.tokens(query)
-        val digitAt = tokens.indices.filter { tokens[it].first().isDigit() }
+        val allDigitAt = tokens.indices.filter { tokens[it].first().isDigit() }
+        // Un indirizzo completo ("via roma 12 50123 firenze") ha il CAP dopo il
+        // civico: cinque cifre sono un CAP, non un numero civico, e fra piu'
+        // numeri si scartano. Con un numero solo si lasciano com'e': una via
+        // con un numero di cinque cifre nel nome non esiste, ma non si
+        // inventa un'esclusione.
+        val cap = allDigitAt.filter { isPostalCode(tokens[it]) }
+        val dropCap = allDigitAt.size > cap.size
+        val digitAt = if (dropCap) allDigitAt - cap.toSet() else allDigitAt
         val at = digitAt.lastOrNull() ?: return emptyList()
         val oneNumber = digitAt.size == 1
         if (oneNumber && at + 1 < tokens.size && Places.isMonth(tokens[at + 1])) return emptyList()
         val numberToken = tokens[at]
         val number = Places.civicKey(numberToken)
-        val nameTokens = tokens.filterIndexed { i, _ -> i != at }
+        val nameTokens = tokens.filterIndexed { i, _ -> i != at && !(dropCap && i in cap) }
         if (nameTokens.isEmpty()) return emptyList()
         val hasRef = !refLat.isNaN() && !refLon.isNaN()
         val index = streetNorm
@@ -589,6 +625,8 @@ class PlacesSearch(private val reader: PlacesReader) {
         out.sortByDescending { it.score }
         return out.take(limit)
     }
+
+    private fun isPostalCode(token: String): Boolean = token.length == 5 && token.all { it.isDigit() }
 
     /** Il token e' una parola intera del NOME della via [s] (non del contorno). */
     private fun numberInName(index: Norm, s: Int, token: String): Boolean =

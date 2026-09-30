@@ -2,6 +2,7 @@ package dev.antigravity.fluidtransit.routing
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
@@ -32,6 +33,19 @@ class SearchFormTest {
         assertEquals("san marco", f("S.Marco"))
         assertEquals("san croce", f("s croce"))
         assertEquals("santa maria novella", f("Sta. Maria Novella"))
+    }
+
+    @Test
+    fun `sta e ple in fondo alla query restano quello che si sta scrivendo`() {
+        // A meta' digitazione "sta" e' l'inizio di stazione e stadio, e "ple"
+        // di plebiscito: espanderle in santa/piazzale faceva sparire i risultati.
+        assertEquals("sta", f("sta"))
+        assertEquals("via ple", f("via ple"))
+        // Col punto, o con una parola dopo, sono abbreviazioni vere.
+        assertEquals("santa", f("sta."))
+        assertEquals("piazzale michelangelo", f("p.le Michelangelo"))
+        assertEquals("piazzale michelangelo", f("ple Michelangelo"))
+        assertEquals("santa maria novella", f("sta Maria Novella"))
     }
 
     @Test
@@ -117,6 +131,10 @@ class SearchFormTest {
         assertEquals("12a", Places.civicKey("12 a"))
         assertEquals("12a", Places.civicKey("12a"))
         assertNotEquals(Places.civicKey("12"), Places.civicKey("120"))
+        // Fra due cifre la barra e' un interno, non un segno da togliere.
+        assertNotEquals(Places.civicKey("12/1"), Places.civicKey("121"))
+        assertNotEquals(Places.civicKey("3/4"), Places.civicKey("34"))
+        assertEquals("10/12", Places.civicKey("10-12"))
     }
 
     // --- i suggerimenti di tipo ---------------------------------------------
@@ -158,5 +176,14 @@ class SearchFormTest {
         val h = Relevance.kindHints(Relevance.tokens("linea fermata duomo"))
         assertEquals(listOf("duomo"), h.rest)
         assertTrue(!h.routesOnly && !h.stopsOnly)
+    }
+
+    @Test
+    fun `la parola-tipo con un resto che e' un nome non e' una sigla di linea`() {
+        assertTrue(Relevance.kindHints(Relevance.tokens("linea 23")).restIsRouteCode)
+        assertTrue(Relevance.kindHints(Relevance.tokens("bus 23a")).restIsRouteCode)
+        assertTrue(Relevance.kindHints(Relevance.tokens("linea t1")).restIsRouteCode)
+        assertFalse(Relevance.kindHints(Relevance.tokens("linea gotica")).restIsRouteCode)
+        assertFalse(Relevance.kindHints(Relevance.tokens("bus firenze")).restIsRouteCode)
     }
 }

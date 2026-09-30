@@ -7,9 +7,12 @@ import dev.antigravity.fluidtransit.routing.BundleReader
 import dev.antigravity.fluidtransit.routing.Ftb
 import dev.antigravity.fluidtransit.routing.DepartureText
 import dev.antigravity.fluidtransit.routing.Times
+import dev.antigravity.fluidtransit.routing.WhenText
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import kotlinx.serialization.json.JsonObject
 
 private const val NO_DATA = "errore: gli orari non sono ancora scaricati"
@@ -142,13 +145,13 @@ class RoutePathTool : AiTool {
 class StopDayScheduleTool : AiTool {
   override val name = "orari_fermata_giorno"
   override val group = ToolGroup.SCHEDULE
-  override val description = "Gli orari di una fermata in un giorno e in una fascia oraria (default oggi dalle 6 alle 22), anche per una linea sola. Per \"a che ora passa il primo bus domani?\"."
+  override val description = "Gli orari di una fermata in un giorno, anche per una linea sola. Senza fascia oraria: tutto il giorno, dal primo all'ultimo mezzo, comprese le corse dopo mezzanotte. Per \"a che ora passa il primo bus domani?\", \"che bus passano stanotte fra le 23 e le 2?\"."
   override val parameters = Schema.obj(
     mapOf(
       "fermata" to Schema.str("il nome della fermata; vuoto per la piu' vicina"),
       "giorno" to Schema.str("oggi, domani, o una data aaaa-mm-gg"),
-      "dalle" to Schema.str("ora di inizio, es. 07:00"),
-      "alle" to Schema.str("ora di fine, es. 09:00"),
+      "dalle" to Schema.str("ora di inizio, es. 07:00; vuoto = dall'inizio del giorno"),
+      "alle" to Schema.str("ora di fine, es. 09:00; puo' cadere dopo mezzanotte (dalle 23:00 alle 02:00; anche 26:00 = le 02:00 di notte); vuoto = fino all'ultima corsa"),
       "linea" to Schema.str("solo una linea (facoltativo)"),
     ),
   )
@@ -163,36 +166,63 @@ class StopDayScheduleTool : AiTool {
       "dopodomani" -> today.plusDays(2)
       else -> runCatching { LocalDate.parse(raw) }.getOrNull() ?: return "errore: giorno non capito (oggi, domani, o aaaa-mm-gg)"
     }
-    val from = parseMinutes(args.str("dalle")) ?: 6 * 60
-    val to = parseMinutes(args.str("alle")) ?: 22 * 60
+    // Un giorno fuori dal bundle non e' un giorno senza corse: `nextDepartures` lo salta e
+    // tornerebbe una lista vuota, cioe' "non passa niente" detto come un fatto del mondo mentre
+    // e' un buco dei nostri dati.
+    val dayIndex = ChronoUnit.DAYS.between(reader.feedStart, date)
+    if (dayIndex < 0 || dayIndex >= reader.dayCount) {
+      val ultimo = reader.feedStart.plusDays(reader.dayCount - 1L)
+      return "errore: gli orari scaricati coprono dal ${Times.dateLabel(reader.feedStart, today, relative = false)} " +
+        "al ${Times.dateLabel(ultimo, today, relative = false)}, per quel giorno non so cosa passa"
+    }
+    // Una fascia non capita si dice, non si sostituisce con un'altra: rispondere su un'ora diversa
+    // da quella chiesta e' peggio che chiedere di riprovare.
+    val window = DayWindow.parse(
+      args.str("dalle"),
+      args.str("alle"),
+      DayWindow.serviceDayEndMinutes(reader.maxTripEndSeconds),
+    ) ?: return "errore: fascia oraria non capita (es. dalle 07:00 alle 09:00, anche oltre mezzanotte: dalle 23:00 alle 02:00)"
     val dayStart = Ftb.serviceDayStart(date, ctx.zone)
-    val start = dayStart.plusSeconds(from * 60L)
-    val horizon = ((to - from) * 60).coerceAtLeast(60)
+    val start = dayStart.plusSeconds(window.fromMinutes * 60L)
     val lineFilter = args.str("linea")?.let { q -> ctx.transit.findRoutes(q, 1).firstOrNull()?.routeIndex }
-    val departures = reader.nextDepartures(stop, start, limit = 60, horizonSeconds = horizon, zone = ctx.zone)
+    // Senza tetto: `corse` deve essere il totale vero, e "prima" e "ultima" quelle vere. Con
+    // `limit = 60` il numero si fermava a sessanta e l'ultimo bus della giornata non c'era.
+    val departures = reader.nextDepartures(stop, start, limit = Int.MAX_VALUE, horizonSeconds = window.horizonSeconds, zone = ctx.zone)
       .filter { lineFilter == null || it.routeIndex == lineFilter }
-    if (departures.isEmpty()) return "da ${reader.stopName(stop)} non passa niente il $date fra le ${label(from)} e le ${label(to)}"
+    // Il giorno con le parole di `Times.dateLabel`: al modello serve sapere che "domani" e' il 1
+    // ottobre, ma a chi legge la risposta non va detto "2026-10-01".
+    val giornoEsteso = Times.dateLabel(date, today, relative = false)
+    val giornoRelativo = Times.dateLabel(date, today)
+    if (departures.isEmpty()) {
+      return "da ${reader.stopName(stop)} non passa niente il $giornoEsteso fra le ${label(window.fromMinutes)} e le ${label(window.toMinutes)}"
+    }
     return ToolText.build {
       line("fermata", reader.stopName(stop))
-      line("giorno", "$date, dalle ${label(from)} alle ${label(to)}")
+      val giorno = if (giornoRelativo == giornoEsteso) giornoEsteso else "$giornoRelativo, $giornoEsteso"
+      line("giorno", "$giorno, dalle ${label(window.fromMinutes)} alle ${label(window.toMinutes)}")
       line("corse", departures.size)
-      departures.take(40).forEach { d ->
-        line("${Times.hhmm(d.instant.epochSecond, ctx.zone)} · ${reader.lineName(d.routeIndex)} → ${reader.patternDestination(d.patternIndex)}")
-      }
-      if (departures.size > 40) line("altre", departures.size - 40)
+      // Prima e ultima stanno sopra l'elenco: e' l'elenco che il tetto di caratteri taglia in
+      // fondo, e "a che ora finisce il servizio" e' proprio la riga che non deve mancare.
+      line("prima", describe(reader, departures.first(), date, ctx.zone))
+      if (departures.size > 1) line("ultima", describe(reader, departures.last(), date, ctx.zone))
+      departures.take(SHOWN).forEach { d -> line(describe(reader, d, date, ctx.zone)) }
+      if (departures.size > SHOWN) line("elenco", "prime $SHOWN di ${departures.size}")
       line("nota", "sono orari previsti dall'orario ufficiale, non dati dal vivo")
     }
   }
 
-  private fun parseMinutes(raw: String?): Int? {
-    val m = Regex("(\\d{1,2})[:.]?(\\d{2})?").find(raw?.trim().orEmpty()) ?: return null
-    val h = m.groupValues[1].toIntOrNull()?.takeIf { it in 0..29 } ?: return null
-    return h * 60 + (m.groupValues[2].toIntOrNull() ?: 0)
-  }
+  /** Un passaggio: l'ora come sulla tabella del giorno ("01:13 di notte" dopo la mezzanotte), la linea, il capolinea. */
+  private fun describe(reader: BundleReader, d: BundleReader.Departure, date: LocalDate, zone: ZoneId): String =
+    "${WhenText.clockOnDay(d.instant.epochSecond, date, zone)} · ${reader.lineName(d.routeIndex)} → ${reader.patternDestination(d.patternIndex)}"
 
-  // `parseMinutes` accetta fino alle 29, perche' "fino alle 25" e' una cosa
-  // che si dice: l'eco non deve rispondere "01:00" come se fosse stamattina.
-  private fun label(minutes: Int): String = Times.serviceTime(minutes * 60)
+  // Le ore oltre le 24 sono fascia che attraversa la mezzanotte, e "fino alle 25" e' una cosa che
+  // si dice: l'eco non deve rispondere "01:00" come se fosse stamattina.
+  private fun label(minutes: Int): String = WhenText.serviceClock(minutes * 60)
+
+  private companion object {
+    /** Quante righe scrivere: oltre, il testo per il modello sfora il suo tetto di caratteri. */
+    const val SHOWN = 40
+  }
 }
 
 /** "Quando passa il prossimo per il centro": la linea giusta scelta dalla destinazione. */
@@ -278,14 +308,20 @@ class WhenToLeaveTool : AiTool {
       ?: return "errore: non so da dove parti"
     val arriveBy = Resolve.timeToday(ctx, args.str("entro")) ?: return "errore: ora di arrivo non capita (es. 08:30)"
     val journeys = ctx.transit.plan(from.lat, from.lon, to.lat, to.lon, departAtEpoch = null, arriveByEpoch = arriveBy)
-    if (journeys.isEmpty()) return "nessun itinerario per arrivare a ${to.name} entro le ${Times.hhmm(arriveBy, ctx.zone)}"
+    if (journeys.isEmpty()) {
+      val giorno = WhenText.dayWord(arriveBy, ctx.nowEpoch, ctx.zone)?.let { " ($it)" }.orEmpty()
+      return "nessun itinerario per arrivare a ${to.name} entro le ${Times.hhmm(arriveBy, ctx.zone)}$giorno"
+    }
     val best = journeys.maxByOrNull { it.departure }!!
     return ToolText.build {
       line("da", from.name)
       line("a", to.name)
-      line("per arrivare entro", Times.hhmm(arriveBy, ctx.zone))
-      line("parti alle", "${Times.hhmm(best.departure.epochSecond, ctx.zone)} (${Times.minutesLabel(ctx.nowEpoch, best.departure.epochSecond)})")
-      line("arrivo previsto", Times.hhmm(best.arrival.epochSecond, ctx.zone))
+      // Ogni orario dice il suo giorno quando non e' oggi, e la partenza dice fra quanto con le
+      // stesse parole delle altre superfici: alle 23:00 "parti alle 06:40 (461 min)" era la
+      // partenza di domattina scritta come un numero da dividere per sessanta, senza il giorno.
+      line("per arrivare entro", WhenText.clock(arriveBy, ctx.nowEpoch, ctx.zone))
+      line("parti", WhenText.atClockWithWait(best.departure.epochSecond, ctx.nowEpoch, ctx.zone))
+      line("arrivo previsto", WhenText.clock(best.arrival.epochSecond, ctx.nowEpoch, ctx.zone))
       // Le stesse parole delle schermate: la durata dalla funzione condivisa,
       // che sopra l'ora dice le ore — un viaggio notturno da quattro ore si
       // presentava come "250 minuti" — e il cambio al singolare quando e' uno
@@ -299,7 +335,7 @@ class WhenToLeaveTool : AiTool {
         "durata",
         "${Times.durationBetween(best.departure.epochSecond, best.arrival.epochSecond)} · $cambi",
       )
-      if (journeys.size > 1) line("alternative", journeys.sortedByDescending { it.departure }.drop(1).take(2).joinToString("; ") { "parti alle ${Times.hhmm(it.departure.epochSecond, ctx.zone)}" })
+      if (journeys.size > 1) line("alternative", journeys.sortedByDescending { it.departure }.drop(1).take(2).joinToString("; ") { "parti ${WhenText.atClock(it.departure.epochSecond, ctx.nowEpoch, ctx.zone)}" })
     }
   }
 }

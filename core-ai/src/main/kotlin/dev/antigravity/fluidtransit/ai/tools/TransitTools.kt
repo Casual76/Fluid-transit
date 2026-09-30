@@ -7,6 +7,7 @@ import dev.antigravity.fluidtransit.routing.Ftb
 import dev.antigravity.fluidtransit.routing.Raptor
 import dev.antigravity.fluidtransit.routing.DepartureText
 import dev.antigravity.fluidtransit.routing.Times
+import dev.antigravity.fluidtransit.routing.WhenText
 import dev.antigravity.fluidtransit.routing.Words
 import java.time.Instant
 import java.time.LocalTime
@@ -415,8 +416,12 @@ class JourneyTool : AiTool {
                     1 -> "1 cambio"
                     else -> "${j.transfers} cambi"
                 }
+                // Il giorno compare quando non e' oggi: "parti_alle 7:30" detto alle 23:00
+                // e' domattina (`Resolve.timeToday` sposta l'ora passata a domani), e
+                // "07:30 → 08:10" senza altro si leggeva come un viaggio di stasera.
                 line(
-                    "${Times.hhmm(j.departure.epochSecond)} → ${Times.hhmm(j.arrival.epochSecond)} " +
+                    "${WhenText.clock(j.departure.epochSecond, ctx.nowEpoch, ctx.zone)} → " +
+                        "${WhenText.clock(j.arrival.epochSecond, ctx.nowEpoch, ctx.zone)} " +
                         // Contata fra i due orari appena scritti: "10:26 →
                         // 10:51 (24 min)" e' una sottrazione che non torna,
                         // e letta ad alta voce e' peggio che scritta.

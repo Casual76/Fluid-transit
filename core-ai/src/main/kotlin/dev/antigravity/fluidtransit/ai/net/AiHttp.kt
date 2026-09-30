@@ -6,8 +6,12 @@ import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.isActive
@@ -50,8 +54,10 @@ class AiHttp(
     withContext(io) {
       val connection = open(url, "POST", headers, streaming = false)
       try {
-        writeJson(connection, body)
-        readResponse(connection)
+        blocking(connection) {
+          writeJson(connection, body)
+          readResponse(connection)
+        }
       } catch (t: Throwable) {
         throw AiErrorMapper.wrap(t)
       } finally {
@@ -62,7 +68,7 @@ class AiHttp(
   suspend fun getJson(url: String, headers: Map<String, String>): AiResponse = withContext(io) {
     val connection = open(url, "GET", headers, streaming = false)
     try {
-      readResponse(connection)
+      blocking(connection) { readResponse(connection) }
     } catch (t: Throwable) {
       throw AiErrorMapper.wrap(t)
     } finally {
@@ -82,15 +88,17 @@ class AiHttp(
     val parts = MultipartBody.build(fields, fileFieldName, fileName, fileMime)
     val connection = open(url, "POST", headers, streaming = false)
     try {
-      connection.doOutput = true
-      connection.setRequestProperty("Content-Type", parts.contentType)
-      connection.setFixedLengthStreamingMode(parts.contentLength(file.length()))
-      connection.outputStream.use { out ->
-        out.write(parts.prelude)
-        file.inputStream().use { it.copyTo(out) }
-        out.write(parts.epilogue)
+      blocking(connection) {
+        connection.doOutput = true
+        connection.setRequestProperty("Content-Type", parts.contentType)
+        connection.setFixedLengthStreamingMode(parts.contentLength(file.length()))
+        connection.outputStream.use { out ->
+          out.write(parts.prelude)
+          file.inputStream().use { it.copyTo(out) }
+          out.write(parts.epilogue)
+        }
+        readResponse(connection)
       }
-      readResponse(connection)
     } catch (t: Throwable) {
       throw AiErrorMapper.wrap(t)
     } finally {
@@ -138,6 +146,43 @@ class AiHttp(
     awaitClose {
       connection.disconnect()
       reader.cancel()
+    }
+  }
+
+  /**
+   * Una richiesta bloccante che la cancellazione ferma davvero.
+   *
+   * Una lettura su `HttpURLConnection` non vede la cancellazione delle coroutine: un `withTimeout`
+   * attorno a una richiesta muta aspettava comunque i dieci secondi di connessione e i sessanta di
+   * lettura, e "il tempo massimo" non era un tempo massimo — la trascrizione di una domanda
+   * parlata restava sotto il suo cerchio per minuti, senza rete vera. Come per lo streaming,
+   * l'unico modo di interrompere una socket e' `disconnect()` da un altro thread: un guardiano
+   * aspetta la cancellazione e chiude la connessione, e la lettura ferma cade con un'eccezione.
+   *
+   * Quell'eccezione e' un effetto della cancellazione, non un errore di rete: se il chiamante e'
+   * stato cancellato si lascia passare la cancellazione (cosi' un `withTimeoutOrNull` risponde
+   * null e non "niente rete"), altrimenti l'errore e' quello vero.
+   *
+   * Il guardiano parte subito (`UNDISPATCHED`): se aspettasse il suo turno sul pool, una
+   * cancellazione arrivata prima lo troverebbe gia' cancellato, senza corpo e senza `disconnect()`,
+   * e la richiesta girerebbe fino in fondo.
+   */
+  private suspend fun <T> blocking(connection: HttpURLConnection, block: () -> T): T = coroutineScope {
+    val guard = launch(io, start = CoroutineStart.UNDISPATCHED) {
+      try {
+        awaitCancellation()
+      } finally {
+        runCatching { connection.disconnect() }
+      }
+    }
+    try {
+      ensureActive()
+      block()
+    } catch (t: Throwable) {
+      ensureActive()
+      throw t
+    } finally {
+      guard.cancel()
     }
   }
 

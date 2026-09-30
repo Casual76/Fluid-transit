@@ -16,6 +16,7 @@ import java.io.File
 import java.time.ZoneId
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.ceil
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -226,19 +227,28 @@ class AssistantSession(
                         val vocabulary = transit.savedPlaces().map { it.name } +
                             transit.favouriteStops().map { it.name } +
                             transit.favouriteRouteNames()
-                        val transcription = try {
-                            transcriber.transcribe(
-                                event.file,
-                                LANGUAGE,
-                                Transcriber.hint(LANGUAGE, vocabulary),
-                            )
+                        // Un tetto anche qui, come la domanda scritta ha i suoi 90
+                        // secondi: su un collegamento morto ma "connesso" la
+                        // trascrizione restava sotto "Un attimo..." fino a dieci
+                        // secondi di connessione piu' sessanta di lettura, per ogni
+                        // provider. Il timeout delle coroutine da solo non basta,
+                        // perche' la socket non si lascia interrompere: a fermare
+                        // davvero la richiesta ci pensa AiHttp, che alla
+                        // cancellazione chiude la connessione.
+                        val heard = try {
+                            withTimeoutOrNull(TRANSCRIPTION_LIMIT_MILLIS) {
+                                transcriber.transcribe(
+                                    event.file,
+                                    LANGUAGE,
+                                    Transcriber.hint(LANGUAGE, vocabulary),
+                                )
+                            }
                         } catch (e: CancellationException) {
                             throw e
-                        } catch (e: AiError.Unauthorized) {
-                            throw AssistantFailure(FailureKind.UNAUTHORIZED, e)
                         } catch (e: Throwable) {
-                            throw AssistantFailure(FailureKind.TRANSCRIPTION, e as? AiError)
+                            throw transcriptionFailure(e)
                         }
+                        val transcription = heard ?: throw AssistantFailure(FailureKind.TIMEOUT, null)
                         result = transcription.text.takeIf { it.isNotBlank() }
                         if (result == null) stateFlow.value = AssistantState.HeardNothing
                     }
@@ -251,6 +261,21 @@ class AssistantSession(
         }
         return result
     }
+
+    /**
+     * Il guasto di una trascrizione, con la sua vera ragione.
+     *
+     * Prima ogni errore diventava "Non sono riuscito a capire l'audio", anche quando l'audio era
+     * perfetto e mancava la rete: su un treno senza campo l'utente alzava la voce e ripeteva, e non
+     * serviva a niente. Solo quello che davvero non si capisce (una richiesta rifiutata, una risposta
+     * illeggibile) resta una trascrizione fallita; il resto dice quello che la domanda scritta dice
+     * gia': niente rete, ci ha messo troppo, il servizio e' a limite.
+     */
+    private fun transcriptionFailure(e: Throwable): AssistantFailure = AssistantFailure(
+        kind = FailureKind.of(e, other = FailureKind.TRANSCRIPTION),
+        error = e as? AiError,
+        retryAfterSec = (e as? AiError.RateLimited)?.retryAfterSec?.let { ceil(it).toInt() },
+    )
 
     private suspend fun run(question: String, mode: AskMode) {
         val now = clock()
@@ -352,6 +377,13 @@ class AssistantSession(
 
     companion object {
         const val CONFIRMATION_TIMEOUT_MILLIS = 60_000L
+
+        /**
+         * Quanto aspettare la trascrizione di una domanda parlata (al piu' trenta secondi di WAV).
+         * Abbastanza per caricare mezzo mega su un collegamento lento, poco per non lasciare un
+         * cerchio che gira per minuti.
+         */
+        const val TRANSCRIPTION_LIMIT_MILLIS = 40_000L
 
         /** L'app e' in italiano, e i dati pure: la lingua non e' una variabile. */
         const val LANGUAGE = "it"

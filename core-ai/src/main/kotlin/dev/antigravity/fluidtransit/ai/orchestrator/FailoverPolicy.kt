@@ -58,7 +58,7 @@ class FailoverPolicy(
       is AiError.Server, is AiError.Timeout, is AiError.Network -> when {
         retriesDone < 1 && budgetRemainingMillis > 20_000 -> FailoverDecision.RetrySame
         next != null -> FailoverDecision.Switch(next)
-        else -> FailoverDecision.Fail(if (error is AiError.Timeout) FailureKind.TIMEOUT else if (error is AiError.Network) FailureKind.NETWORK else FailureKind.PROVIDER, null)
+        else -> FailoverDecision.Fail(FailureKind.of(error), null)
       }
       is AiError.Unauthorized -> FailoverDecision.Fail(FailureKind.UNAUTHORIZED, null)
       is AiError.BadRequest -> if (error.message.orEmpty().startsWith("bloccato")) FailoverDecision.Fail(FailureKind.BLOCKED, null) else FailoverDecision.Fail(FailureKind.PROVIDER, null)

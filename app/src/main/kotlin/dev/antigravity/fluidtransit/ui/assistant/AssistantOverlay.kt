@@ -11,10 +11,10 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.antigravity.fluidengine.ui.fluid.ContinuousCornerShape
@@ -130,11 +131,18 @@ fun AssistantOverlay(
             ),
     ) {
         // --- testata: cosa sta facendo, e come si chiude --------------------
+        //
+        // Senza un'altezza fissa. La frase di stato o d'errore ("Serve una
+        // chiave: mettila in Impostazioni -> Assistente") col carattere grande
+        // va su tre o quattro righe, e con 46 dp fissi se ne vedeva una e
+        // mezza, tagliata senza puntini: proprio la parte che dice cosa fare.
+        // Adesso la riga cresce col testo (il minimo e' quello di prima) e, se
+        // un carattere enorme non bastasse lo stesso, la frase finisce in "...".
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = 20.dp, end = 8.dp)
-                .height(46.dp),
+                .heightIn(min = 46.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Halo(level = mic.level, speaking = mic.speaking, busy = state.isBusy)
@@ -143,8 +151,11 @@ fun AssistantOverlay(
                 text = if (pending != null) "Confermi?" else statusText(state),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 5,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .weight(1f)
+                    .padding(vertical = 6.dp)
                     .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite },
             )
             Icon(
@@ -171,9 +182,19 @@ fun AssistantOverlay(
         val body = answerText(state)
         if (body.isNotBlank()) {
             FluidHairline(modifier = Modifier.padding(horizontal = 20.dp))
+            // Il corpo prende quello che resta, non uno spazio fisso. Con la
+            // tastiera aperta e una risposta lunga a carattere grande il tetto
+            // di 280 dp veniva misurato per primo, e la riga per scrivere in
+            // fondo restava con gli avanzi: campo e tasto tagliati a meta', o
+            // spariti del tutto se c'erano anche i chip. Con weight(1f, fill =
+            // false) la Column misura prima testata, chip, conferma e riga di
+            // ingresso, e la risposta scorre nello spazio che avanza (al piu'
+            // 280 dp, come prima). L'imePadding in cima le da' un'altezza
+            // massima, che e' quello che serve al weight.
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .weight(1f, fill = false)
                     .heightIn(max = 280.dp)
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 12.dp),
@@ -187,12 +208,20 @@ fun AssistantOverlay(
         val chips = (state as? AssistantState.Done)?.chips.orEmpty()
             .filterIsInstance<dev.antigravity.fluidtransit.ai.orchestrator.AnswerChip.Place>()
         if (chips.isNotEmpty()) {
-            Row(
+            // I chip vanno a capo invece di stare tutti su una riga. Coi nomi
+            // veri delle fermate ("STAZIONE SANTA MARIA NOVELLA", "SODERINI
+            // TORRINO SANTA ROSA") il primo si prendeva quasi tutta la
+            // larghezza e gli altri ricevevano quaranta dp, con il testo a capo
+            // ogni due lettere: il pannello diventava alto come lo schermo e la
+            // riga per scrivere restava senza spazio. Nel FlowRow ogni chip ha
+            // al piu' la larghezza intera, e se non ci sta va sotto.
+            FlowRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp)
                     .padding(bottom = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 for (chip in chips.take(3)) {
                     GlassActionButton(

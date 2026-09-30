@@ -19,7 +19,32 @@ sealed interface AnswerChip {
 }
 
 /** Perche' e' andata male, in termini che la UI sa tradurre in una frase. */
-enum class FailureKind { NO_KEYS, UNAUTHORIZED, RATE_LIMITED, NETWORK, TIMEOUT, BLOCKED, PROVIDER, MICROPHONE, TRANSCRIPTION, NO_LOCATION, UNKNOWN }
+enum class FailureKind {
+  NO_KEYS, UNAUTHORIZED, RATE_LIMITED, NETWORK, TIMEOUT, BLOCKED, PROVIDER, MICROPHONE, TRANSCRIPTION, NO_LOCATION, UNKNOWN;
+
+  companion object {
+    /**
+     * Da un errore del provider alla ragione che si dice all'utente: una tabella sola, usata da chi
+     * sceglie il ripiego (`FailoverPolicy`) e da chi trascrive la voce (`AssistantSession`).
+     *
+     * Prima la trascrizione le dava tutte la stessa faccia, "Non sono riuscito a capire l'audio":
+     * su un treno senza campo l'audio era perfetto e il guasto era la rete, ma la frase spingeva a
+     * parlare piu' forte e a ripetere. La domanda scritta, che passava dal ripiego, diceva gia'
+     * "Niente rete". Cosi' le due strade dicono la stessa cosa dello stesso guasto.
+     *
+     * @param other cosa dire per gli errori che non sono di chiave, di limite o di rete (un 400, una
+     *   risposta che non si capisce, un'eccezione che non conosciamo): dipende da chi chiede.
+     */
+    fun of(error: Throwable, other: FailureKind = UNKNOWN): FailureKind = when (error) {
+      is AiError.Unauthorized -> UNAUTHORIZED
+      is AiError.RateLimited -> RATE_LIMITED
+      is AiError.Timeout -> TIMEOUT
+      is AiError.Network -> NETWORK
+      is AiError.Server -> PROVIDER
+      else -> other
+    }
+  }
+}
 
 /**
  * Lo stato dell'assistente, uno solo per volta: la UI lo osserva e disegna aureola, card e

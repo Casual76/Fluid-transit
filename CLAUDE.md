@@ -190,6 +190,17 @@ di te e restava allo zoom della regione. Zoom e inclinazione vanno dentro
 un Samsung "Settembre": un difetto che nessun test puo' vedere. Stanno in
 `Words.month` e `Words.weekday`.
 
+**Una `MapView` che esce di scena si chiude per intero, non solo con
+`onDestroy`.** La mappa esce dalla composizione anche con l'attivita' viva
+(basta passare a Oggi), e MapLibre ferma il componente della posizione in
+`onStop`: saltarlo lascia il motore della posizione a consegnare
+aggiornamenti a una mappa distrutta, e al primo che anima la camera in
+"seguimi" l'app si chiude con un NullPointerException dentro
+`LocationAnimatorCoordinator`, cioe' dentro MapLibre, minuti dopo e lontano
+dalla mappa. Visto su un Galaxy S25; `TransitMap` adesso fa pausa, stop e
+distruzione secondo lo stato del ciclo di vita, e il controller lascia
+andare la mappa distrutta.
+
 **Gli stili di OpenFreeMap preferiscono l'inglese** (`coalesce(name_en,
 name)`): "Florence", "TUSCANY". `localizeLabels` li riporta a `name:it`
 al caricamento dello stile; uno stile nuovo va controllato li'.

@@ -80,6 +80,30 @@ velatura un po' piu' coprente per i pannelli con righe di testo, o le
 etichette della basemap attenuate quando un pannello e' aperto. Scelta
 d'aspetto, quindi da decidere. — 30/09/2026
 
+**"Perche' questo numero" da' la colpa al feed anche quando la rete e' nostra.**
+Col telefono offline una riga "orario da tabella" apre una spiegazione che
+dice che la Regione non pubblica quella corsa: e' falso, non sappiamo niente
+perche' non arriviamo al proxy. Serve che la spiegazione sappia com'e' il
+collegamento (una piccola sorgente comune in core-routing, passata dalla
+mappa e da Oggi) — trovato dal giro di scoperta, rimandato perche' tocca tre
+schermate. — 30/09/2026
+
+**L'offerta di aggiornare gli orari sui dati mobili si vede solo in Stato dei
+dati.** Con orari in scadenza e rete a consumo l'app non scarica da sola e
+chiede, come deciso; ma la domanda sta in Impostazioni > Stato dei dati, e il
+tabellone intanto dice "orari scaduti... non ne arrivano di nuovi", che con
+un'offerta aperta non e' vero. Da fare: la frase di `DepartureText` che
+conosce l'offerta, e un invito sulla mappa. — 30/09/2026
+
+**Negli itinerari "dal vivo" e il ritardo non si leggono a voce per intero.**
+La capsula "qui intorno" ha la sua descrizione per TalkBack; le righe delle
+soluzioni di viaggio no, e un pallino che pulsa e un colore restano muti.
+— 30/09/2026
+
+**I tasti dei posti nominati dall'assistente vanno a capo senza limite.** La
+fila adesso va a capo invece di schiacciarli, ma un nome di fermata molto
+lungo occupa piu' righe: serve un `maxLines` sul tasto di vetro. — 30/09/2026
+
 **Mentre si cammina verso la fermata il bus puo' essere gia' passato, e la
 card non lo dice.** Visto sull'emulatore il 30/09: camminando verso Piazza
 Dalmazia per la 20 delle 14:00, alle 13:58 il mezzo assegnato a quella corsa

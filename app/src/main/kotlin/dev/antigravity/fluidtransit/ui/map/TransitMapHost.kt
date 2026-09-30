@@ -1194,15 +1194,19 @@ class TransitMapController(private val context: Context) {
         val m = map ?: return
         if (!locationEnabled) return
         val component = m.locationComponent
-        if (!component.isLocationComponentActivated) {
-            component.activateLocationComponent(
-                LocationComponentActivationOptions.builder(context, style)
-                    .useDefaultLocationEngine(true)
-                    .build(),
-            )
+        // Con la sola posizione approssimativa il motore di serie puo'
+        // rifiutarsi: meglio una mappa senza puntino che un'app che si chiude.
+        runCatching {
+            if (!component.isLocationComponentActivated) {
+                component.activateLocationComponent(
+                    LocationComponentActivationOptions.builder(context, style)
+                        .useDefaultLocationEngine(true)
+                        .build(),
+                )
+            }
+            component.isLocationComponentEnabled = true
+            component.renderMode = RenderMode.COMPASS
         }
-        component.isLocationComponentEnabled = true
-        component.renderMode = RenderMode.COMPASS
     }
 
     @SuppressLint("MissingPermission")

@@ -165,11 +165,23 @@ fun MapScreen(
         )
     }
 
-    var locationGranted by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
-                PackageManager.PERMISSION_GRANTED,
-        )
+    // Precisa O approssimativa. Da Android 12 chi apre la finestra del
+    // permesso puo' scegliere "approssimativa", che concede solo COARSE: qui
+    // si guardava soltanto FINE, e per l'app era come aver detto di no —
+    // niente "qui intorno", niente mirino, e il tasto che richiedeva un
+    // permesso gia' dato. Per le fermate vicine l'approssimativa basta.
+    fun posizioneConcessa() =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+    var locationGranted by remember { mutableStateOf(posizioneConcessa()) }
+    // E si riguarda a ogni ritorno nell'app: chi va nelle Impostazioni di
+    // Android e accende la posizione da li', tornando trovava l'app
+    // convinta del contrario finche' non la chiudeva.
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+        val adesso = posizioneConcessa()
+        if (adesso != locationGranted) locationGranted = adesso
     }
 
     val controller = remember { TransitMapController(context) }
@@ -189,8 +201,9 @@ fun MapScreen(
     // ha mai deciso niente.
     val notifications = dev.antigravity.fluidengine.ui.fluid.LocalFluidNotificationHostState.current
     val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted ->
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { risposte ->
+        val granted = risposte.values.any { it } || posizioneConcessa()
         locationGranted = granted
         if (granted) {
             follow = FollowMode.FOLLOW
@@ -201,6 +214,9 @@ fun MapScreen(
             val perSempre = activity != null &&
                 !androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(
                     activity, Manifest.permission.ACCESS_FINE_LOCATION,
+                ) &&
+                !androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(
+                    activity, Manifest.permission.ACCESS_COARSE_LOCATION,
                 )
             if (perSempre && activity != null) {
                 scope.launch {
@@ -2007,7 +2023,7 @@ fun MapScreen(
                         iconRotation = { if (follow == FollowMode.COMPASS) -bearing else 0f },
                         onClick = {
                             if (!locationGranted) {
-                                permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                                permissionLauncher.launch(POSIZIONE)
                             } else {
                                 follow = when (follow) {
                                     FollowMode.FREE -> FollowMode.FOLLOW
@@ -2038,7 +2054,7 @@ fun MapScreen(
                     iconTint = MaterialTheme.colorScheme.primary,
                     backdrop = backdrop,
                     onClick = {
-                        permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                        permissionLauncher.launch(POSIZIONE)
                     },
                     modifier = Modifier
                         .padding(top = 10.dp)
@@ -2738,3 +2754,13 @@ private fun hhmm(epochSecond: Long): String {
     if (epochSecond <= 0) return "—"
     return dev.antigravity.fluidtransit.routing.Times.hhmm(epochSecond)
 }
+
+/**
+ * I due permessi di posizione, chiesti insieme: e' cosi' che Android 12 mostra
+ * la scelta fra precisa e approssimativa. Chiedendo solo FINE, chi voleva
+ * l'approssimativa non aveva modo di darla.
+ */
+private val POSIZIONE = arrayOf(
+    Manifest.permission.ACCESS_FINE_LOCATION,
+    Manifest.permission.ACCESS_COARSE_LOCATION,
+)

@@ -792,9 +792,26 @@ private fun RoutineForm(
     var anchor by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("arrive") }
 
     if (created) {
+        // La promessa dipende da Android, non da noi: si fa solo se l'avviso
+        // puo' arrivare. Si rilegge a ogni ritorno nell'app, perche' la
+        // risposta alla richiesta delle notifiche arriva dopo che questa
+        // frase e' gia' comparsa, e chi le accende dalle impostazioni torna
+        // e trova la frase giusta invece di quella del rifiuto.
+        val context = androidx.compose.ui.platform.LocalContext.current
+        var alertsOn by remember {
+            androidx.compose.runtime.mutableStateOf(
+                androidx.core.app.NotificationManagerCompat.from(context)
+                    .areNotificationsEnabled(),
+            )
+        }
+        androidx.lifecycle.compose.LifecycleEventEffect(
+            androidx.lifecycle.Lifecycle.Event.ON_RESUME,
+        ) {
+            alertsOn = androidx.core.app.NotificationManagerCompat.from(context)
+                .areNotificationsEnabled()
+        }
         Text(
-            text = "Routine creata: la trovi nella scheda Oggi. Nei giorni scelti " +
-                "ti diro' io quando uscire.",
+            text = dev.antigravity.fluidtransit.routing.RoutineText.created(alertsOn),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = inset, vertical = 10.dp),

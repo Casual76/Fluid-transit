@@ -376,12 +376,9 @@ fun TripFullContent(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = if (fixAgeSec != null && fixAgeSec >= 0) {
-                        "Posizione live · aggiornata " +
-                            dev.antigravity.fluidtransit.routing.Words.age(fixAgeSec) + " fa"
-                    } else {
-                        "Posizione live"
-                    },
+                    // Le parole stanno nel vocabolario: da tre minuti in su non
+                    // e' piu' "live", come per la mappa che toglie il mezzo.
+                    text = dev.antigravity.fluidtransit.routing.Words.positionLine(fixAgeSec),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

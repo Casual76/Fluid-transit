@@ -36,7 +36,6 @@ object AlertText {
         }
     }
 
-    /** Vero se l'avviso riguarda adesso: e' il filtro che decide cosa mostrare. */
     /**
      * Gli avvisi non si sono scaricati.
      *
@@ -92,9 +91,42 @@ object AlertText {
     fun more(count: Int, tail: String): String =
         if (count == 1) "Un altro avviso $tail" else "Altri $count avvisi $tail"
 
+    /** Vero se l'avviso riguarda adesso: e' gia' cominciato e non e' finito. */
     fun active(startEpoch: Long, endEpoch: Long, nowEpoch: Long): Boolean =
         (startEpoch == 0L || startEpoch <= nowEpoch) &&
             (endEpoch == 0L || endEpoch >= nowEpoch)
+
+    /**
+     * Fin dove si guarda avanti: due giorni, poi e' un annuncio.
+     *
+     * E' l'orizzonte di "Oggi" e delle schede di fermata, linea, corsa e
+     * viaggio, che prima ne avevano ognuna una copia.
+     */
+    const val HORIZON_SECONDS = 2L * 24 * 3600
+
+    /**
+     * Vale la pena dirlo adesso: non e' finito e non comincia troppo in la'.
+     *
+     * A differenza di [active] non chiede che sia gia' partito. Uno sciopero
+     * annunciato per le 08:30, guardato alle 07:40, e' proprio quello che chi
+     * aspetta un bus deve sapere; "Oggi" lo diceva, e le schede — che
+     * filtravano con `active` — tacevano. La regola sta qui, in un posto
+     * solo, perche' due filtri scritti in casa hanno gia' dato due risposte.
+     *
+     * La fine e' inclusiva come in [active]: un avviso che finisce in questo
+     * istante e' ancora in corso. Zero e zero vuol dire "da sempre, senza
+     * fine".
+     */
+    fun relevant(
+        startEpoch: Long,
+        endEpoch: Long,
+        nowEpoch: Long,
+        horizonSeconds: Long = HORIZON_SECONDS,
+    ): Boolean {
+        val finito = endEpoch != 0L && endEpoch < nowEpoch
+        val troppoInLa = startEpoch > nowEpoch + horizonSeconds
+        return !finito && !troppoInLa
+    }
 
     /**
      * Un istante, con la precisione che serve e non di piu'.

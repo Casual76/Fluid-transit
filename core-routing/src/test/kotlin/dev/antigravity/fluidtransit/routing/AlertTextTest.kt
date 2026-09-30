@@ -3,6 +3,7 @@ package dev.antigravity.fluidtransit.routing
 import java.time.ZonedDateTime
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -251,5 +252,42 @@ class AlertTextTest {
     fun `un avviso senza code torna identico`() {
         val raw = "Deviazione in via Nazionale fino a stasera."
         assertEquals(raw, AlertText.body(raw))
+    }
+
+    // Le 07:40: uno sciopero delle 08:30 non e' ancora cominciato, ed e'
+    // proprio quello che chi aspetta un bus deve sapere.
+    private val alleSette40 = ZonedDateTime.of(2026, 9, 30, 7, 40, 0, 0, Ftb.ROME).toEpochSecond()
+
+    @Test
+    fun `un avviso in corso, senza fine dichiarata, e' rilevante`() {
+        assertTrue(AlertText.relevant(alleSette40 - 3600, 0L, alleSette40))
+    }
+
+    @Test
+    fun `uno sciopero che comincia fra un'ora e' rilevante anche se non e' partito`() {
+        assertFalse(AlertText.active(alleSette40 + 3600, alleSette40 + 5 * 3600, alleSette40))
+        assertTrue(AlertText.relevant(alleSette40 + 3600, alleSette40 + 5 * 3600, alleSette40))
+    }
+
+    @Test
+    fun `fra tre giorni e' un annuncio, non un avviso di adesso`() {
+        assertFalse(AlertText.relevant(alleSette40 + 3 * 24 * 3600, 0L, alleSette40))
+    }
+
+    @Test
+    fun `l'orizzonte e' due giorni, al secondo`() {
+        assertTrue(AlertText.relevant(alleSette40 + AlertText.HORIZON_SECONDS, 0L, alleSette40))
+        assertFalse(AlertText.relevant(alleSette40 + AlertText.HORIZON_SECONDS + 1, 0L, alleSette40))
+    }
+
+    @Test
+    fun `uno gia' finito non e' rilevante, uno che finisce adesso si`() {
+        assertFalse(AlertText.relevant(alleSette40 - 7200, alleSette40 - 60, alleSette40))
+        assertTrue(AlertText.relevant(alleSette40 - 7200, alleSette40, alleSette40))
+    }
+
+    @Test
+    fun `zero e zero vuol dire da sempre e senza fine`() {
+        assertTrue(AlertText.relevant(0L, 0L, alleSette40))
     }
 }

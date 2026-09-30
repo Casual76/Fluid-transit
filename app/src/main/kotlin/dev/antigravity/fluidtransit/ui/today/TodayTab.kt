@@ -197,14 +197,12 @@ fun TodayTab(
         // per domani serve oggi, ed e' questa la scheda che si guarda per
         // sapere com'e' la giornata. Due giorni di orizzonte, non di piu':
         // "Oggi" resta oggi. Il periodo lo dice gia' ogni riga, quindi non si
-        // confonde un avviso in corso con uno che comincia.
-        val orizzonte = adesso + 2 * 24 * 3600
+        // confonde un avviso in corso con uno che comincia. La regola e' quella
+        // delle schede di fermata, linea, corsa e viaggio: `AlertText.relevant`.
         avvisiGrezzi.orEmpty()
             .filter { a -> a.routeHashes.isEmpty() || a.routeHashes.any { it in mine } }
             .filter { a ->
-                val giaFinito = a.endEpoch != 0L && a.endEpoch < adesso
-                val troppoInLa = a.startEpoch > orizzonte
-                !giaFinito && !troppoInLa
+                dev.antigravity.fluidtransit.routing.AlertText.relevant(a.startEpoch, a.endEpoch, adesso)
             }
             // Prima quelli in corso: chi apre la scheda vuole sapere cosa
             // sta succedendo adesso, e poi cosa succedera'.

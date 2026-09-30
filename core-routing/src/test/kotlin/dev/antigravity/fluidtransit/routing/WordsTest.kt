@@ -118,4 +118,25 @@ class WordsTest {
         val oggi = java.time.LocalDate.of(2026, 9, 30)
         assertEquals("20 ottobre", Times.dateLabel(java.time.LocalDate.of(2026, 10, 20), oggi))
     }
+
+    @Test
+    fun `la posizione di un bus e' live finche' la mappa lo disegna`() {
+        assertEquals("Posizione live · aggiornata 40s fa", Words.positionLine(40))
+        assertEquals("Posizione live · aggiornata 3 min fa", Words.positionLine(179))
+    }
+
+    @Test
+    fun `dai tre minuti la posizione non e' piu' live, e lo dice`() {
+        // Lo stesso numero con cui la mappa toglie il mezzo: la scheda e la
+        // mappa non possono dire due cose diverse dello stesso bus.
+        assertEquals("Ultima posizione nota · 3 min fa", Words.positionLine(180))
+        assertEquals("Ultima posizione nota · 20 min fa", Words.positionLine(20 * 60))
+        assertTrue(!Words.positionLine(20 * 60).contains("live"))
+    }
+
+    @Test
+    fun `senza eta' o senza mezzo non si inventa un numero`() {
+        assertEquals("Posizione live", Words.positionLine(-1))
+        assertEquals("Posizione non disponibile adesso", Words.positionLine(null))
+    }
 }

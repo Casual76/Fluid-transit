@@ -2,6 +2,7 @@ package dev.antigravity.fluidtransit.ui.map
 
 import android.Manifest
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.speech.RecognizerIntent
@@ -51,6 +52,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import dev.antigravity.fluidengine.ui.fluid.FluidNotification
+import dev.antigravity.fluidengine.ui.fluid.FluidNotificationTone
 import dev.antigravity.fluidengine.ui.fluid.FluidTabBarDefaults
 import dev.antigravity.fluidengine.ui.fluid.GlassBackdropState
 import dev.antigravity.fluidengine.ui.fluid.glassBackdropSource
@@ -71,8 +74,12 @@ import kotlinx.coroutines.withContext
  * Oltre questa eta' del feed i bus non si disegnano: meglio una mappa senza
  * mezzi per due secondi che mezzi dove non sono. Il tetto vero dell'origine
  * e' ~120 s, quindi tre minuti separano "normale" da "il proxy dormiva".
+ *
+ * Il numero e' quello del vocabolario, perche' la scheda di un bus smette di
+ * dire "live" allo stesso istante in cui la mappa lo toglie.
  */
-private const val STALE_HIDE_SECONDS = 180L
+private const val STALE_HIDE_SECONDS =
+    dev.antigravity.fluidtransit.routing.Words.POSITION_STALE_SECONDS.toLong()
 
 /**
  * Sotto questa distanza partenza e arrivo sono lo stesso posto.
@@ -170,16 +177,39 @@ fun MapScreen(
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
     var locationGranted by remember { mutableStateOf(posizioneConcessa()) }
+    // Il permesso dell'app e la Posizione di Android sono DUE interruttori.
+    //
+    // Il secondo si spegne dal pannello rapido, ed e' il caso comune: con il
+    // permesso concesso e la Posizione spenta il mirino cambiava icona e la
+    // mappa restava ferma, senza un rilevamento in arrivo e senza una parola
+    // che dicesse perche'. Si tiene qui per poterlo dire, e per non far finta
+    // di seguire una posizione che non c'e'.
+    var serviceOn by remember { mutableStateOf(posizioneDiSistemaAccesa(context)) }
+    // La mappa e' in attesa di una posizione: o non si e' potuta seguire
+    // all'avvio, o si e' mandata la persona ad accenderla. Quando torna
+    // accesa si segue, ma solo se nel frattempo non ha preso in mano la
+    // mappa — un gesto la butta a FREE e toglie l'attesa.
+    var attendiPosizione by remember { mutableStateOf(false) }
     // E si riguarda a ogni ritorno nell'app: chi va nelle Impostazioni di
     // Android e accende la posizione da li', tornando trovava l'app
     // convinta del contrario finche' non la chiudeva.
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
         val adesso = posizioneConcessa()
         if (adesso != locationGranted) locationGranted = adesso
+        val acceso = posizioneDiSistemaAccesa(context)
+        if (acceso != serviceOn) serviceOn = acceso
     }
 
     val controller = remember { TransitMapController(context) }
     val scope = rememberCoroutineScope()
+
+    val notifications = dev.antigravity.fluidengine.ui.fluid.LocalFluidNotificationHostState.current
+
+    // L'Activity dietro il Context: in Compose puo' essere un ContextWrapper.
+    fun activityCorrente(): Activity? =
+        generateSequence(context) { (it as? android.content.ContextWrapper)?.baseContext }
+            .filterIsInstance<Activity>()
+            .firstOrNull()
 
     // Il permesso negato per sempre non deve diventare un tasto morto.
     //
@@ -192,48 +222,103 @@ fun MapScreen(
     // Dopo la finestra, negato piu' "non mostrare la spiegazione" vuol dire
     // esattamente questo, ed e' l'unico momento in cui quella combinazione
     // non e' ambigua: prima della prima richiesta e' falsa anche per chi non
-    // ha mai deciso niente.
-    val notifications = dev.antigravity.fluidengine.ui.fluid.LocalFluidNotificationHostState.current
+    // ha mai deciso niente. Vale per ogni permesso, non solo per la posizione.
+    fun negatoPerSempre(vararg permessi: String): Boolean {
+        val activity = activityCorrente() ?: return false
+        return permessi.none {
+            androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(activity, it)
+        }
+    }
+
+    // Il modo di dire "questo non parte, e questo e' il perche'".
+    //
+    // Sta qui e non in ogni sito di chiamata perche' erano gia' due, e
+    // le due copie sarebbero divergenti al primo ritocco: il permesso della
+    // posizione e quello delle notifiche negano allo stesso modo — la
+    // richiesta torna indietro all'istante e il tasto sembra morto — e si
+    // rimediano allo stesso modo, con una parola e con l'interruttore.
+    fun avvisa(id: String, titolo: String, messaggio: String, impostazioni: Intent? = null) {
+        scope.launch {
+            notifications?.show(
+                FluidNotification(
+                    id = id,
+                    title = titolo,
+                    message = messaggio,
+                    tone = FluidNotificationTone.Warning,
+                ),
+            )
+        }
+        if (impostazioni != null) {
+            runCatching { activityCorrente()?.startActivity(impostazioni) }
+        }
+    }
+
+    // La Posizione di Android spenta, col permesso dell'app gia' concesso.
+    fun posizioneSpenta(apri: Boolean) {
+        serviceOn = false
+        attendiPosizione = true
+        avvisa(
+            id = "posizione-spenta",
+            titolo = "La posizione del telefono e' spenta",
+            messaggio = "Accendila dalle impostazioni di Android: e' cosi' che la " +
+                "mappa ti trova." + (if (apri) " Ti porto dov'e' l'interruttore." else ""),
+            impostazioni = if (apri) {
+                Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+            } else {
+                null
+            },
+        )
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { risposte ->
         val granted = risposte.values.any { it } || posizioneConcessa()
         locationGranted = granted
         if (granted) {
-            follow = FollowMode.FOLLOW
-        } else {
-            val activity = generateSequence(context) { (it as? android.content.ContextWrapper)?.baseContext }
-                .filterIsInstance<Activity>()
-                .firstOrNull()
-            val perSempre = activity != null &&
-                !androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(
-                    activity, Manifest.permission.ACCESS_FINE_LOCATION,
-                ) &&
-                !androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(
-                    activity, Manifest.permission.ACCESS_COARSE_LOCATION,
-                )
-            if (perSempre && activity != null) {
-                scope.launch {
-                    notifications?.show(
-                        dev.antigravity.fluidengine.ui.fluid.FluidNotification(
-                            id = "posizione-negata",
-                            title = "Il permesso di posizione e' negato",
-                            message = "Android non lo chiede piu'. Ti porto dov'e' " +
-                                "l'interruttore: senza, la mappa usa il centro di " +
-                                "quello che stai guardando.",
-                            tone = dev.antigravity.fluidengine.ui.fluid
-                                .FluidNotificationTone.Warning,
-                        ),
-                    )
-                }
-                runCatching {
-                    activity.startActivity(
-                        android.content.Intent(
-                            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                            android.net.Uri.fromParts("package", context.packageName, null),
-                        ),
-                    )
-                }
+            // Il permesso non basta: con la Posizione di Android spenta non
+            // arriva nessun rilevamento, e segnare "seguo" sarebbe dire una
+            // cosa che non sta succedendo.
+            if (posizioneDiSistemaAccesa(context)) {
+                follow = FollowMode.FOLLOW
+            } else {
+                posizioneSpenta(apri = false)
+            }
+        } else if (
+            negatoPerSempre(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+            )
+        ) {
+            avvisa(
+                id = "posizione-negata",
+                titolo = "Il permesso di posizione e' negato",
+                messaggio = "Android non lo chiede piu'. Ti porto dov'e' " +
+                    "l'interruttore: senza, la mappa usa il centro di " +
+                    "quello che stai guardando.",
+                impostazioni = Intent(
+                    android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    android.net.Uri.fromParts("package", context.packageName, null),
+                ),
+            )
+        }
+    }
+
+    // Il tocco sul mirino, e sulla capsula "qui intorno" che fa la stessa cosa.
+    //
+    // La Posizione di Android si rilegge ADESSO e non dallo stato: chi la
+    // accende o la spegne dal pannello rapido con la mappa aperta non fa
+    // scattare nessun ritorno nell'app, e il tasto deciderebbe su un dato
+    // vecchio. La decisione a tre rami sta in `mirinoAction`, con il suo test.
+    fun toccaPosizione(followAttuale: FollowMode) {
+        val acceso = posizioneDiSistemaAccesa(context)
+        serviceOn = acceso
+        when (val azione = mirinoAction(locationGranted, acceso, followAttuale)) {
+            MirinoAction.ChiediPermesso -> permissionLauncher.launch(POSIZIONE)
+            MirinoAction.ApriImpostazioni -> posizioneSpenta(apri = true)
+            is MirinoAction.Segui -> {
+                attendiPosizione = false
+                follow = azione.modo
             }
         }
     }
@@ -262,7 +347,35 @@ fun MapScreen(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "it-IT")
             putExtra(RecognizerIntent.EXTRA_PROMPT, "Che fermata, linea o posto cerchi?")
         }
-        runCatching { micLauncher.launch(intent) }
+        // Un telefono senza un servizio di riconoscimento vocale — senza
+        // Google, LineageOS, certi Huawei: proprio quelli a cui l'app pensa
+        // quando evita i Play Services — non ha nessuno che risponda a questo
+        // intent, e il lancio lancia ActivityNotFoundException. Il runCatching
+        // di prima la inghiottiva: il tasto piu' vistoso della barra non
+        // faceva niente, ne' una tastiera ne' una parola. Lo stesso valeva
+        // per il permesso audio negato, che finisce in questa funzione.
+        //
+        // Niente resolveActivity ne' isRecognitionAvailable: il manifest non
+        // ha <queries>, e da Android 11 direbbero "no" anche a un telefono
+        // che il riconoscimento ce l'ha. Si prova, e si cade in piedi.
+        fun senzaRiconoscimentoVocale() {
+            // Si apre la barra: la tastiera sale da sola e si scrive a mano.
+            searchOpen = true
+            avvisa(
+                id = "mic-assente",
+                titolo = "Il riconoscimento vocale non c'e' su questo telefono",
+                messaggio = "Scrivi il nome della fermata, della linea o del posto nella barra.",
+            )
+        }
+        try {
+            micLauncher.launch(intent)
+        } catch (_: ActivityNotFoundException) {
+            senzaRiconoscimentoVocale()
+        } catch (_: SecurityException) {
+            // Un servizio che c'e' ma non si lascia avviare: per chi tocca
+            // il tasto e' la stessa cosa che non averlo.
+            senzaRiconoscimentoVocale()
+        }
     }
 
     // L'assistente esiste solo se c'e' una chiave verificata e l'interruttore
@@ -309,9 +422,81 @@ fun MapScreen(
 
     // Il permesso notifiche (Android 13+): si chiede quando nasce la prima
     // routine, cioe' quando la notifica ha un motivo di esistere.
+    //
+    // Il perche' si e' chiesto decide cosa si perde se la risposta e' no: la
+    // routine vive di quell'avviso ("Esci alle 8:12"), il viaggio ha la sua
+    // scheda dentro l'app e perde solo l'avviso a schermo spento.
+    var notifMotivo by remember { mutableStateOf(NotifMotivo.ROUTINE) }
+
+    // Il rifiuto delle notifiche va detto. Il risultato della richiesta
+    // finiva in una lambda vuota: si creava la routine, il pannello diceva
+    // "ti diro' io quando uscire", Oggi la elencava come attiva, e ogni
+    // notifica "Esci alle..." cadeva in silenzio — chi lo scopriva lo
+    // scopriva perdendo l'autobus. `perSempre` vuol dire che Android non
+    // mostra piu' la finestra: e' l'unico caso in cui si porta alle
+    // impostazioni, come per la posizione — e solo per la routine, che senza
+    // l'avviso perde il suo scopo. Per un viaggio si dice e basta: portare
+    // via dall'app chi ha appena premuto "Avvia", con l'autobus in arrivo,
+    // sarebbe peggio del silenzio.
+    fun notificheSpente(motivo: NotifMotivo, perSempre: Boolean) {
+        val apri = perSempre && motivo == NotifMotivo.ROUTINE
+        avvisa(
+            id = "notifiche-spente",
+            titolo = "Le notifiche sono spente",
+            messaggio = when (motivo) {
+                // La frase di cosa si perde e' quella del pannello della routine:
+                // stanno in `RoutineText` perche' non dicano due cose diverse.
+                NotifMotivo.ROUTINE ->
+                    "La routine e' salvata. " +
+                        dev.antigravity.fluidtransit.routing.RoutineText.ALERTS_OFF
+
+                NotifMotivo.VIAGGIO ->
+                    "Il viaggio lo segui restando nell'app: fuori dall'app non ti " +
+                        "avviso quando scendere."
+            } + (if (apri) " Ti porto dov'e' l'interruttore." else ""),
+            impostazioni = if (apri) {
+                Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+            } else {
+                null
+            },
+        )
+    }
+
     val notifPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { }
+    ) { granted ->
+        if (!granted) {
+            notificheSpente(
+                notifMotivo,
+                perSempre = negatoPerSempre(Manifest.permission.POST_NOTIFICATIONS),
+            )
+        }
+    }
+
+    // Da chiamare quando nasce qualcosa che vive di notifiche. Le cose che
+    // dipendono dall'avviso si promettono solo se l'avviso puo' arrivare:
+    // `areNotificationsEnabled` dice tutt'e due i casi — il permesso di
+    // Android 13 negato e l'interruttore dell'app spento nelle impostazioni,
+    // che sotto Android 13 e' l'unico modo di non riceverle.
+    fun chiediNotifiche(motivo: NotifMotivo) {
+        if (androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+            return
+        }
+        notifMotivo = motivo
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            // Il permesso c'e' (o non esiste) e le notifiche sono spente lo
+            // stesso: non c'e' una finestra da mostrare, c'e' l'interruttore.
+            notificheSpente(motivo, perSempre = true)
+        }
+    }
 
     // L'indice di ricerca si costruisce una volta per bundle, fuori dal main.
     // Aspetta i gruppi di banchine: senza, uscirebbero le righe doppie che
@@ -386,6 +571,60 @@ fun MapScreen(
         // viaggio.
         if (navActive) navManuale = true
         if (follow != FollowMode.FREE) follow = FollowMode.FREE
+        // Chi prende in mano la mappa non sta piu' aspettando la posizione:
+        // accenderla dopo non deve strapparla da dove l'ha portata.
+        attendiPosizione = false
+    }
+
+    // Accende una linea sulla mappa: la tratta e le SUE fermate, il resto
+    // della rete si toglie di mezzo. Restituisce il riquadro che la contiene
+    // (minLat, minLon, maxLat, maxLon), o null se il bundle non le conosce
+    // nessuna fermata — e allora non si accende niente: una rete spenta per
+    // evidenziare il vuoto e' peggio di una rete accesa.
+    //
+    // Sta a se' perche' la chiamano in due: chi apre una linea o un bus, e chi
+    // RITROVA un pannello. Il pannello sopravvive a una ricreazione
+    // dell'Activity e a un giro in Avvisi o in Oggi, il controller no, e
+    // accendere la linea la faceva solo chi apriva il pannello: tornando
+    // c'era la scheda della linea 23 sopra la rete intera.
+    //
+    // La lettura del bundle e' fuori dal main, e in un runCatching perche' il
+    // reader puo' chiudersi sotto: lo scambio notturno succede a app aperta.
+    suspend fun highlightRoute(routeIndex: Int): DoubleArray? {
+        val reader = ready?.reader ?: return null
+        val letto = withContext(Dispatchers.Default) {
+            runCatching {
+                var minLat = 90.0
+                var maxLat = -90.0
+                var minLon = 180.0
+                var maxLon = -180.0
+                val hashes = LinkedHashSet<String>()
+                for (p in reader.patternsOfRoute(routeIndex)) {
+                    val n = reader.patternStopCount(p)
+                    for (i in 0 until n) {
+                        val s = reader.patternStop(p, i)
+                        hashes.add(java.lang.Long.toHexString(reader.stopIdHash(s)))
+                        val lat = reader.stopLat(s)
+                        val lon = reader.stopLon(s)
+                        if (lat < minLat) minLat = lat
+                        if (lat > maxLat) maxLat = lat
+                        if (lon < minLon) minLon = lon
+                        if (lon > maxLon) maxLon = lon
+                    }
+                }
+                if (minLat > maxLat) {
+                    null
+                } else {
+                    Triple(
+                        java.lang.Long.toHexString(reader.routeIdHash(routeIndex)),
+                        hashes.toTypedArray(),
+                        doubleArrayOf(minLat, minLon, maxLat, maxLon),
+                    )
+                }
+            }.getOrNull()
+        } ?: return null
+        controller.enterRouteMode(letto.first, letto.second)
+        return letto.third
     }
 
     // Il tap sulla pillola di una linea: la mappa si pulisce (resta la
@@ -393,35 +632,13 @@ fun MapScreen(
     // pannello si trasforma nello stato mini della scheda linea.
     // La stessa meccanica risponde al tap su un bus vivo.
     fun showRoute(routeIndex: Int) {
-        val reader = ready?.reader ?: return
+        if (ready?.reader == null) return
         follow = FollowMode.FREE
         routeDirection = 0
         panel = Panel.RouteMini(routeIndex)
-        scope.launch(Dispatchers.Default) {
-            var minLat = 90.0
-            var maxLat = -90.0
-            var minLon = 180.0
-            var maxLon = -180.0
-            val hashes = LinkedHashSet<String>()
-            for (p in reader.patternsOfRoute(routeIndex)) {
-                val n = reader.patternStopCount(p)
-                for (i in 0 until n) {
-                    val s = reader.patternStop(p, i)
-                    hashes.add(java.lang.Long.toHexString(reader.stopIdHash(s)))
-                    val lat = reader.stopLat(s)
-                    val lon = reader.stopLon(s)
-                    if (lat < minLat) minLat = lat
-                    if (lat > maxLat) maxLat = lat
-                    if (lon < minLon) minLon = lon
-                    if (lon > maxLon) maxLon = lon
-                }
-            }
-            if (minLat > maxLat) return@launch
-            val rh = java.lang.Long.toHexString(reader.routeIdHash(routeIndex))
-            withContext(kotlinx.coroutines.Dispatchers.Main) {
-                controller.enterRouteMode(rh, hashes.toTypedArray())
-                controller.flyToBounds(minLat, minLon, maxLat, maxLon)
-            }
+        scope.launch {
+            val riquadro = highlightRoute(routeIndex) ?: return@launch
+            controller.flyToBounds(riquadro[0], riquadro[1], riquadro[2], riquadro[3])
         }
     }
 
@@ -454,6 +671,17 @@ fun MapScreen(
     val rtStatus by rt.status.collectAsStateWithLifecycle()
     val online by app.online.collectAsStateWithLifecycle()
 
+    // Quando (orologio del telefono) e' stato risolto lo snapshot qui sotto.
+    //
+    // L'eta' del rilevamento dentro `BusMeta` e' quella ALL'ARRIVO, e poi
+    // resta li': se il feed della Regione si ferma o la copertura cade, il
+    // proxy risponde 304, lo snapshot non cambia e la scheda della corsa
+    // continuava a scrivere "aggiornata 40 s fa" per venti minuti, mentre la
+    // mappa i bus li aveva gia' tolti dopo tre. Con questo istante l'eta'
+    // mostrata cresce col tempo. Telefono contro telefono: lo scarto degli
+    // orologi si annulla.
+    var resolvedAtSec by remember { mutableStateOf(0L) }
+
     // Lo snapshot risolto contro il bundle: hash → indici → colori. Fuori
     // dal main, a ogni poll.
     val resolved by produceState<ResolvedRt?>(
@@ -466,31 +694,25 @@ fun MapScreen(
             value = null
             return@produceState
         }
-        value = withContext(Dispatchers.Default) { resolveRt(reader, v, rtDelays) }
-        value?.resolvedPercent?.let { rt.resolvedPercent.value = it }
+        val nuovo = withContext(Dispatchers.Default) { resolveRt(reader, v, rtDelays) }
+        // Prima l'istante, poi il valore: chi legge il secondo trova il primo
+        // gia' aggiornato.
+        resolvedAtSec = Instant.now().epochSecond
+        value = nuovo
+        nuovo.resolvedPercent?.let { rt.resolvedPercent.value = it }
     }
 
     // Il tocco su un bus: modalita' linea + scheda corsa, come deciso. La
     // tratta si accende, la mappa si pulisce, il bus resta evidenziato.
     fun showTrip(ref: TripRef, focus: Pair<Double, Double>?) {
-        val reader = ready?.reader ?: return
+        if (ready?.reader == null) return
         follow = FollowMode.FREE
         panel = Panel.TripMini(ref)
         controller.setSelectedBus(ref.vehKey)
         if (ref.routeIndex >= 0) {
-            scope.launch(Dispatchers.Default) {
-                val hashes = LinkedHashSet<String>()
-                for (p in reader.patternsOfRoute(ref.routeIndex)) {
-                    val n = reader.patternStopCount(p)
-                    for (i in 0 until n) {
-                        hashes.add(java.lang.Long.toHexString(reader.stopIdHash(reader.patternStop(p, i))))
-                    }
-                }
-                val rh = java.lang.Long.toHexString(reader.routeIdHash(ref.routeIndex))
-                withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    controller.enterRouteMode(rh, hashes.toTypedArray())
-                    focus?.let { (la, lo) -> controller.flyTo(la, lo, maxOf(14.0, cameraZoom)) }
-                }
+            scope.launch {
+                highlightRoute(ref.routeIndex)
+                focus?.let { (la, lo) -> controller.flyTo(la, lo, maxOf(14.0, cameraZoom)) }
             }
         } else {
             // Linea sconosciuta al bundle: niente da accendere, ma la
@@ -515,6 +737,42 @@ fun MapScreen(
         }
         // Niente volo: il bus e' gia' sotto il dito.
         showTrip(ref, focus = null)
+    }
+
+    // La mappa ritrova quello che il pannello ritrovato le chiede.
+    //
+    // `panel` e' salvabile, `controller` no: cambiando il tema di sistema al
+    // tramonto, ruotando il telefono, o passando da Avvisi e da Oggi, il
+    // pannello della linea 23 tornava al suo posto e la mappa era la rete
+    // intera — tratta spenta, fermate assenti, tutti i bus, quello seguito
+    // non ingrandito, e un luogo cercato senza il suo segnaposto. Le tre
+    // cose le accendevano solo showRoute, showTrip e showPlace, cioe' chi
+    // APRE un pannello; qui si riaccendono per chi lo ritrova.
+    //
+    // Le chiavi sono quello che il pannello implica sulla mappa, non il
+    // pannello: passare da mini a esteso non deve rifare niente. Nel flusso
+    // normale l'effetto riparte dopo showRoute e showTrip e ripete quello che
+    // hanno appena fatto, ed e' innocuo: la mappa e' gia' li'.
+    //
+    // Solo in positivo: quando il pannello non chiede niente non si spegne
+    // niente. Chi cambia pannello — una fermata, un tocco a vuoto — spegne da
+    // se', e un effetto che spegnesse a sua volta litigherebbe con loro.
+    val suMappa = PanelOnMap.of(panel)
+    LaunchedEffect(
+        controller, ready?.buildId, suMappa.routeIndex, suMappa.vehKey,
+        suMappa.place?.lat, suMappa.place?.lon,
+    ) {
+        val pronto = ready ?: return@LaunchedEffect
+        // Un pannello di un altro bundle non si accende: i suoi indici
+        // puntano a un'altra linea.
+        if (panelBuild != pronto.buildId) return@LaunchedEffect
+        // Il pannello si rilegge ADESSO e non dalle chiavi con cui l'effetto
+        // e' partito: il guardiano del bundle, qui sopra, gira prima di
+        // questo nella stessa passata e puo' averlo appena buttato via.
+        val ora = PanelOnMap.of(panel)
+        if (ora.routeIndex >= 0) highlightRoute(ora.routeIndex)
+        ora.vehKey?.let { controller.setSelectedBus(it) }
+        ora.place?.let { controller.showPlaceMarker(it.lat, it.lon, accentArgb) }
     }
 
     // I dati della scheda linea, calcolati quando serve.
@@ -606,25 +864,23 @@ fun MapScreen(
             value = null
             return@produceState
         }
-        val adesso = java.time.Instant.now().epochSecond
-        value = tutti
-            .filter { a ->
-                a.routeHashes.any { it in linee.keys } &&
-                    dev.antigravity.fluidtransit.routing.AlertText
-                        .active(a.startEpoch, a.endEpoch, adesso)
-            }
-            // Il piu' recente per primo: su una fermata di stazione ce ne
-            // sono venti in corso, e due sole stanno in cima. Fra un avviso
-            // cominciato l'anno scorso e uno di ieri, quello che una persona
-            // non sa ancora e' il secondo.
-            .sortedByDescending { it.startEpoch }
-            .map { a ->
-                val quali = a.routeHashes.mapNotNull { linee[it] }.distinct().take(3)
-                val testo = a.header.ifEmpty {
-                    dev.antigravity.fluidtransit.routing.AlertText.body(a.description).take(80)
-                }
-                if (quali.isEmpty()) testo else quali.joinToString(", ") + " · " + testo
-            }
+        // In corso E annunciati, non solo quelli gia' cominciati.
+        //
+        // Il filtro teneva solo cio' che era partito: alle 07:40 uno sciopero
+        // delle 08:30 non compariva sulla fermata, mentre Oggi e la schermata
+        // degli Avvisi lo dicevano — "oggi alle 08:30". Chi aspetta un bus ha
+        // bisogno dello sciopero PRIMA, non dopo. L'ordine (i "in corso" per
+        // primi, poi gli annunciati) e il perche' stanno in `SheetAlerts`.
+        //
+        // Col battito comune: "oggi alle 08:30" smette di essere annunciato e
+        // diventa un avviso in corso quando e' ora, non alla prossima
+        // ricomposizione che capita. Si scarica una volta e si rifiltra a ogni
+        // battito, che costa una scansione di una lista corta.
+        dev.antigravity.fluidtransit.data.time.UiClock.ticks().collect { adesso ->
+            value = SheetAlerts.rows(
+                tutti, linee, adesso, withLineNames = true, maxBodyChars = 80,
+            )
+        }
     }
 
     // Gli avvisi della corsa aperta: sono quelli della sua linea.
@@ -648,19 +904,12 @@ fun MapScreen(
             value = null
             return@produceState
         }
-        val adesso = java.time.Instant.now().epochSecond
-        value = tutti
-            .filter { a ->
-                a.routeHashes.contains(hash) &&
-                    dev.antigravity.fluidtransit.routing.AlertText
-                        .active(a.startEpoch, a.endEpoch, adesso)
-            }
-            .sortedByDescending { it.startEpoch }
-            .map { a ->
-                a.header.ifEmpty {
-                    dev.antigravity.fluidtransit.routing.AlertText.body(a.description).take(90)
-                }
-            }
+        // In corso e annunciati, come sulla fermata: vedi `SheetAlerts`.
+        dev.antigravity.fluidtransit.data.time.UiClock.ticks().collect { adesso ->
+            value = SheetAlerts.rows(
+                tutti, mapOf(hash to ""), adesso, withLineNames = false, maxBodyChars = 90,
+            )
+        }
     }
 
     // Gli avvisi di servizio della linea aperta.
@@ -692,20 +941,15 @@ fun MapScreen(
             value = null
             return@produceState
         }
-        val adesso = java.time.Instant.now().epochSecond
-        value = tutti
-            .filter { a ->
-                hash != null && a.routeHashes.contains(hash) &&
-                    dev.antigravity.fluidtransit.routing.AlertText
-                        .active(a.startEpoch, a.endEpoch, adesso)
-            }
-            // Il piu' recente per primo, come sulla fermata.
-            .sortedByDescending { it.startEpoch }
-            .map { a ->
-                a.header.ifEmpty {
-                    dev.antigravity.fluidtransit.routing.AlertText.body(a.description).take(90)
-                }
-            }
+        // In corso e annunciati, come sulla fermata: vedi `SheetAlerts`. Se
+        // l'hash non si legge non c'e' nessuna linea da cui cominciare, e la
+        // lista resta vuota come prima.
+        val linee: Map<Long, String> = if (hash != null) mapOf(hash to "") else emptyMap()
+        dev.antigravity.fluidtransit.data.time.UiClock.ticks().collect { adesso ->
+            value = SheetAlerts.rows(
+                tutti, linee, adesso, withLineNames = false, maxBodyChars = 90,
+            )
+        }
     }
 
     // I dati della scheda corsa: si ricalcolano anche quando arriva un
@@ -736,7 +980,17 @@ fun MapScreen(
             value = null
             return@produceState
         }
+        // Il ritardo dell'intestazione vale finche' e' buono, non per sempre.
+        //
+        // Senza rete o con l'origine ferma il pacchetto dei ritardi resta
+        // quello di prima, e l'intestazione continuava a dire "+3 min di
+        // ritardo" con il pallino acceso un'ora dopo — mentre le righe della
+        // stessa fermata, che invecchiano da sole, erano tornate a "orario da
+        // tabella". Oltre i tre quarti d'ora un numero non entra piu' in
+        // nessun calcolo (delaysFresh), e il battito di questa scheda
+        // (`tripTick`) lo rivaluta ogni quindici secondi.
         val d = rtDelays?.byTripHash?.get(ref.tripHash)
+            ?.takeIf { app.realtime.delaysFresh() }
         // Come la scheda linea: il bundle puo' cambiare mentre si calcola.
         val built = withContext(Dispatchers.Default) {
             runCatching {
@@ -1034,6 +1288,11 @@ fun MapScreen(
                         app.routines.add(routine)
                         dev.antigravity.fluidtransit.data.routines.RoutineScheduler
                             .scheduleNextCompute(context, routine)
+                        // Anche una routine creata a voce vive dell'avviso: la
+                        // strada manuale chiedeva le notifiche, questa no, e
+                        // chi la dettava trovava la routine "attiva" in Oggi
+                        // con la notifica che non sarebbe mai arrivata.
+                        chiediNotifiche(NotifMotivo.ROUTINE)
                     }
                 }
 
@@ -1213,21 +1472,14 @@ fun MapScreen(
             value = null
             return@produceState
         }
-        val adesso = java.time.Instant.now().epochSecond
-        value = tutti
-            .filter { a ->
-                a.routeHashes.any { it in linee.keys } &&
-                    dev.antigravity.fluidtransit.routing.AlertText
-                        .active(a.startEpoch, a.endEpoch, adesso)
-            }
-            .sortedByDescending { it.startEpoch }
-            .map { a ->
-                val quali = a.routeHashes.mapNotNull { linee[it] }.distinct().take(3)
-                val testo = a.header.ifEmpty {
-                    dev.antigravity.fluidtransit.routing.AlertText.body(a.description).take(80)
-                }
-                if (quali.isEmpty()) testo else quali.joinToString(", ") + " · " + testo
-            }
+        // In corso e annunciati, come sulla fermata: vedi `SheetAlerts`. Un
+        // viaggio si sceglie spesso la sera per la mattina dopo, ed e' allora
+        // che uno sciopero annunciato serve.
+        dev.antigravity.fluidtransit.data.time.UiClock.ticks().collect { adesso ->
+            value = SheetAlerts.rows(
+                tutti, linee, adesso, withLineNames = true, maxBodyChars = 80,
+            )
+        }
     }
 
     // Il viaggio scelto si accende sulla mappa mentre lo stai SCEGLIENDO, e
@@ -1547,8 +1799,29 @@ fun MapScreen(
     // viaggio in corso (basta un cambio di tema), e questo effetto scriveva
     // FOLLOW sopra la bussola o la camminata che la navigazione aveva appena
     // deciso. E' NavCamera l'unica a scegliere, finche' si viaggia.
+    //
+    // Solo se la Posizione di Android e' accesa: con il permesso e la
+    // Posizione spenta non arriva nessun rilevamento, e FOLLOW faceva
+    // mostrare l'icona "passa alla bussola" su una mappa ferma. Se e' spenta
+    // si resta liberi e si aspetta: appena si accende, sotto, si segue.
     LaunchedEffect(Unit) {
-        if (locationGranted && navState == null) follow = FollowMode.FOLLOW
+        if (locationGranted && navState == null) {
+            if (serviceOn) {
+                follow = FollowMode.FOLLOW
+            } else {
+                attendiPosizione = true
+            }
+        }
+    }
+    // La Posizione si accende mentre la mappa la aspettava: si segue, come
+    // se fosse stata accesa da prima. Ha senso solo se nessuno ha toccato la
+    // mappa nel frattempo (`attendiPosizione` cade al primo gesto) e non si
+    // sta viaggiando: in navigazione sceglie NavCamera.
+    LaunchedEffect(serviceOn, locationGranted) {
+        if (serviceOn && locationGranted && attendiPosizione && navState == null) {
+            attendiPosizione = false
+            follow = FollowMode.FOLLOW
+        }
     }
 
     // Logo e attribuzione MapLibre sopra tutto quello che c'e' in fondo.
@@ -2042,18 +2315,10 @@ fun MapScreen(
                         },
                         backdrop = backdrop,
                         iconRotation = { if (follow == FollowMode.COMPASS) -bearing else 0f },
-                        onClick = {
-                            if (!locationGranted) {
-                                permissionLauncher.launch(POSIZIONE)
-                            } else {
-                                follow = when (follow) {
-                                    FollowMode.FREE -> FollowMode.FOLLOW
-                                    FollowMode.FOLLOW -> FollowMode.COMPASS
-                                    FollowMode.COMPASS, FollowMode.NAV_CAMMINO ->
-                                        FollowMode.FOLLOW
-                                }
-                            }
-                        },
+                        // Tre rami, non due: il permesso dell'app, la Posizione
+                        // di Android, e solo se ci sono tutt'e due il giro
+                        // delle inquadrature. Vedi `toccaPosizione`.
+                        onClick = { toccaPosizione(follow) },
                         modifier = Modifier.padding(end = 14.dp),
                     )
                 }
@@ -2062,8 +2327,13 @@ fun MapScreen(
             // regione. Finche' non si e' abbastanza vicini perche' "qui
             // intorno" voglia dire qualcosa, l'unica cosa utile da dire e'
             // come farglielo sapere.
+            //
+            // Vale anche col permesso gia' dato e la Posizione di Android
+            // spenta: e' lo stesso schermo vuoto, e il mirino da solo non
+            // spiegava perche'. Cambia cosa si dice e dove porta il tocco.
             androidx.compose.animation.AnimatedVisibility(
-                visible = comandiVisibili && !fuoriArea && !locationGranted &&
+                visible = comandiVisibili && !fuoriArea &&
+                    (!locationGranted || !serviceOn) &&
                     cameraZoom < MapCatalog.NEARBY_MIN_ZOOM,
                 enter = androidx.compose.animation.fadeIn(),
                 exit = androidx.compose.animation.fadeOut(),
@@ -2071,12 +2341,16 @@ fun MapScreen(
                 MapNoticeCapsule(
                     icon = Icons.Rounded.NearMe,
                     title = "Vedi cosa passa qui intorno",
-                    detail = "Tocca per attivare la posizione",
+                    detail = if (!locationGranted) {
+                        "Tocca per attivare la posizione"
+                    } else {
+                        "Tocca per accendere la posizione del telefono"
+                    },
                     iconTint = MaterialTheme.colorScheme.primary,
                     backdrop = backdrop,
-                    onClick = {
-                        permissionLauncher.launch(POSIZIONE)
-                    },
+                    // Da libero: se nel frattempo la Posizione si e' accesa
+                    // il tocco comincia a seguire, non cicla oltre.
+                    onClick = { toccaPosizione(FollowMode.FREE) },
                     modifier = Modifier
                         .padding(top = 10.dp)
                         .padding(horizontal = FluidTabBarDefaults.HorizontalMargin),
@@ -2402,6 +2676,14 @@ fun MapScreen(
 
                             is Panel.TripFull -> Column {
                                 val info = tripInfo
+                                // Il battito comune, per far invecchiare l'eta'
+                                // della posizione fra un poll e l'altro.
+                                val battito = remember {
+                                    dev.antigravity.fluidtransit.data.time.UiClock.ticks()
+                                }
+                                val adesso by battito.collectAsStateWithLifecycle(
+                                    initialValue = Instant.now().epochSecond,
+                                )
                                 if (info != null && info.ref.vehKey == state.ref.vehKey) {
                                     val meta = resolved?.busMetaByKey?.get(state.ref.vehKey)
                                     // La guardia GPS decisa in Fase 2: pulsante solo se la
@@ -2421,8 +2703,24 @@ fun MapScreen(
                                     }
                                     TripFullContent(
                                         info = info,
-                                        fixAgeSec = resolved?.busMetaByKey
-                                            ?.get(state.ref.vehKey)?.fixAgeSec,
+                                        // L'eta' del rilevamento ADESSO, non
+                                        // quella dell'ultimo snapshot: da
+                                        // quando e' stato risolto e' passato
+                                        // altro tempo, e se il feed si e'
+                                        // fermato la scheda diceva "40 s fa"
+                                        // per venti minuti. -1 resta ignota.
+                                        fixAgeSec = meta?.fixAgeSec
+                                            ?.takeIf { it >= 0 }
+                                            ?.let { alRisolvere ->
+                                                val passati = if (resolvedAtSec > 0L) {
+                                                    (adesso - resolvedAtSec).coerceAtLeast(0L)
+                                                } else {
+                                                    0L
+                                                }
+                                                (alRisolvere + passati)
+                                                    .coerceAtMost(Int.MAX_VALUE.toLong())
+                                                    .toInt()
+                                            } ?: meta?.fixAgeSec,
                                         onStopTap = { stop ->
                                             exitRouteMode()
                                             controller.flyTo(stop.lat, stop.lon, 16.2)
@@ -2602,16 +2900,7 @@ fun MapScreen(
                                             val plan = buildNavPlan(reader, j.raw, state.to.name)
                                             app.navigation.start(context, plan)
                                             panel = null
-                                            if (android.os.Build.VERSION.SDK_INT >= 33 &&
-                                                ContextCompat.checkSelfPermission(
-                                                    context,
-                                                    Manifest.permission.POST_NOTIFICATIONS,
-                                                ) != PackageManager.PERMISSION_GRANTED
-                                            ) {
-                                                notifPermissionLauncher.launch(
-                                                    Manifest.permission.POST_NOTIFICATIONS,
-                                                )
-                                            }
+                                            chiediNotifiche(NotifMotivo.VIAGGIO)
                                         },
                                         onCreateRoutine = { days, anchor, minutes ->
                                             val from = journeyOrigin
@@ -2633,16 +2922,7 @@ fun MapScreen(
                                                 app.routines.add(routine)
                                                 dev.antigravity.fluidtransit.data.routines.RoutineScheduler
                                                     .scheduleNextCompute(context, routine)
-                                                if (android.os.Build.VERSION.SDK_INT >= 33 &&
-                                                    ContextCompat.checkSelfPermission(
-                                                        context,
-                                                        Manifest.permission.POST_NOTIFICATIONS,
-                                                    ) != PackageManager.PERMISSION_GRANTED
-                                                ) {
-                                                    notifPermissionLauncher.launch(
-                                                        Manifest.permission.POST_NOTIFICATIONS,
-                                                    )
-                                                }
+                                                chiediNotifiche(NotifMotivo.ROUTINE)
                                             }
                                         },
                                     )
@@ -2791,6 +3071,23 @@ private fun hhmm(epochSecond: Long): String {
     if (epochSecond <= 0) return "—"
     return dev.antigravity.fluidtransit.routing.Times.hhmm(epochSecond)
 }
+
+/**
+ * Perche' si chiedono le notifiche: cambia cosa si dice se la risposta e' no.
+ */
+private enum class NotifMotivo { ROUTINE, VIAGGIO }
+
+/**
+ * La Posizione di Android e' accesa?
+ *
+ * E' un interruttore diverso dal permesso dell'app, e si guarda a parte. Se
+ * il sistema non risponde si presume acceso: meglio un mirino che prova che
+ * un mirino che rifiuta a torto.
+ */
+private fun posizioneDiSistemaAccesa(context: android.content.Context): Boolean =
+    runCatching {
+        context.getSystemService(android.location.LocationManager::class.java)?.isLocationEnabled
+    }.getOrNull() ?: true
 
 /**
  * I due permessi di posizione, chiesti insieme: e' cosi' che Android 12 mostra

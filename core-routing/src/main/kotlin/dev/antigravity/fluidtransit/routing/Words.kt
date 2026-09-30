@@ -96,4 +96,33 @@ object Words {
      */
     fun age(seconds: Long): String =
         age(seconds.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt())
+
+    /**
+     * Oltre questa eta' il rilevamento di un bus non e' piu' "live": la mappa
+     * il mezzo lo toglie, e la sua scheda non deve dire il contrario.
+     *
+     * Il tetto vero dell'origine e' ~120 s: tre minuti separano "normale" da
+     * "il proxy dormiva". E' lo stesso numero con cui la mappa smette di
+     * disegnare i mezzi.
+     */
+    const val POSITION_STALE_SECONDS = 180
+
+    /**
+     * La riga sotto il titolo della scheda di un bus: quanto e' fresca la posizione.
+     *
+     * [ageSeconds] e' l'eta' di ADESSO del rilevamento: null se il mezzo non e'
+     * nello snapshot (non lo vede piu' nessuno), negativa se il feed non dice
+     * quando e' stato preso.
+     *
+     * Con il feed fermo la scheda scriveva "Posizione live - aggiornata 40 s
+     * fa" per venti minuti, mentre la mappa i bus li aveva tolti dopo tre.
+     * Invecchiare il numero non basta se la parola accanto resta "live": da
+     * tre minuti in su si dice "ultima posizione nota", che e' quello che e'.
+     */
+    fun positionLine(ageSeconds: Int?): String = when {
+        ageSeconds == null -> "Posizione non disponibile adesso"
+        ageSeconds < 0 -> "Posizione live"
+        ageSeconds < POSITION_STALE_SECONDS -> "Posizione live · aggiornata ${age(ageSeconds)} fa"
+        else -> "Ultima posizione nota · ${age(ageSeconds)} fa"
+    }
 }

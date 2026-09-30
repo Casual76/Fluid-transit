@@ -41,6 +41,20 @@ non sono state provate con un GPS vero), il cambio di tappa in strada, e lo
 scambio degli orari a viaggio in corso, provato solo nei test su due bundle
 di prova. — 30/09/2026
 
+**Posizione spenta, microfono senza riconoscimento e notifiche negate: scritti e provati nei test, non su un telefono.**
+Il 30/09/2026 sono stati corretti tre tasti che non facevano niente: il
+mirino con la Posizione di Android spenta (adesso lo dice e porta
+all'interruttore), il microfono della barra dove non c'e' un servizio di
+riconoscimento vocale (adesso apre la barra con la tastiera) e il permesso
+delle notifiche negato dopo aver creato una routine (adesso lo dice e, se
+Android non chiede piu', porta alle impostazioni). Le decisioni a tre rami
+hanno il loro test sulla JVM, ma l'emulatore non ha dato modo di vedere i
+tre casi veri: la Posizione spenta dal pannello rapido col permesso gia'
+concesso, un telefono senza Google (l'eccezione arriva dal lancio
+dell'intent, e senza `<queries>` non si puo' chiedere prima), e la seconda
+negazione delle notifiche su Android 13. Da vedere su un telefono vero. —
+30/09/2026
+
 **Le pastiglie delle linee: il bianco regge il contrasto su 3 tinte su 12.**
 Misurato il 30/09/2026 sulle dodici tinte di `RouteColoring.PALETTE`, col
 testo delle pastiglie (14 sp in grassetto, che per le linee guida WCAG e'

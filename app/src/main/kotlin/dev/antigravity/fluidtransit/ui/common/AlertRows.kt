@@ -18,7 +18,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /**
- * Gli avvisi in corso, in cima a una scheda.
+ * Gli avvisi in corso e quelli che stanno per cominciare, in cima a una scheda.
  *
  * Un avviso di servizio e' l'unica cosa che puo' rendere sbagliato tutto il
  * resto di un pannello — gli orari, le fermate, i minuti — quindi sta sopra,

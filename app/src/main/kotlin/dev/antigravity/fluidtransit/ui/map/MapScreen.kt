@@ -2454,6 +2454,27 @@ fun MapScreen(
                         .padding(horizontal = FluidTabBarDefaults.HorizontalMargin),
                 )
             }
+            // Ci sono orari nuovi e siamo sui dati mobili: l'app chiede prima di
+            // scaricarli, e la domanda stava solo in Stato dei dati, dove non
+            // la cerca nessuno. Qui la si vede, e toccandola ci si arriva.
+            val offertaOrari by app.bundleManager.updateOffer.collectAsStateWithLifecycle()
+            androidx.compose.animation.AnimatedVisibility(
+                visible = comandiVisibili && panel == null &&
+                    offertaOrari is dev.antigravity.fluidtransit.data.bundle.BundleManager.UpdateOffer.Offered,
+                enter = androidx.compose.animation.fadeIn(),
+                exit = androidx.compose.animation.fadeOut(),
+            ) {
+                MapNoticeCapsule(
+                    icon = Icons.Rounded.Info,
+                    title = "Ci sono orari nuovi da scaricare",
+                    detail = "Tocca per aggiornarli, anche sui dati mobili",
+                    backdrop = backdrop,
+                    onClick = onOpenDataStatus,
+                    modifier = Modifier
+                        .padding(top = 10.dp)
+                        .padding(horizontal = FluidTabBarDefaults.HorizontalMargin),
+                )
+            }
             // Cosa passa qui intorno, dove la tab bar lascia spazio: si legge
             // senza toccare niente, e toccandola si apre tutto.
             androidx.compose.animation.AnimatedVisibility(
@@ -2504,6 +2525,7 @@ fun MapScreen(
         // "Perche' questo numero", dichiarato qui e disegnato alla radice: si
         // apre SUL numero toccato, non al centro dello schermo.
         dev.antigravity.fluidtransit.ui.common.WhyThisNumberPortal(
+            link = app.realtime.link(),
             row = whyRow,
             nowEpoch = whyAt,
             origin = { whyOrigin },

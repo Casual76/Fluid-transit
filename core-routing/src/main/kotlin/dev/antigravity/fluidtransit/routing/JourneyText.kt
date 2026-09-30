@@ -25,8 +25,11 @@ object JourneyText {
         /** Si cammina per [seconds] secondi. */
         class Walk(val seconds: Int) : Step()
 
-        /** Si sale sulla [line]; [live] se il feed sta seguendo QUESTA corsa. */
-        class Ride(val line: String, val live: Boolean) : Step()
+        /**
+         * Si sale sulla [line]; [live] se il feed sta seguendo QUESTA corsa, e
+         * [delaySeconds] il ritardo che il viaggio usa.
+         */
+        class Ride(val line: String, val live: Boolean, val delaySeconds: Int = 0) : Step()
     }
 
     /**
@@ -96,7 +99,17 @@ object JourneyText {
             if (step.seconds <= Times.NOW_SECONDS) null
             else "${Times.durationLabel(step.seconds)} a piedi"
 
-        is Step.Ride -> spokenLine(step.line)
+        // Il ritardo si dice quando conta, con le soglie del colore: un bus
+        // con venti minuti di ritardo si leggeva come uno puntuale, perche' a
+        // voce restava solo il nome della linea e il rosso non si sente.
+        is Step.Ride -> {
+            val tono = DepartureText.toneOf(step.delaySeconds.takeIf { step.live })
+            if (tono == DepartureText.Tone.LATE || tono == DepartureText.Tone.VERY_LATE) {
+                "${spokenLine(step.line)}, ${Times.delayLabel(step.delaySeconds)}"
+            } else {
+                spokenLine(step.line)
+            }
+        }
     }
 
     /**

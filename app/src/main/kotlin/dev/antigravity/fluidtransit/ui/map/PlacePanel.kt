@@ -73,6 +73,12 @@ fun GlassActionButton(
      * fuori sembrava un pulsante rotto.
      */
     enabled: Boolean = true,
+    /**
+     * Quante righe al massimo. Di norma quante ne servono; i tasti dei posti
+     * nominati dall'assistente si fermano a due, perche' un nome di fermata
+     * lungo occupava da solo mezza risposta.
+     */
+    maxLines: Int = Int.MAX_VALUE,
 ) {
     val alfa = if (enabled) 1f else 0.38f
     Row(
@@ -108,6 +114,8 @@ fun GlassActionButton(
         }
         Text(
             text = text,
+            maxLines = maxLines,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             style = MaterialTheme.typography.labelLarge,
             color = if (emphasized) {
                 MaterialTheme.colorScheme.primary

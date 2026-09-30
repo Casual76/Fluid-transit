@@ -544,4 +544,15 @@ class DepartureTextTest {
             )
         }
     }
+
+    @Test
+    fun `senza collegamento la spiegazione non da' la colpa al feed`() {
+        // Col telefono offline una riga da tabella diceva "il feed non parla
+        // di questa corsa": una colpa della Regione per un buco nostro.
+        val offline = DepartureText.why(row(300), now, DepartureText.LiveLink.NONE)
+        assertTrue(offline.lines.none { it.contains("feed non parla") }, "${offline.lines}")
+        assertTrue(offline.lines.any { it.contains("non riceve il tempo reale") }, "${offline.lines}")
+        val pieno = DepartureText.why(row(300), now)
+        assertTrue(pieno.lines.any { it.contains("feed non parla") }, "${pieno.lines}")
+    }
 }

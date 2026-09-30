@@ -317,6 +317,13 @@ class RealtimeClient(
 
     suspend fun refreshDelays() = delaysLock.withLock { fetchDelays() }
 
+    /** Il collegamento di adesso, nelle parole di chi spiega una riga. */
+    fun link(): dev.antigravity.fluidtransit.routing.DepartureText.LiveLink = when (_status.value.source) {
+        Source.PROXY -> dev.antigravity.fluidtransit.routing.DepartureText.LiveLink.FULL
+        Source.DIRECT -> dev.antigravity.fluidtransit.routing.DepartureText.LiveLink.VEHICLES_ONLY
+        Source.SCHEDULE_ONLY -> dev.antigravity.fluidtransit.routing.DepartureText.LiveLink.NONE
+    }
+
     /**
      * I ritardi per corsa sono ancora buoni per un calcolo?
      *

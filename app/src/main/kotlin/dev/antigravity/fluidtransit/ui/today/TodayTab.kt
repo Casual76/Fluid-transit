@@ -673,6 +673,7 @@ fun TodayTab(
     // ha gia' il suo menu, e farlo partire da li' sarebbe una seconda
     // animazione sopra la prima.
     dev.antigravity.fluidtransit.ui.common.WhyThisNumberPortal(
+        link = app.realtime.link(),
         row = whyRow,
         nowEpoch = whyAt,
         origin = { null },

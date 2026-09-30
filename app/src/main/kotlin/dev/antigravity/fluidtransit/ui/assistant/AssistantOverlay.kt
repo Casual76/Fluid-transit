@@ -228,6 +228,7 @@ fun AssistantOverlay(
                         text = chip.name,
                         icon = null,
                         backdrop = backdrop,
+                        maxLines = 2,
                         onClick = { onPlace(chip.name) },
                     )
                 }

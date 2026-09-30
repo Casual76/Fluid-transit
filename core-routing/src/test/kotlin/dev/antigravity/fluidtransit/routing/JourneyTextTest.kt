@@ -173,4 +173,21 @@ class JourneyTextTest {
         val testo = spoken(1, listOf(Step.Ride("T1", live = false), Step.Ride("LAM", live = false)))
         assertTrue("linea T1, linea LAM." in testo, testo)
     }
+
+    @Test
+    fun `un ritardo che conta si dice a voce`() {
+        val frase = JourneyText.spoken(
+            depTime = "18:08", arrTime = "18:53", durationLabel = "45 min", transfers = 0,
+            steps = listOf(JourneyText.Step.Ride("57", live = true, delaySeconds = 21 * 60)),
+            walkOnly = false, walkSeconds = 0,
+        )
+        assertTrue(frase.contains("linea 57, +21 min di ritardo"), frase)
+        // Un minuto non e' una notizia, e un numero non dal vivo non si dice.
+        val poco = JourneyText.spoken(
+            depTime = "18:08", arrTime = "18:53", durationLabel = "45 min", transfers = 0,
+            steps = listOf(JourneyText.Step.Ride("57", live = true, delaySeconds = 60)),
+            walkOnly = false, walkSeconds = 0,
+        )
+        assertTrue(!poco.contains("ritardo"), poco)
+    }
 }

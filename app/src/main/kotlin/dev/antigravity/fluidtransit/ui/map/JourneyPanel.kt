@@ -96,7 +96,7 @@ class UiJourney(
         steps = legs.map { leg ->
             when (leg) {
                 is UiLeg.Walk -> JourneyText.Step.Walk(leg.seconds)
-                is UiLeg.Ride -> JourneyText.Step.Ride(leg.line, leg.live)
+                is UiLeg.Ride -> JourneyText.Step.Ride(leg.line, leg.live, leg.delaySeconds)
             }
         },
         walkOnly = walkOnly,

@@ -63,6 +63,10 @@ class BoardEmptyTextTest {
             "non sappiamo quando" in scaduti.detail,
             "deve distinguere il nostro guasto dal servizio: ${scaduti.detail}",
         )
+        // E non promette che non ne arrivano: sui dati mobili ne arrivano, e
+        // l'app chiede prima di scaricarli.
+        assertTrue("non ne arrivano" !in scaduti.detail, scaduti.detail)
+        assertTrue("Stato dei dati" in scaduti.detail, "deve dire dove aggiornarli: ${scaduti.detail}")
     }
 
     @Test

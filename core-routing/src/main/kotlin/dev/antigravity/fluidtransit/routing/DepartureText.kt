@@ -338,7 +338,24 @@ object DepartureText {
      * Le frasi non sono generiche: dicono cosa ha dichiarato il feed, per
      * quale fermata, e cosa ci ha aggiunto l'app.
      */
-    fun why(row: NextDeparture, nowEpoch: Long): Why {
+    /**
+     * Com'e' il collegamento al tempo reale, per chi spiega una riga senza
+     * dati: "il feed non parla di questa corsa" e' vero solo se il feed lo
+     * stiamo ricevendo. Col telefono offline era una colpa data alla Regione
+     * per un buco nostro.
+     */
+    enum class LiveLink {
+        /** Posizioni e ritardi arrivano: se una corsa non ha dati, e' il feed. */
+        FULL,
+
+        /** Arrivano solo le posizioni, dall'origine: i ritardi no. */
+        VEHICLES_ONLY,
+
+        /** Non arriva niente: la rete, o il nostro servizio. */
+        NONE,
+    }
+
+    fun why(row: NextDeparture, nowEpoch: Long, link: LiveLink = LiveLink.FULL): Why {
         val tabella = "Orario di tabella: ${Times.hhmm(row.scheduledEpoch)}"
         val mostrato = "Orario mostrato: ${Times.hhmm(row.effectiveEpoch)}"
         val scarto = Times.delayLabel(row.delaySeconds)
@@ -418,7 +435,21 @@ object DepartureText {
 
             null -> Why(
                 title = "Vale l'orario di tabella",
-                lines = if (row.monitored) {
+                lines = if (link == LiveLink.NONE) {
+                    listOf(
+                        "Adesso il telefono non riceve il tempo reale: di questa corsa " +
+                            "non sappiamo niente, e non e' colpa del feed.",
+                        tabella,
+                        "Quando il collegamento torna, i minuti dal bus tornano da soli.",
+                    )
+                } else if (link == LiveLink.VEHICLES_ONLY && !row.monitored) {
+                    listOf(
+                        "Adesso arrivano solo le posizioni dei mezzi, non i ritardi: il " +
+                            "nostro servizio non risponde e si legge direttamente il feed " +
+                            "della Regione.",
+                        tabella,
+                    )
+                } else if (row.monitored) {
                     listOf(
                         "Il feed vede il mezzo in strada ma non dice di quanto sia " +
                             "in ritardo.",
@@ -655,11 +686,15 @@ object DepartureText {
             )
         }
 
+        // Non "non ne arrivano di nuovi": sui dati mobili l'app ne trova di
+        // nuovi e chiede prima di scaricarli, e senza rete non lo sa. La
+        // frase dice dove guardare, e resta vera in tutti e due i casi.
         Trouble.ORARI_SCADUTI -> Empty(
             "Gli orari sono scaduti",
-            "Quelli che abbiamo non coprono piu' oggi, e non ne arrivano di nuovi. " +
-                "Non vuol dire che i bus non passino: vuol dire che non sappiamo quando.",
-            "non ne arrivano di nuovi",
+            "Quelli che abbiamo non coprono piu' oggi: se ce ne sono di nuovi li " +
+                "aggiorni da Impostazioni, Stato dei dati. Non vuol dire che i bus " +
+                "non passino: vuol dire che non sappiamo quando.",
+            "orari da aggiornare",
         )
 
         Trouble.NIENTE_A_BREVE -> Empty(

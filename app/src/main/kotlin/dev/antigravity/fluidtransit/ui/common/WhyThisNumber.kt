@@ -53,12 +53,17 @@ fun WhyThisNumberPortal(
      * dalla UI, perche' scorre tutte le corse del giorno.
      */
     coverage: (suspend () -> dev.antigravity.fluidtransit.routing.Coverage.Stato?)? = null,
+    /** Com'e' il collegamento adesso: vedi [DepartureText.LiveLink]. */
+    link: DepartureText.LiveLink = DepartureText.LiveLink.FULL,
 ) {
-    val why = row?.let { DepartureText.why(it, nowEpoch) }
+    val why = row?.let { DepartureText.why(it, nowEpoch, link) }
     val copertura by androidx.compose.runtime.produceState<String?>(null, row) {
         value = null
         val r = row ?: return@produceState
+        // La copertura parla del feed: senza collegamento pieno direbbe "la
+        // Regione non pubblica niente" di un buco che e' nostro.
         if (coverage == null || r.certainty != null || r.canceled || r.skipped) return@produceState
+        if (link != DepartureText.LiveLink.FULL) return@produceState
         value = runCatching { coverage() }.getOrNull()?.sentence()
     }
     // Una riga nuova si apre dall'inizio, non da dove era arrivata la

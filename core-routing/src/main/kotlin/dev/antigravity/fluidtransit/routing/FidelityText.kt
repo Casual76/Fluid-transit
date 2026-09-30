@@ -65,11 +65,18 @@ object FidelityText {
                     "Il primo esito non e' ancora arrivato quaggiu'.",
             )
         }
-        val quando = AlertText.moment(v.atEpoch, nowEpoch)
+        // `pastMoment` e non `moment`: una data vuole l'articolo. "e' di 27
+        // settembre" e "della Regione 30 settembre" non sono italiano, e ieri
+        // sera si dice "ieri alle 17:30", con l'ora, non con una data nuda.
+        val quando = AlertText.pastMoment(v.atEpoch, nowEpoch)
         if (nowEpoch - v.atEpoch > STALE_SECONDS) {
             return Words(
                 "Vecchio di piu' di due giorni",
-                "L'ultimo confronto e' di $quando. Gira due volte al giorno: " +
+                // "E' avvenuto" e non "e' di": regge "ieri alle 17:30",
+                // "lunedi' scorso alle 10:00" e "il 27 settembre" senza
+                // cambiare preposizione a seconda di come e' scritto il
+                // quando.
+                "L'ultimo confronto e' avvenuto $quando. Gira due volte al giorno: " +
                     "se l'ultimo e' cosi' indietro, si e' fermato qualcosa.",
             )
         }

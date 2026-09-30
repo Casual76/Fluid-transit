@@ -656,4 +656,52 @@ class RealtimeClientTest {
             assertTrue(lista!!.isEmpty())
         }
     }
+
+    @Test
+    fun `chi forza il download salta la cache dei cinque minuti`() {
+        // Tirare giu' o toccare "Riprova" dentro i cinque minuti di cache
+        // rispondeva la cache: il gesto non cambiava niente e non si capiva se
+        // fosse stato letto.
+        kotlinx.coroutines.runBlocking {
+            val rt = client()
+            proxy.enqueue(MockResponse().setResponseCode(200).setBody(Buffer()))
+            assertNotNull(rt.fetchAlertsOrNull())
+            val dopoIlPrimo = proxy.requestCount
+
+            assertNotNull(rt.fetchAlertsOrNull())
+            assertEquals("senza force risponde la cache", dopoIlPrimo, proxy.requestCount)
+
+            proxy.enqueue(MockResponse().setResponseCode(200).setBody(Buffer()))
+            assertNotNull(rt.fetchAlertsOrNull(force = true))
+            assertEquals("con force chiede al proxy", dopoIlPrimo + 1, proxy.requestCount)
+        }
+    }
+
+    @Test
+    fun `un download forzato che fallisce non rinnova la scadenza della cache`() {
+        // La fiducia in "zero avvisi" conta da quando e' stato confermato
+        // davvero: un giro forzato andato male non deve farlo sembrare fresco.
+        kotlinx.coroutines.runBlocking {
+            var adesso = 1_790_000_000_000L
+            val rt = RealtimeClient(
+                proxyAllowed = { true },
+                proxyBase = proxy.url("/rt/v1").toString().trimEnd('/'),
+                directVehiclesUrl = origin.url("/vehicles").toString(),
+                clockMs = { adesso },
+            )
+            proxy.enqueue(MockResponse().setResponseCode(200).setBody(Buffer()))
+            assertNotNull(rt.fetchAlertsOrNull())
+
+            adesso += 20 * 60_000L
+            proxy.enqueue(MockResponse().setResponseCode(503))
+            assertNotNull(rt.fetchAlertsOrNull(force = true))
+            assertEquals(1_790_000_000L, rt.alertsStaleSinceEpoch())
+
+            // Passata la mezz'ora dall'ultima conferma vera, "zero avvisi"
+            // non si dice piu': e' null, non una lista vuota.
+            adesso += 15 * 60_000L
+            proxy.enqueue(MockResponse().setResponseCode(503))
+            assertNull(rt.fetchAlertsOrNull(force = true))
+        }
+    }
 }

@@ -8,7 +8,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -40,10 +39,13 @@ import dev.antigravity.fluidtransit.FluidTransitApp
 import dev.antigravity.fluidtransit.data.bundle.BundleManager.BundleState
 import dev.antigravity.fluidtransit.data.routines.RoutineScheduler
 import dev.antigravity.fluidtransit.data.routines.Routines
+import dev.antigravity.fluidtransit.data.rt.GtfsRtLite
+import dev.antigravity.fluidtransit.ui.common.titoloDiSezione
 import dev.antigravity.fluidtransit.ui.map.MapIntent
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZonedDateTime
+import dev.antigravity.fluidtransit.routing.AlertText
 import dev.antigravity.fluidtransit.routing.DepartureText
 import dev.antigravity.fluidtransit.routing.Ftb
 import dev.antigravity.fluidtransit.routing.Times
@@ -135,38 +137,47 @@ fun TodayTab(
     }
     // Da quando gli avvisi sono vecchi, se l'ultimo download non e' riuscito.
     var avvisiVecchiDa by remember { mutableStateOf<Long?>(null) }
-    val esitoAvvisi by produceState<
-        Result<List<dev.antigravity.fluidtransit.data.rt.GtfsRtLite.RtAlert>>?,
-        >(null, favVersion, stopIndexes, ready?.buildId) {
-        val all = app.realtime.fetchAlertsOrNull()
-        avvisiVecchiDa = app.realtime.alertsStaleSinceEpoch()
-        if (all == null) {
-            value = Result.failure(java.io.IOException("avvisi non scaricati"))
-            return@produceState
-        }
-        val now = Instant.now().epochSecond
-        // Anche quelli di domani.
-        //
-        // Un avviso attivo lo scopri quando ti tocca; uno sciopero annunciato
-        // per domani serve oggi, ed e' questa la scheda che si guarda per
-        // sapere com'e' la giornata. Due giorni di orizzonte, non di piu':
-        // "Oggi" resta oggi. Il periodo lo dice gia' ogni riga, quindi non si
-        // confonde un avviso in corso con uno che comincia.
-        val orizzonte = now + 2 * 24 * 3600
-        value = Result.success(
-            all
-                .filter { a -> a.routeHashes.isEmpty() || a.routeHashes.any { it in mine } }
-                .filter { a ->
-                    val giaFinito = a.endEpoch != 0L && a.endEpoch < now
-                    val troppoInLa = a.startEpoch > orizzonte
-                    !giaFinito && !troppoInLa
-                }
-                // Prima quelli in corso: chi apre la scheda vuole sapere cosa
-                // sta succedendo adesso, e poi cosa succedera'.
-                .sortedBy { a -> if (a.startEpoch == 0L || a.startEpoch <= now) 0 else 1 },
-        )
+    // La lista COSI' COME E' ARRIVATA, non filtrata.
+    //
+    // Il filtro stava dentro il download, con l'ora del download: "gia'
+    // finito" e "troppo in la'" restavano quelli di quel momento. Uno sciopero
+    // finito alle 09:00 era ancora qui alle 11, e nessuno faceva rifare il
+    // conto. Si tiene la lista grezza e il filtro si fa piu' sotto, col
+    // battito dell'app, come nella schermata degli avvisi.
+    var esitoAvvisi by remember {
+        mutableStateOf<Result<List<GtfsRtLite.RtAlert>>?>(null)
     }
-    val alerts = esitoAvvisi?.getOrNull().orEmpty()
+    // `force` e' per chi ha tirato giu': vuole una risposta nuova e non quella
+    // in cache. Il giro dei cinque minuti no, si accontenta della cache.
+    val scaricaAvvisi: suspend (Boolean) -> Unit = { force ->
+        val all = app.realtime.fetchAlertsOrNull(force)
+        avvisiVecchiDa = app.realtime.alertsStaleSinceEpoch()
+        esitoAvvisi = if (all == null) {
+            Result.failure<List<GtfsRtLite.RtAlert>>(java.io.IOException("avvisi non scaricati"))
+        } else {
+            Result.success(all)
+        }
+    }
+    // Si riscaricano ogni cinque minuti finche' l'app e' davanti, e subito
+    // quando ci si torna.
+    //
+    // Prima il download partiva una volta per composizione e basta: alle 07:00
+    // "Nessun avviso sulle tue linee", alle 07:40 — riportata l'app davanti,
+    // la composizione era sopravvissuta — ancora "Nessun avviso" con uno
+    // sciopero annunciato alle 07:20. Gli orari sulla stessa schermata si
+    // muovono ogni dieci secondi, quindi la scheda sembrava viva e la sua
+    // frase piu' rassicurante aveva quaranta minuti. Rientrare in STARTED
+    // rifa' il giro subito; la cache di `fetchAlertsOrNull` (5 minuti) evita
+    // che sia una richiesta ogni volta.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(Unit) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                scaricaAvvisi(false)
+                delay(AVVISI_OGNI_MS)
+            }
+        }
+    }
 
     val today = LocalDate.now(Ftb.ROME).dayOfWeek.value
 
@@ -176,6 +187,29 @@ fun TodayTab(
     val battito = remember { dev.antigravity.fluidtransit.data.time.UiClock.ticks() }
     val adesso by battito
         .collectAsStateWithLifecycle(initialValue = Instant.now().epochSecond)
+
+    // Gli avvisi da mostrare, decisi adesso e non quando la lista e' arrivata.
+    val avvisiGrezzi = esitoAvvisi?.getOrNull()
+    val alerts = remember(avvisiGrezzi, mine, adesso) {
+        // Anche quelli di domani.
+        //
+        // Un avviso attivo lo scopri quando ti tocca; uno sciopero annunciato
+        // per domani serve oggi, ed e' questa la scheda che si guarda per
+        // sapere com'e' la giornata. Due giorni di orizzonte, non di piu':
+        // "Oggi" resta oggi. Il periodo lo dice gia' ogni riga, quindi non si
+        // confonde un avviso in corso con uno che comincia.
+        val orizzonte = adesso + 2 * 24 * 3600
+        avvisiGrezzi.orEmpty()
+            .filter { a -> a.routeHashes.isEmpty() || a.routeHashes.any { it in mine } }
+            .filter { a ->
+                val giaFinito = a.endEpoch != 0L && a.endEpoch < adesso
+                val troppoInLa = a.startEpoch > orizzonte
+                !giaFinito && !troppoInLa
+            }
+            // Prima quelli in corso: chi apre la scheda vuole sapere cosa
+            // sta succedendo adesso, e poi cosa succedera'.
+            .sortedBy { a -> if (a.startEpoch == 0L || a.startEpoch <= adesso) 0 else 1 }
+    }
 
     // Tira giu' per aggiornare.
     //
@@ -192,6 +226,12 @@ fun TodayTab(
                 runCatching { app.realtime.refreshVehicles() }
                 runCatching { app.realtime.refreshDelays() }
                 runCatching { app.realtime.refreshPredictions() }
+                // Anche gli avvisi: il gesto rinfrescava tutto tranne la cosa
+                // che piu' cambia una giornata, e la sua frase piu'
+                // rassicurante. Forzato: dentro i cinque minuti di cache
+                // avrebbe risposto la cache, e chi tira giu' avrebbe visto
+                // la stessa lista di prima senza sapere se era stata chiesta.
+                scaricaAvvisi(true)
                 app.bundleManager.refreshOnForeground()
                 // Mezzo secondo di cortesia: un aggiornamento che sparisce
                 // prima di essere visto non e' una risposta.
@@ -284,6 +324,7 @@ fun TodayTab(
                     // punti di interesse.
                     eyebrow = if (prossimo != null) "Dopo" else "Adesso",
                     title = unicaFermata ?: "Dalle tue fermate",
+                    modifier = Modifier.titoloDiSezione(),
                 )
             }
             item {
@@ -368,7 +409,13 @@ fun TodayTab(
 
         // --- le routine --------------------------------------------------
         if (routines.isNotEmpty()) {
-            item { FluidSectionTitle(eyebrow = "Routine", title = "Le tue routine") }
+            item {
+                FluidSectionTitle(
+                    eyebrow = "Routine",
+                    title = "Le tue routine",
+                    modifier = Modifier.titoloDiSezione(),
+                )
+            }
             item {
                 FluidListGroup {
                     for (r in routines) {
@@ -495,10 +542,29 @@ fun TodayTab(
         // linee tue la sezione parla di tutta la Toscana e dice come
         // diventare personale.
         val senzaLinee = mine.isEmpty()
+        // Le linee delle routine NON sono nel conto, e la frase non deve dire
+        // il contrario.
+        //
+        // "Le tue linee" sono le stellate piu' quelle delle fermate stellate;
+        // una routine non stella niente, e le linee del suo viaggio non le
+        // salva nessuno. Chi ha una routine e una fermata stellata su un'altra
+        // linea leggeva "Nessun avviso sulle tue linee" con uno sciopero in
+        // corso proprio sulla linea con cui va al lavoro: un'affermazione
+        // sul mondo detta su un insieme incompleto. Finche' quelle linee non
+        // sono note qui, il titolo dice di quali linee si parla davvero e la
+        // riga vuota dice cosa manca. Senza linee nostre (`senzaLinee`) non
+        // c'e' niente da correggere: la sezione parla gia' di tutta la
+        // Toscana e non fa nessuna affermazione sulle tue.
+        val routineFuoriConto = !senzaLinee && routines.any { it.enabled }
         item {
             FluidSectionTitle(
                 eyebrow = "Avvisi",
-                title = if (senzaLinee) "In Toscana" else "Sulle tue linee",
+                title = when {
+                    senzaLinee -> "In Toscana"
+                    routineFuoriConto -> "Sulle linee dei tuoi preferiti"
+                    else -> "Sulle tue linee"
+                },
+                modifier = Modifier.titoloDiSezione(),
             )
         }
         if (esitoAvvisi == null) {
@@ -518,20 +584,23 @@ fun TodayTab(
             item {
                 FluidListGroup {
                     FluidListRow(
-                        title = if (senzaLinee) {
-                            "Deviazioni, scioperi e lavori"
-                        } else {
-                            "Nessun avviso sulle tue linee"
+                        title = when {
+                            senzaLinee -> "Deviazioni, scioperi e lavori"
+                            routineFuoriConto -> "Nessun avviso sulle linee dei tuoi preferiti"
+                            else -> "Nessun avviso sulle tue linee"
                         },
                         // Detto con la data, se e' di prima: "nessun avviso"
                         // di mezz'ora fa non e' "nessun avviso" adesso.
                         subtitle = avvisiVecchiDa?.let {
-                            dev.antigravity.fluidtransit.routing.AlertText.stale(it, adesso)
-                        } ?: if (senzaLinee) {
-                            "Apri per vederli. Stella una fermata e qui compaiono " +
-                                "quelli delle sue linee"
-                        } else {
-                            "Apri per vedere quelli di tutta la Toscana"
+                            AlertText.stale(it, adesso)
+                        } ?: when {
+                            senzaLinee ->
+                                "Apri per vederli. Stella una fermata e qui compaiono " +
+                                    "quelli delle sue linee"
+                            routineFuoriConto ->
+                                "Le linee delle tue routine non sono nel conto: apri " +
+                                    "per vedere quelli di tutta la Toscana"
+                            else -> "Apri per vedere quelli di tutta la Toscana"
                         },
                         onClick = onOpenAlerts,
                     )
@@ -586,7 +655,14 @@ fun TodayTab(
                         } else {
                             "Apri gli avvisi"
                         },
-                        subtitle = "Col periodo e le linee toccate",
+                        // Se la lista e' di prima, lo dice: un elenco con tre
+                        // scioperi e senza un'ora accanto si legge come la
+                        // situazione di adesso, e dopo un download fallito
+                        // e' quella dell'ultimo che e' riuscito. La schermata
+                        // degli avvisi lo diceva gia'; questa, la piu'
+                        // letta, lo diceva solo con la lista vuota.
+                        subtitle = avvisiVecchiDa?.let { AlertText.stale(it, adesso) }
+                            ?: "Col periodo e le linee toccate",
                         onClick = onOpenAlerts,
                     )
                 }
@@ -617,6 +693,16 @@ fun TodayTab(
         },
     )
 }
+
+/**
+ * Ogni quanto si riscaricano gli avvisi mentre la scheda e' davanti.
+ *
+ * Cinque minuti e un filo: la cache di `RealtimeClient.fetchAlertsOrNull` vale
+ * cinque minuti secchi, e un giro esattamente a cinque minuti cadrebbe ogni
+ * tanto un istante PRIMA che scada, troverebbe la risposta di prima e
+ * lascerebbe la scheda ferma per altri cinque.
+ */
+private const val AVVISI_OGNI_MS = 5 * 60_000L + 10_000L
 
 private fun daysShort(days: Set<Int>): String {
     if (days.size == 7) return "Tutti i giorni"

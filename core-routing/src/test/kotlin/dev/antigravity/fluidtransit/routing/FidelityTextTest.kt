@@ -99,6 +99,46 @@ class FidelityTextTest {
     }
 
     @Test
+    fun `un verdetto di ieri dice ieri e l'ora, non una data nuda`() {
+        // Aperta la mattina prima che il banco giri, l'ultimo esito e' del
+        // pomeriggio prima: "della Regione 15 settembre" non aveva ne'
+        // preposizione ne' ora.
+        val uguale = FidelityText.words(
+            FidelityText.Verdict(oreFa(19), "uguale", punti = 23_808, diversi = 0),
+            now,
+        )
+        assertTrue(uguale.detail.contains("della Regione ieri alle 17:00"), uguale.detail)
+        assertTrue(!uguale.detail.contains("Regione 15 settembre"), uguale.detail)
+
+        val diverso = FidelityText.words(
+            FidelityText.Verdict(oreFa(19), "diverso", punti = 500, diversi = 7),
+            now,
+        )
+        assertTrue(diverso.detail.contains("confrontati ieri alle 17:00"), diverso.detail)
+    }
+
+    @Test
+    fun `un verdetto vecchio si dice con una frase che regge una data`() {
+        // Piu' di una settimana fa e' una data, e "e' di 9 settembre" non e'
+        // italiano: la frase deve reggere "il 9 settembre" come
+        // "domenica scorsa alle 12:00".
+        val dataNuda = FidelityText.words(
+            FidelityText.Verdict(now - 7 * 24 * 3600, "uguale", punti = 900, diversi = 0),
+            now,
+        )
+        assertTrue(dataNuda.detail.contains("e' avvenuto il 9 settembre"), dataNuda.detail)
+
+        val inSettimana = FidelityText.words(
+            FidelityText.Verdict(now - 3 * 24 * 3600, "uguale", punti = 900, diversi = 0),
+            now,
+        )
+        assertTrue(
+            inSettimana.detail.contains("e' avvenuto domenica scorsa alle 12:00"),
+            inSettimana.detail,
+        )
+    }
+
+    @Test
     fun `un esito che non conosciamo non si finge di capirlo`() {
         // Il file lo scrive un workflow che puo' cambiare prima dell'app
         // installata: inventarsi un significato sarebbe peggio che ammetterlo.

@@ -55,15 +55,33 @@ object AlertText {
     const val UNAVAILABLE_ROW = "Avvisi non arrivati: non sappiamo se ce ne sono"
 
     /**
+     * Il gesto per riprovare, a parole.
+     *
+     * "Tira giu' per riprovare" era l'unico modo di rifare il download, e col
+     * lettore di schermo quel gesto non si puo' fare: il testo chiedeva una
+     * cosa che chi lo leggeva non poteva compiere. Adesso c'e' un tasto, e il
+     * nome e' questo.
+     */
+    const val RETRY = "Riprova"
+
+    /** Cosa si legge mentre il tasto [RETRY] sta lavorando. */
+    const val RETRYING = "Riprovo a scaricarli…"
+
+    /**
      * Gli avvisi mostrati sono quelli dell'ultimo download riuscito, perche'
      * quello di adesso non e' riuscito.
      *
      * E' la regola dei minuti applicata agli avvisi: un dato vecchio si
      * mostra, ma dice di quando e'. Senza, una lista di sei ore prima si
      * leggeva come la situazione di adesso.
+     *
+     * Il "quando" e' quasi sempre nel passato, e per il passato [moment] non
+     * aveva parole: dopo mezzanotte un ultimo controllo delle 23:50 diventava
+     * "30 settembre", senza ora e senza "ieri", e si leggeva come una lista di
+     * un giorno intero invece che di mezz'ora. Qui si passa da [pastMoment].
      */
     fun stale(checkedEpoch: Long, nowEpoch: Long): String =
-        "Aggiornati ${moment(checkedEpoch, nowEpoch)}: adesso non riusciamo a scaricarli"
+        "Aggiornati ${pastMoment(checkedEpoch, nowEpoch)}: adesso non riusciamo a scaricarli"
 
     /**
      * Quanti avvisi restano fuori da una scheda che ne mostra solo i primi.
@@ -88,8 +106,30 @@ object AlertText {
      * Pubblica perche' serve anche altrove: qualunque cosa l'app dica con un
      * "quando" dovrebbe dirlo con le stesse parole, e due formati diversi per
      * la stessa idea sono due cose da imparare invece di una.
+     *
+     * Vale anche per il passato: "ieri alle 23:50", "lunedi' scorso alle
+     * 10:00". Il passato prima cadeva nel ramo delle date e usciva "30
+     * settembre" per un istante di ieri sera, senza ora — e chi legge un
+     * "aggiornati 30 settembre" non capisce se sono passati trenta minuti o
+     * un giorno. `Times.dateLabel` sapeva gia' dire "ieri", e i due
+     * vocabolari si contraddicevano.
      */
     fun moment(epoch: Long, nowEpoch: Long): String = momento(epoch, nowEpoch).testo
+
+    /**
+     * Un istante dentro una frase che lo regge con "di", "il", "da": la stessa
+     * cosa di [moment], con l'articolo quando serve.
+     *
+     * Un istante detto per nome ("ieri alle 23:50", "oggi alle 08:05") sta da
+     * solo dopo un verbo; una data no: "aggiornati 30 settembre" non e'
+     * italiano, e "aggiornati il 30 settembre" si'. La distinzione la conosce
+     * chi ha costruito il testo, quindi la fa lui e i chiamanti non
+     * indovinano da come e' scritto.
+     */
+    fun pastMoment(epoch: Long, nowEpoch: Long): String {
+        val m = momento(epoch, nowEpoch)
+        return if (m.data) "il ${m.testo}" else m.testo
+    }
 
     /**
      * Un istante e la preposizione che vuole davanti.
@@ -117,6 +157,15 @@ object AlertText {
             giorni == 0L -> Momento("oggi alle $ora", data = false)
             giorni == 1L -> Momento("domani alle $ora", data = false)
             giorni in 2..6 -> Momento("${nomeGiorno(t)} alle $ora", data = false)
+            // Il passato.
+            //
+            // "Ieri" per ieri, e dentro la settimana il giorno con "scorso":
+            // "lunedi' alle 10:00" letto di mercoledi' puo' essere quello
+            // appena passato o quello che viene, e "il lunedi'" vorrebbe dire
+            // tutti i lunedi'. Oltre la settimana e' una data, con l'anno se
+            // non e' questo, come per il futuro.
+            giorni == -1L -> Momento("ieri alle $ora", data = false)
+            giorni in -6..-2 -> Momento("${nomeGiorno(t)} ${scorso(t)} alle $ora", data = false)
             // L'anno solo quando non e' questo.
             //
             // "Fino a 28 febbraio" letto a settembre puo' voler dire il
@@ -132,6 +181,10 @@ object AlertText {
     }
 
     private fun nomeGiorno(t: ZonedDateTime): String = Words.weekday(t.dayOfWeek)
+
+    /** "Lunedi' scorso", ma "domenica scorsa": l'aggettivo segue il genere. */
+    private fun scorso(t: ZonedDateTime): String =
+        if (t.dayOfWeek == java.time.DayOfWeek.SUNDAY) "scorsa" else "scorso"
 
     private fun nomeMese(t: ZonedDateTime): String = Words.month(t.month)
     /**

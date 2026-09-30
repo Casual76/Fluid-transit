@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -18,8 +19,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.antigravity.fluidengine.ui.fluid.FluidButton
+import dev.antigravity.fluidengine.ui.fluid.FluidButtonStyle
 import dev.antigravity.fluidengine.ui.fluid.FluidScreen
 import dev.antigravity.fluidengine.ui.theme.FluidEmptyState
 import dev.antigravity.fluidengine.ui.theme.FluidListGroup
@@ -28,6 +34,7 @@ import dev.antigravity.fluidtransit.FluidTransitApp
 import dev.antigravity.fluidtransit.data.bundle.BundleManager.BundleState
 import dev.antigravity.fluidtransit.data.rt.GtfsRtLite
 import dev.antigravity.fluidtransit.routing.AlertText
+import dev.antigravity.fluidtransit.ui.common.titoloDiSezione
 import dev.antigravity.fluidtransit.ui.map.RoutePill
 import java.time.Instant
 import kotlinx.coroutines.launch
@@ -83,7 +90,6 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
         )
     }
 
-    var round by remember { mutableStateOf(0) }
     // Tre stati e non due: sto leggendo, non ci sono riuscito, ecco la lista.
     //
     // Prima il fallimento diventava una lista vuota, e una lista vuota qui
@@ -93,17 +99,56 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
     // Da quando la lista e' vecchia, se l'ultimo download non e' riuscito:
     // la lista si mostra lo stesso, ma dice di quando e'.
     var vecchiDa by remember { mutableStateOf<Long?>(null) }
-    val esito by produceState(initialValue = null as Result<List<GtfsRtLite.RtAlert>>?, round) {
-        val lista = app.realtime.fetchAlertsOrNull()
+    var esito by remember { mutableStateOf<Result<List<GtfsRtLite.RtAlert>>?>(null) }
+    // Il download e' una funzione e non un `produceState` con un contatore:
+    // chi riprova deve poter ASPETTARE la risposta. Col contatore il gesto
+    // partiva e lo "sto aggiornando" si spegneva dopo 600 ms qualunque cosa
+    // fosse successa, quindi un secondo tentativo fallito non cambiava niente
+    // sullo schermo — e per chi usa il lettore di schermo, che non ha altro
+    // segnale, era come non averlo fatto.
+    //
+    // `force` salta la cache di cinque minuti: chi tocca "Riprova" o tira giu'
+    // vuole una risposta nuova. L'apertura della schermata no, si accontenta
+    // della cache.
+    val scarica: suspend (Boolean) -> Unit = { force ->
+        val lista = app.realtime.fetchAlertsOrNull(force)
         vecchiDa = app.realtime.alertsStaleSinceEpoch()
-        value = lista
+        esito = lista
             ?.let { Result.success(it) }
             ?: Result.failure(java.io.IOException("avvisi non scaricati"))
     }
+    LaunchedEffect(Unit) { scarica(false) }
     val alerts = esito?.getOrNull()
 
     val scope = rememberCoroutineScope()
     var refreshing by remember { mutableStateOf(false) }
+
+    // Riprovare e' un tasto, e il gesto di tirare giu' fa la stessa cosa.
+    //
+    // Il fallimento diceva "tira giu' per riprovare", e quel gesto e' un
+    // overscroll del dito che il lettore di schermo non produce: con
+    // TalkBack acceso e la rete giu' durante uno sciopero il testo chiedeva
+    // una cosa che chi lo leggeva non poteva fare, e l'unica uscita era
+    // chiudere la schermata e riaprirla senza che nessuno lo dicesse.
+    val riprova: () -> Unit = {
+        if (!refreshing) {
+            refreshing = true
+            scope.launch {
+                try {
+                    // Un fallimento che si ripete deve SI VEDERE: si torna
+                    // alle sagome, e poi o arriva la lista o ricompare il
+                    // messaggio. La lista che c'e' gia' invece resta dov'e'.
+                    if (esito?.getOrNull() == null) esito = null
+                    scarica(true)
+                    // Mezzo secondo di cortesia: un aggiornamento che sparisce
+                    // prima di essere visto non e' una risposta.
+                    kotlinx.coroutines.delay(600)
+                } finally {
+                    refreshing = false
+                }
+            }
+        }
+    }
 
     // L'orologio comune, non uno suo: "da oggi alle 10:15" e l'elenco degli
     // avvisi in corso si aggiornano col battito di tutta l'app. Con
@@ -143,16 +188,7 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
         subtitle = "Deviazioni, scioperi e lavori dichiarati dal gestore",
         onBack = onBack,
         isRefreshing = refreshing,
-        onRefresh = {
-            if (!refreshing) {
-                refreshing = true
-                scope.launch {
-                    round++
-                    kotlinx.coroutines.delay(600)
-                    refreshing = false
-                }
-            }
-        },
+        onRefresh = riprova,
     ) {
         if (esito == null) {
             // Le sagome di quello che sta arrivando, invece di una rotellina
@@ -168,22 +204,46 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
         }
         if (alerts == null) {
             item {
-                FluidEmptyState(
-                    title = dev.antigravity.fluidtransit.routing.AlertText.UNAVAILABLE_TITLE,
-                    detail = dev.antigravity.fluidtransit.routing.AlertText.UNAVAILABLE_DETAIL +
-                        ": tira giu' per riprovare.",
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FluidEmptyState(
+                        title = AlertText.UNAVAILABLE_TITLE,
+                        detail = AlertText.UNAVAILABLE_DETAIL + ".",
+                    )
+                    // Il tasto sta DOPO il messaggio, nello stesso elemento:
+                    // per chi naviga a swipe l'ordine e' cosa e' successo, poi
+                    // cosa si puo' fare. Il testo non dice "il tasto qui
+                    // sotto": con il carattere grande la posizione cambia.
+                    FluidButton(
+                        text = AlertText.RETRY,
+                        onClick = riprova,
+                        style = FluidButtonStyle.Tinted,
+                        loading = refreshing,
+                    )
+                }
             }
             return@FluidScreen
         }
         vecchiDa?.let { da ->
             item {
-                Text(
-                    text = AlertText.stale(da, now) + ": tira giu' per riprovare.",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 4.dp),
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        // Mentre riprova il testo cambia: e' una regione viva,
+                        // quindi il lettore di schermo lo annuncia, e alla
+                        // fine annuncia com'e' andata.
+                        text = if (refreshing) AlertText.RETRYING else AlertText.stale(da, now),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .padding(horizontal = 4.dp)
+                            .semantics { liveRegion = LiveRegionMode.Polite },
+                    )
+                    FluidButton(
+                        text = AlertText.RETRY,
+                        onClick = riprova,
+                        style = FluidButtonStyle.Plain,
+                        loading = refreshing,
+                    )
+                }
             }
         }
         if (attivi.isEmpty() && futuri.isEmpty()) {
@@ -201,7 +261,13 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
         val altri = attivi - tuoi.toSet()
 
         if (tuoi.isNotEmpty()) {
-            item { FluidSectionTitle(eyebrow = "Avvisi", title = "Sulle tue linee") }
+            item {
+                FluidSectionTitle(
+                    eyebrow = "Avvisi",
+                    title = "Sulle tue linee",
+                    modifier = Modifier.titoloDiSezione(),
+                )
+            }
             alertItems("tuoi", tuoi, linee, now, mine)
         }
         if (altri.isNotEmpty()) {
@@ -209,12 +275,19 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
                 FluidSectionTitle(
                     eyebrow = "Avvisi",
                     title = if (tuoi.isEmpty()) "In corso" else "Sul resto della rete",
+                    modifier = Modifier.titoloDiSezione(),
                 )
             }
             alertItems("altri", altri, linee, now, mine)
         }
         if (futuri.isNotEmpty()) {
-            item { FluidSectionTitle(eyebrow = "Avvisi", title = "Nei prossimi giorni") }
+            item {
+                FluidSectionTitle(
+                    eyebrow = "Avvisi",
+                    title = "Nei prossimi giorni",
+                    modifier = Modifier.titoloDiSezione(),
+                )
+            }
             alertItems("futuri", futuri, linee, now, mine)
         }
     }

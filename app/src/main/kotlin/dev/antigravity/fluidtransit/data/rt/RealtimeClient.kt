@@ -428,9 +428,17 @@ class RealtimeClient(
      *   non possiamo piu' fare, e diventa null;
      * - in tutti e due i casi [alertsStaleSinceEpoch] dice da quando la
      *   risposta e' vecchia, perche' chi la mostra lo possa dire.
+     *
+     * [force] salta i cinque minuti di cache e chiede subito al proxy: e' per
+     * chi ha appena tirato giu' o toccato "Riprova", che si aspetta una
+     * risposta e non la stessa di prima. Il condizionale (`If-None-Match`) resta,
+     * quindi se gli avvisi non sono cambiati costa un 304 e non il corpo. Non
+     * tocca `alertsCacheAt` se il giro fallisce, quindi la fiducia nella lista
+     * vuota ([ALERTS_EMPTY_TRUST_MS]) continua a contare da quando e' stata
+     * confermata davvero.
      */
-    suspend fun fetchAlertsOrNull(): List<GtfsRtLite.RtAlert>? =
-        alertsLock.withLock { fetchAlertsLocked() }
+    suspend fun fetchAlertsOrNull(force: Boolean = false): List<GtfsRtLite.RtAlert>? =
+        alertsLock.withLock { fetchAlertsLocked(force) }
 
     /**
      * Quando gli avvisi serviti sono stati confermati l'ultima volta, se
@@ -441,9 +449,9 @@ class RealtimeClient(
 
     private var alertsLastFailed = false
 
-    private suspend fun fetchAlertsLocked(): List<GtfsRtLite.RtAlert>? = withContext(Dispatchers.IO) {
+    private suspend fun fetchAlertsLocked(force: Boolean): List<GtfsRtLite.RtAlert>? = withContext(Dispatchers.IO) {
         val now = clockMs()
-        alertsCache?.let { if (now - alertsCacheAt < 5 * 60_000) return@withContext it }
+        alertsCache?.let { if (!force && now - alertsCacheAt < 5 * 60_000) return@withContext it }
         runCatching {
             // Col condizionale come le altre due sezioni: gli alerts sono la
             // fetta piu' grossa dello snapshot (centinaia di kB di protobuf

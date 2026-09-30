@@ -185,6 +185,69 @@ class AlertTextTest {
     }
 
     @Test
+    fun `un controllo di ieri sera dice ieri e l'ora, non una data nuda`() {
+        // Il download fallisce alle 00:20 e l'ultimo riuscito era delle 23:50:
+        // e' mezz'ora, e "aggiornati 30 settembre" la faceva leggere come un
+        // giorno intero.
+        val ieriSera = ZonedDateTime.of(2026, 9, 30, 23, 50, 0, 0, Ftb.ROME).toEpochSecond()
+        val dopoMezzanotte = ZonedDateTime.of(2026, 10, 1, 0, 20, 0, 0, Ftb.ROME).toEpochSecond()
+        assertEquals(
+            "Aggiornati ieri alle 23:50: adesso non riusciamo a scaricarli",
+            AlertText.stale(ieriSera, dopoMezzanotte),
+        )
+        assertEquals("ieri alle 23:50", AlertText.moment(ieriSera, dopoMezzanotte))
+    }
+
+    @Test
+    fun `ieri vale anche a cavallo dell'anno`() {
+        val capodanno = ZonedDateTime.of(2026, 1, 1, 0, 20, 0, 0, Ftb.ROME).toEpochSecond()
+        val sanSilvestro = ZonedDateTime.of(2025, 12, 31, 23, 50, 0, 0, Ftb.ROME).toEpochSecond()
+        assertEquals("ieri alle 23:50", AlertText.moment(sanSilvestro, capodanno))
+    }
+
+    @Test
+    fun `dentro la settimana il passato dice il giorno con scorso`() {
+        // Mercoledi' 16/09: "lunedi' alle 10:00" potrebbe essere quello che
+        // viene, e "il lunedi'" vorrebbe dire tutti i lunedi'.
+        assertEquals(
+            "Aggiornati lunedi' scorso alle 10:00: adesso non riusciamo a scaricarli",
+            AlertText.stale(giorni(-2), now).accenti(),
+        )
+        assertEquals("giovedi' scorso alle 10:00", AlertText.moment(giorni(-6), now).accenti())
+    }
+
+    @Test
+    fun `la domenica e' scorsa, non scorso`() {
+        assertEquals("domenica scorsa alle 10:00", AlertText.moment(giorni(-3), now))
+    }
+
+    @Test
+    fun `oltre la settimana il passato e' una data con l'articolo`() {
+        // Sette giorni fa e' mercoledi' come oggi: "mercoledi' scorso"
+        // sarebbe ambiguo, ed e' qui che si passa alla data.
+        assertEquals("9 settembre", AlertText.moment(giorni(-7), now))
+        assertEquals("il 9 settembre", AlertText.pastMoment(giorni(-7), now))
+        assertEquals(
+            "Aggiornati il 6 settembre: adesso non riusciamo a scaricarli",
+            AlertText.stale(giorni(-10), now),
+        )
+    }
+
+    @Test
+    fun `una data passata di un altro anno porta l'anno`() {
+        val dicembre = ZonedDateTime.of(2025, 12, 20, 12, 0, 0, 0, Ftb.ROME).toEpochSecond()
+        val gennaio = ZonedDateTime.of(2026, 1, 10, 9, 0, 0, 0, Ftb.ROME).toEpochSecond()
+        assertEquals("il 20 dicembre 2025", AlertText.pastMoment(dicembre, gennaio))
+    }
+
+    @Test
+    fun `senza data l'istante non vuole l'articolo`() {
+        assertEquals("oggi alle 10:00", AlertText.pastMoment(now, now))
+        assertEquals("domani alle 10:00", AlertText.pastMoment(giorni(1), now))
+        assertEquals("il 26 settembre", AlertText.pastMoment(giorni(10), now))
+    }
+
+    @Test
     fun `un avviso senza code torna identico`() {
         val raw = "Deviazione in via Nazionale fino a stasera."
         assertEquals(raw, AlertText.body(raw))

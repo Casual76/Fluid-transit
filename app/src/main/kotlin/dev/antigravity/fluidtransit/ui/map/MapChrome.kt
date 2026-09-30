@@ -30,6 +30,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import dev.antigravity.fluidengine.ui.fluid.FluidCapsuleShape
@@ -81,7 +83,10 @@ fun CategoryChipsRow(
     modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = modifier.fillMaxWidth(),
+        // Un gruppo di scelte esclusive, detto come tale: con un lettore di
+        // schermo i tre chip erano tre pulsanti uguali, e quale fosse acceso
+        // lo diceva solo il colore.
+        modifier = modifier.fillMaxWidth().selectableGroup(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         for (chip in Chips) {
@@ -96,10 +101,11 @@ fun CategoryChipsRow(
                         shape = FluidCapsuleShape,
                         edge = GlassEdge.None,
                     )
-                    .clickable(
+                    .selectable(
+                        selected = isSelected,
                         interactionSource = remember2(),
                         indication = null,
-                        role = Role.Button,
+                        role = Role.RadioButton,
                         onClick = { onSelect(chip.filter) },
                     )
                     .padding(horizontal = 10.dp),

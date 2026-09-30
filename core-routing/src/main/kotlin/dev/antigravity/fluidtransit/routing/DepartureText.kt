@@ -197,6 +197,13 @@ object DepartureText {
                 "$source · visto ${Words.age(ageSeconds.toLong())} fa"
             // Il ritardo e' zero ma il feed sta seguendo la corsa: "in orario"
             // e' un'informazione, ed e' diversa da "non sappiamo niente".
+            // Un ritardo che conta si dice anche a parole. Il colore da solo
+            // lo diceva a chi distingue l'ambra dal verde, e non a chi usa
+            // un lettore di schermo o vede i colori in un altro modo: un bus
+            // con un quarto d'ora di ritardo si leggeva "12 min" e "da
+            // tabella alle 14:05", cioe' come uno puntuale.
+            live && (tone == Tone.LATE || tone == Tone.VERY_LATE) ->
+                "$source · ${Times.delayLabel(delaySeconds)}"
             live && delaySeconds == 0 -> "$source · in orario"
             live -> "$source · da tabella alle ${Times.hhmm(scheduledEpoch)}"
             // Il feed vede il mezzo ma non dice di quanto e' in ritardo. E'

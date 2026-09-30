@@ -41,6 +41,20 @@ non sono state provate con un GPS vero), il cambio di tappa in strada, e lo
 scambio degli orari a viaggio in corso, provato solo nei test su due bundle
 di prova. — 30/09/2026
 
+**Le pastiglie delle linee: il bianco regge il contrasto su 3 tinte su 12.**
+Misurato il 30/09/2026 sulle dodici tinte di `RouteColoring.PALETTE`, col
+testo delle pastiglie (14 sp in grassetto, che per le linee guida WCAG e'
+testo normale: serve 4,5:1). Col bianco arrivano a 4,5 solo viola (5,2), blu
+(5,3) e magenta (4,6); arancio e ciano stanno a 3,0, verde acqua a 3,1.
+Scegliendo per ogni tinta il testo migliore fra bianco e quasi nero, otto
+pastiglie su dodici passerebbero al testo scuro, e rosso (3,9 / 4,4), rosa
+(4,1 / 4,2) e indaco (4,4 / 3,9) non arrivano a 4,5 in nessuno dei due modi.
+Non e' una correzione ma una scelta d'aspetto — cambia la faccia di ogni
+linea in tutta l'app, widget compresi — quindi si decide, non si fa di
+passaggio. Le strade possibili: testo scuro dove rende di piu', oppure tinte
+un poco piu' scure (che pero' sono anche il colore delle tratte sulla mappa,
+e sulla basemap scura si leggerebbero peggio). — misurato il 30/09/2026
+
 **Mentre si cammina verso la fermata il bus puo' essere gia' passato, e la
 card non lo dice.** Visto sull'emulatore il 30/09: camminando verso Piazza
 Dalmazia per la 20 delle 14:00, alle 13:58 il mezzo assegnato a quella corsa

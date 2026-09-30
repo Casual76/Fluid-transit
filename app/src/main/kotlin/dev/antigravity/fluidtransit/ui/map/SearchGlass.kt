@@ -38,6 +38,7 @@ import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.NearMe
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -181,6 +182,7 @@ fun SearchGlass(
                 contentDescription = if (open) "Chiudi la ricerca" else null,
                 tint = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
+                    .minimumInteractiveComponentSize()
                     .size(28.dp)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
@@ -423,7 +425,10 @@ private fun SectionLabel(
                 text = action,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary,
+                // Una parola con due dp di margine era tutto il bersaglio: il
+                // tocco per cancellare i recenti finiva spesso sulla riga sotto.
                 modifier = Modifier
+                    .minimumInteractiveComponentSize()
                     .clickable(
                         interactionSource = androidx.compose.runtime.remember {
                             androidx.compose.foundation.interaction.MutableInteractionSource()
@@ -483,7 +488,15 @@ private fun SuggestionRow(s: Suggestion, onPick: (Suggestion) -> Unit, divider: 
                     "saved" -> Icons.Rounded.Star
                     else -> Icons.Rounded.Place
                 },
-                contentDescription = null,
+                // Detta anche a chi non la vede: con un lettore di schermo la
+                // riga si leggeva col solo nome, e "Piazza Dalmazia" fermata e
+                // "Piazza Dalmazia" piazza erano la stessa cosa.
+                contentDescription = when (s.kind) {
+                    "stop" -> "Fermata"
+                    "civic" -> "Indirizzo"
+                    "saved" -> "Posto salvato"
+                    else -> "Luogo"
+                },
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp),
             )

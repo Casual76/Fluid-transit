@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -277,6 +278,7 @@ private fun Chiudi(onStop: () -> Unit) {
         contentDescription = "Termina la navigazione",
         tint = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier
+            .minimumInteractiveComponentSize()
             .size(40.dp)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },

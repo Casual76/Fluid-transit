@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.NearMe
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -230,6 +231,7 @@ fun NearbyPanelContent(
             contentDescription = "Chiudi",
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
+                .minimumInteractiveComponentSize()
                 .size(40.dp)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },

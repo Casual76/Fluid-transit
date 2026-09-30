@@ -19,6 +19,7 @@ import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.StarBorder
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -161,6 +162,7 @@ fun StopPanelContent(
                 MaterialTheme.colorScheme.onSurfaceVariant
             },
             modifier = Modifier
+                .minimumInteractiveComponentSize()
                 .size(40.dp)
                 .clickable(
                     interactionSource = androidx.compose.runtime.remember { MutableInteractionSource() },
@@ -175,6 +177,7 @@ fun StopPanelContent(
             contentDescription = "Chiudi",
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
+                .minimumInteractiveComponentSize()
                 .size(40.dp)
                 .clickable(
                     interactionSource = androidx.compose.runtime.remember { MutableInteractionSource() },

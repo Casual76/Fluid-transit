@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.DirectionsWalk
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,6 +34,9 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -230,6 +234,7 @@ fun JourneysContent(
             contentDescription = "Chiudi",
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
+                .minimumInteractiveComponentSize()
                 .size(40.dp)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -453,6 +458,7 @@ fun JourneyDetailContent(
             contentDescription = "Chiudi",
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
+                .minimumInteractiveComponentSize()
                 .size(40.dp)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -724,17 +730,25 @@ private fun RoutineForm(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         val letters = listOf("L", "M", "M", "G", "V", "S", "D")
+        // Il nome intero per chi ascolta: due "M" di fila sono martedi' e
+        // mercoledi' solo per chi le vede in fila, e se un giorno fosse acceso
+        // lo diceva solo il colore.
+        val nomi = listOf(
+            "lunedi'", "martedi'", "mercoledi'", "giovedi'", "venerdi'", "sabato", "domenica",
+        )
         for (d in 1..7) {
             val on = d in days
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .clickable(
+                    .toggleable(
+                        value = on,
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        role = Role.Button,
-                        onClick = { days = if (on) days - d else days + d },
+                        role = Role.Checkbox,
+                        onValueChange = { days = if (on) days - d else days + d },
                     )
+                    .semantics { contentDescription = nomi[d - 1] }
                     .background(
                         color = if (on) {
                             MaterialTheme.colorScheme.primary

@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -131,6 +132,7 @@ fun AssistantOverlay(
                 contentDescription = "Chiudi l'assistente",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
+                    .minimumInteractiveComponentSize()
                     .size(38.dp)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },

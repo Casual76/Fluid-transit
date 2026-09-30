@@ -167,6 +167,15 @@ class DepartureTextTest {
     }
 
     @Test
+    fun `un ritardo che conta si dice anche a parole, non solo col colore`() {
+        val p = DepartureText.phrase(row(300, delay = 600, certainty = Certainty.DECLARED), now)
+        assertEquals(DepartureText.Tone.LATE, p.tone)
+        assertTrue(p.support.contains("+10 min di ritardo"), p.support)
+        val grave = DepartureText.phrase(row(300, delay = 20 * 60, certainty = Certainty.PROPAGATED), now)
+        assertTrue(grave.support.contains("+20 min di ritardo"), grave.support)
+    }
+
+    @Test
     fun `previsto non vuol piu' dire due cose opposte`() {
         // Nel vocabolario di prima "previsto" era sia l'orario di tabella
         // ("previsto 14:32") sia l'assenza di dati dal vivo ("orario

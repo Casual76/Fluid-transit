@@ -17,6 +17,7 @@ import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.SwapVert
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -167,6 +168,7 @@ fun PlannerGlass(
                 contentDescription = "Chiudi il pianificatore",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
+                    .minimumInteractiveComponentSize()
                     .size(20.dp)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },

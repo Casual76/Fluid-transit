@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -416,6 +417,7 @@ fun RouteFullContent(
                     MaterialTheme.colorScheme.onSurfaceVariant
                 },
                 modifier = Modifier
+                    .minimumInteractiveComponentSize()
                     .size(38.dp)
                     .clickable(
                         interactionSource = androidx.compose.runtime.remember {
@@ -439,6 +441,7 @@ fun RouteFullContent(
                     contentDescription = "Chiudi",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
+                        .minimumInteractiveComponentSize()
                         .size(38.dp)
                         .clickable(
                             interactionSource = androidx.compose.runtime.remember {

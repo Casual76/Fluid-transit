@@ -185,6 +185,7 @@ La data conta, perche' il feed cambia.
 | ogni quanto si rigenera l'origine | ~120 s | 03/09/2026 |
 | tratte agganciate alla strada (Valhalla) | 76% (era 56%) | 12/09/2026 |
 | di quelle rimaste GPS, perse per un difetto del matcher (regex) | 2.346 su 2.362 | 30/09/2026 |
+| tratte agganciate alla strada, corretto il matcher | 99% (9.195 su 9.211) | 30/09/2026 |
 | avvio a freddo fino alla mappa (debug, emulatore) | ~3,6 s | 16/09/2026 |
 | avvio a freddo fino a Oggi (stessa build) | ~1,85 s | 16/09/2026 |
 | pattern che toccano due volte la stessa fermata | 215 su 8.331 | 16/09/2026 |

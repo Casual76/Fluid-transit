@@ -61,15 +61,46 @@ class RealtimeClient(
 ) {
     enum class Source { PROXY, DIRECT, SCHEDULE_ONLY }
 
-    class Status(
+    data class Status(
         val source: Source,
-        /** Eta' del feed vehicle-positions rispetto al timestamp DELL'ORIGINE. */
+        /**
+         * Eta' del feed vehicle-positions rispetto al timestamp DELL'ORIGINE,
+         * calcolata nell'istante [polledAt]: per sapere quanto e' vecchio
+         * ADESSO si usa [ageAt], non questo numero da solo.
+         */
         val feedAgeSeconds: Long?,
         val lastSuccessAt: Instant?,
         val lastError: String?,
         val vehicleCount: Int,
         val delayCount: Int,
-    )
+        /**
+         * Quando e' stato calcolato [feedAgeSeconds]: l'ultimo giro che ha
+         * prodotto uno stato, riuscito o no.
+         *
+         * Non si puo' usare [lastSuccessAt] per questo: avanza solo quando
+         * non c'e' errore, e nei casi "il feed della Regione e' fermo" il
+         * giro e' riuscito ma porta un messaggio, quindi [lastSuccessAt]
+         * resta al giro fresco di prima. Sommare il tempo trascorso da li'
+         * a un'eta' che gia' comprende quell'intervallo la conterebbe due
+         * volte: 18 minuti di feed fermo letti come 36.
+         */
+        val polledAt: Instant? = null,
+    ) {
+        /**
+         * L'eta' del dato a questo istante.
+         *
+         * La schermata dello stato dei dati restava a "40 s" per quanto
+         * tempo si fosse lasciata la mappa, perche' mostrava il numero
+         * dell'ultimo giro come se fosse di adesso. Qui l'eta' cresce col
+         * tempo trascorso dall'ultimo giro; senza l'istante del giro (stato
+         * mai pubblicato) si dice quello che si sa.
+         */
+        fun ageAt(now: Instant): Long? {
+            val age = feedAgeSeconds ?: return null
+            val from = polledAt ?: return age
+            return age + (now.epochSecond - from.epochSecond).coerceAtLeast(0L)
+        }
+    }
 
     /**
      * I timeout sono espliciti perche' i default di OkHttp non coprono il
@@ -367,9 +398,9 @@ class RealtimeClient(
             val bytes = fetched.bytes ?: return@withContext
             _delays.value = RtCodec.parseDelays(bytes)
             delaysEtag = fetched.etag
-            _status.value = _status.value.let {
-                Status(it.source, it.feedAgeSeconds, it.lastSuccessAt, it.lastError, it.vehicleCount, _delays.value?.byTripHash?.size ?: 0)
-            }
+            _status.value = _status.value.copy(
+                delayCount = _delays.value?.byTripHash?.size ?: 0,
+            )
         } catch (_: Exception) {
             // I ritardi sono un di piu': un giro mancato non cambia stato.
         }
@@ -497,9 +528,9 @@ class RealtimeClient(
             directHoldUntilMs = clockMs() + DIRECT_HOLD_MS
             proxyFailures = 0
         }
-        _status.value = _status.value.let {
-            Status(it.source, it.feedAgeSeconds, it.lastSuccessAt, message, it.vehicleCount, it.delayCount)
-        }
+        // Solo il messaggio: l'eta' resta quella dell'ultimo giro, e con lei
+        // l'istante in cui e' stata calcolata.
+        _status.value = _status.value.copy(lastError = message)
         return giveUp
     }
 
@@ -524,6 +555,7 @@ class RealtimeClient(
             lastError = error ?: if (source == Source.DIRECT) lastProxyError else null,
             vehicleCount = _vehicles.value?.list?.size ?: 0,
             delayCount = _delays.value?.byTripHash?.size ?: 0,
+            polledAt = Instant.now(),
         )
     }
 

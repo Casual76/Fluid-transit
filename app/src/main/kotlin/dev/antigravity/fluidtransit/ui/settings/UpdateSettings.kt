@@ -15,6 +15,7 @@ import dev.antigravity.fluidengine.ui.theme.FluidListGroup
 import dev.antigravity.fluidengine.ui.theme.FluidListRow
 import dev.antigravity.fluidtransit.BuildConfig
 import dev.antigravity.fluidtransit.FluidTransitApp
+import dev.antigravity.fluidtransit.data.update.UpdateFailure
 
 /**
  * Gli aggiornamenti dal Pampa Store.
@@ -41,6 +42,21 @@ fun UpdateSettingsGroup(app: FluidTransitApp) {
         val update = available
         val progress = install
         when {
+            // L'installazione fallita ha la sua riga, e si puo' riprovare.
+            // Finiva nel ramo "in corso": titolo sbagliato, nessun tocco, e
+            // sotto spariva la riga "installa" — la prima volta succede
+            // sempre, perche' Android chiede prima di abilitare
+            // l'installazione da questa app.
+            progress is AppUpdateInstallState.Error -> {
+                val parole = UpdateFailure.words(progress.message, installing = true)
+                FluidListRow(
+                    title = "Installazione non riuscita",
+                    subtitle = parole.title + (parole.technical?.let { "\n$it" } ?: ""),
+                    meta = "riprova",
+                    onClick = { updates.install() },
+                )
+            }
+
             progress != null && progress !is AppUpdateInstallState.Installed -> FluidListRow(
                 title = "Aggiornamento in corso",
                 subtitle = when (progress) {
@@ -50,7 +66,6 @@ fun UpdateSettingsGroup(app: FluidTransitApp) {
                     is AppUpdateInstallState.Verifying -> progress.message
                     is AppUpdateInstallState.Installing -> progress.message
                     is AppUpdateInstallState.AwaitingUserAction -> progress.message
-                    is AppUpdateInstallState.Error -> progress.message
                     else -> ""
                 },
                 meta = if (progress is AppUpdateInstallState.Downloading) {
@@ -73,7 +88,11 @@ fun UpdateSettingsGroup(app: FluidTransitApp) {
             else -> FluidListRow(
                 title = if (checking) "Sto controllando…" else "Cerca aggiornamenti",
                 subtitle = when {
-                    error != null -> "L'ultimo controllo non e' riuscito: $error"
+                    // Mai l'eccezione nuda: la frase in italiano sopra, e il
+                    // testo tecnico sotto per chi deve indagare.
+                    error != null -> UpdateFailure.words(error).let { p ->
+                        p.title + (p.technical?.let { "\n$it" } ?: "")
+                    }
                     checking -> "Un attimo"
                     else -> "Sei alla versione piu' recente del canale scelto"
                 },

@@ -86,8 +86,14 @@ class AssistantBridge(private val app: FluidTransitApp) : TransitBridge, ActionE
             val r = reader ?: return null
             val v = app.realtime.vehicles.value ?: return null
             val d = app.realtime.delays.value
-            if (resolvedCache != null && resolvedFromVehicles === v && resolvedFromDelays === d) {
-                return resolvedCache
+            // Anche il bundle: dopo lo scambio gli snapshot sono gli stessi
+            // per un paio di minuti, e gli indici di corsa in cache sono
+            // quelli del bundle di ieri.
+            val cached = resolvedCache
+            if (cached != null && cached.buildId == r.buildId &&
+                resolvedFromVehicles === v && resolvedFromDelays === d
+            ) {
+                return cached
             }
             val out = runCatching {
                 dev.antigravity.fluidtransit.ui.map.resolveRt(r, v, d)

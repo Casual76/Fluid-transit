@@ -67,6 +67,7 @@ class LiveFromPredictionsTest {
         offset: Int? = 1,
         fallback: LiveTimes = Muto,
         feedTs: Long = now - 60,
+        buildId: Long = 0L,
     ) = LiveFromPredictions(
         byTrip = mapOf(7 to LiveFromPredictions.Resolved(trip, offset)),
         fallback = fallback,
@@ -81,6 +82,7 @@ class LiveFromPredictionsTest {
             truncated = false,
             byTripHash = emptyMap(),
         ),
+        buildId = buildId,
     )
 
     // ---------------------------------------------------- la regola in se'
@@ -235,5 +237,30 @@ class LiveFromPredictionsTest {
 
         val vecchio = live(trip(point(1, 60)), feedTs = now - 20 * 60)
         assertTrue(!vecchio.monitored(tripIndex = 7, nowEpoch = now))
+    }
+
+    @Test
+    fun `dopo lo scambio del bundle la risoluzione non vale piu', anche con lo stesso snapshot`() {
+        // Gli indici di corsa cambiano a ogni build: per un paio di minuti
+        // dopo lo scambio lo snapshot e' identico (i 304 non ne pubblicano
+        // uno nuovo) ma la mappa di indici e' quella di ieri, e applicarla
+        // al lettore nuovo attribuisce i ritardi a un'altra corsa.
+        val l = live(trip(point(1, 60)), buildId = 41L)
+
+        assertTrue(l.valeAncora(l.set, 41L))
+        assertTrue(!l.valeAncora(l.set, 42L))
+    }
+
+    @Test
+    fun `uno snapshot diverso invalida la risoluzione anche sullo stesso bundle`() {
+        val l = live(trip(point(1, 60)), buildId = 41L)
+        val altro = RtPredictionSet(
+            generatedAt = 1L,
+            feedTimestamp = 1L,
+            truncated = false,
+            byTripHash = emptyMap(),
+        )
+
+        assertTrue(!l.valeAncora(altro, 41L))
     }
 }

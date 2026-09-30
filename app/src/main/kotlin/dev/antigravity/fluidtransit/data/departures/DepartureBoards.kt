@@ -227,7 +227,11 @@ class DepartureBoards(private val app: FluidTransitApp) {
         )
         val grezzo = app.realtime.predictions.value ?: return base
         val gia = app.livePredictions.value
-        if (gia != null && gia.set === grezzo) return gia
+        // Lo snapshot uguale non basta: dopo lo scambio del bundle e' lo
+        // stesso per un paio di minuti (i 304 non ne pubblicano uno nuovo),
+        // ma gli indici di corsa dentro la risoluzione sono quelli di ieri.
+        val reader = readerOrNull()
+        if (gia != null && reader != null && gia.valeAncora(grezzo, reader.buildId)) return gia
         return risolvi(grezzo, base)
     }
 
@@ -250,9 +254,9 @@ class DepartureBoards(private val app: FluidTransitApp) {
      */
     @Synchronized
     private fun risolvi(grezzo: RtPredictionSet, base: LiveTimes): LiveTimes {
-        val gia = app.livePredictions.value
-        if (gia != null && gia.set === grezzo) return gia
         val reader = readerOrNull() ?: return base
+        val gia = app.livePredictions.value
+        if (gia != null && gia.valeAncora(grezzo, reader.buildId)) return gia
         val risolte = runCatching {
             LiveFromPredictions.resolve(
                 reader = reader,

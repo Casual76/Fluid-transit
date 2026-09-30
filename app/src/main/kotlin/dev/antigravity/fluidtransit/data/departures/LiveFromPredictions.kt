@@ -50,7 +50,26 @@ class LiveFromPredictions(
      * turno.
      */
     val set: RtPredictionSet,
+    /**
+     * Il bundle contro cui gli indici di corsa qui dentro sono stati risolti.
+     *
+     * Gli indici non sopravvivono alla notte: dopo lo scambio del bundle
+     * la stessa mappa letta col lettore nuovo attribuisce i ritardi di una
+     * corsa a un'altra, e puo' dichiarare "cancellata" un bus sano. Confrontare
+     * solo lo snapshot per identita' non basta, perche' in quella finestra lo
+     * snapshot e' lo stesso (i 304 non ne pubblicano uno nuovo).
+     */
+    val buildId: Long = 0L,
 ) : LiveTimes {
+
+    /**
+     * Questa risoluzione vale ancora per questi byte e per questo bundle?
+     *
+     * Serve a chi decide se riusarla o rifarla: lo snapshot uguale non basta,
+     * deve essere anche lo stesso bundle.
+     */
+    fun valeAncora(grezzo: RtPredictionSet, buildIdAttuale: Long): Boolean =
+        set === grezzo && buildId == buildIdAttuale
 
     /** Una corsa, con lo scarto gia' verificato una volta sola. */
     class Resolved(
@@ -227,6 +246,7 @@ class LiveFromPredictions(
                 withVehicle = withVehicle,
                 feedTimestamp = set.feedTimestamp,
                 set = set,
+                buildId = reader.buildId,
             )
         }
     }

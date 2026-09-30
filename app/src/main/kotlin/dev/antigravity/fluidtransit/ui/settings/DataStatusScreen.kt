@@ -6,6 +6,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import dev.antigravity.fluidengine.ui.fluid.FluidScreen
 import dev.antigravity.fluidengine.ui.theme.FluidListGroup
 import dev.antigravity.fluidengine.ui.theme.FluidListRow
@@ -45,6 +46,29 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
     // questa schermata esiste — ma adesso lo si chiede toccando la riga.
     var aperta by androidx.compose.runtime.remember {
         androidx.compose.runtime.mutableStateOf<String?>(null)
+    }
+
+    // Questa schermata e' quella che dice se il tempo reale e' vivo, quindi
+    // non puo' limitarsi a rileggere l'ultimo giro di qualcun altro. Con una
+    // sola scheda alla volta la mappa, che e' chi scarica, esce di scena
+    // appena si aprono le Impostazioni: il numero restava quello di quando
+    // si era lasciata la mappa ("40 s") per quanto si restasse qui, e un
+    // proxy morto nel frattempo non si poteva vedere. Si interroga all'apertura
+    // e poi al ritmo della mappa, solo finche' la schermata e' visibile.
+    val rt = app.realtime
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            while (true) {
+                // Un errore di rete non deve fermare il giro: e' proprio
+                // quello che la schermata sta cercando di mostrare, e lo
+                // mostra lo stato del client, non un'eccezione qui.
+                runCatching { rt.refreshVehicles() }
+                runCatching { rt.refreshDelays() }
+                runCatching { rt.refreshPredictions() }
+                kotlinx.coroutines.delay(rt.vehiclesIntervalMs())
+            }
+        }
     }
 
     FluidScreen(title = "Stato dei dati", onBack = onBack) {
@@ -244,20 +268,32 @@ fun DataStatusScreen(app: FluidTransitApp, onBack: () -> Unit) {
                         dev.antigravity.fluidtransit.data.rt.RealtimeClient.Source.SCHEDULE_ONLY -> "orari"
                     },
                 )
+                // L'eta' cresce col battito comune: il numero dell'ultimo giro
+                // e' "quanto era vecchio allora", e scriverlo fermo dava
+                // "40 s" anche dieci minuti dopo.
+                val battito = remember { dev.antigravity.fluidtransit.data.time.UiClock.ticks() }
+                val adesso by battito.collectAsStateWithLifecycle(
+                    initialValue = Instant.now().epochSecond,
+                )
+                val etaAdesso = rtStatus.ageAt(Instant.ofEpochSecond(adesso))
+                val controllato = rtStatus.polledAt?.let {
+                    "controllato alle " + dev.antigravity.fluidtransit.routing.Times.hhmm(it.epochSecond)
+                }
                 FluidListRow(
                     title = "Eta' del dato",
                     subtitle = if (aperta == "Eta' del dato") {
-                        "Quanto e' vecchia l'ultima posizione, rispetto all'origine. L'origine si rigenera ogni ~2 minuti: sotto i cinque minuti e' normale."
+                        "Quanto e' vecchia l'ultima posizione, rispetto all'origine. L'origine si rigenera ogni ~2 minuti: sotto i cinque minuti e' normale." +
+                            (controllato?.let { " Ultimo giro: $it." } ?: "")
                     } else {
-                        "Quanto e' vecchia l'ultima posizione"
+                        "Quanto e' vecchia l'ultima posizione" + (controllato?.let { " · $it" } ?: "")
                     },
-                    meta = rtStatus.feedAgeSeconds?.let { Words.age(it) } ?: "—",
+                    meta = etaAdesso?.let { Words.age(it) } ?: "—",
                     onClick = { aperta = if (aperta == "Eta' del dato") null else "Eta' del dato" },
                 )
                 FluidListRow(
                     title = "Veicoli e ritardi",
                     subtitle = if (aperta == "Veicoli e ritardi") {
-                        "Quanti bus vivi e quante corse con un ritardo dichiarato nell'ultimo aggiornamento. Si scaricano solo con la mappa aperta."
+                        "Quanti bus vivi e quante corse con un ritardo dichiarato nell'ultimo aggiornamento. Si rinnovano finche' questa schermata e' aperta."
                     } else {
                         "Bus vivi e ritardi dell'ultimo giro"
                     },

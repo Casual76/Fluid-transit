@@ -358,6 +358,18 @@ class FluidTransitApp : Application() {
                         // — non lo rivedeva piu' dopo un primo avvio sui dati
                         // mobili. Costa un confronto se e' troppo presto.
                         placesManager.refreshIfNeeded()
+                        // E anche il manifest remoto e l'avviso di versione
+                        // nuova. Giravano solo nell'onCreate, cioe' una volta
+                        // per processo: un telefono che tiene l'app in
+                        // memoria per giorni non rivedeva mai il kill switch
+                        // del proxy (spegnere un proxy rotto "senza una
+                        // release" non raggiungeva chi non riavviava l'app) e
+                        // non vedeva mai la capsula "Aggiornamento
+                        // disponibile". Tutti e due si limitano da soli: il
+                        // manifest a sei ore dall'ultima copia in cache,
+                        // l'aggiornamento con `UpdateCheckPolicy`.
+                        refreshRemoteConfig()
+                        updates.checkIfDue()
                     }
                 }
 
@@ -444,7 +456,27 @@ class FluidTransitApp : Application() {
             bundleManager.state.collect { s ->
                 val id = (s as? BundleManager.BundleState.Ready)?.buildId ?: return@collect
                 val prev = lastBuild
-                if (prev != null && prev != id) delayModel.clear()
+                if (prev != null && prev != id) {
+                    delayModel.clear()
+                    // Non basta azzerare il modello dei ritardi. Le cancellate,
+                    // i mezzi vivi e le previsioni risolte hanno dentro indici
+                    // di corsa del bundle di ieri, e si ricostruivano solo
+                    // quando il proxy pubblicava uno snapshot nuovo: fino a
+                    // due minuti dopo, perche' le risposte 304 non emettono
+                    // niente. In quella finestra Oggi, Preferiti e i
+                    // tabelloni appiccicavano i ritardi di una corsa a
+                    // un'altra, e la navigazione poteva annunciare "cancellata"
+                    // un bus sano. Si svuota subito (nessuna informazione
+                    // batte quella sbagliata) e si risolve di nuovo contro il
+                    // lettore nuovo con gli ultimi snapshot che si hanno.
+                    canceledTrips.value = emptySet()
+                    tripsWithVehicle.value = emptySet()
+                    livePredictions.value = null
+                    resolveDelays(realtime.delays.value)
+                    resolveVehicles(realtime.vehicles.value)
+                    resolvePredictions(realtime.predictions.value)
+                    liveVersion.value += 1
+                }
                 lastBuild = id
             }
         }
@@ -452,55 +484,7 @@ class FluidTransitApp : Application() {
         // una volta sola, qualunque schermata sia aperta.
         applicationScope.launch {
             realtime.delays.collect { snapshot ->
-                // Le cancellate viaggiano insieme ai ritardi: chi le vuole
-                // (la navigazione) altrimenti doveva ricostruire l'intero
-                // snapshot risolto — ottocento oggetti e tre mappe — solo per
-                // leggerne un insieme di interi.
-                val ready = bundleManager.state.value as? BundleManager.BundleState.Ready
-                val reader = ready?.reader
-                if (reader == null || snapshot == null) {
-                    // Senza orari o senza snapshot non si sa piu' niente di
-                    // cosa sia cancellato: meglio nessuna informazione che
-                    // una vecchia.
-                    canceledTrips.value = emptySet()
-                    return@collect
-                }
-                val at = snapshot.feedTimestamp.takeIf { it > 0 }
-                    ?: (System.currentTimeMillis() / 1000)
-                for (d in snapshot.byTripHash.values) {
-                    if (d.canceled || d.noData) continue
-                    val trip = reader.findTripByIdHash(d.tripHash).takeIf { it >= 0 }
-                        ?: reader.findTripByRouteAndDeparture(
-                            d.routeHash,
-                            d.direction,
-                            d.startTimeSec,
-                        ).takeIf { it >= 0 }
-                        ?: continue
-                    delayModel.observe(trip, d.delaySec, d.nextStopSeq, at)
-                }
-                // Si costruisce e poi si assegna, in un colpo solo. Prima
-                // l'insieme si svuotava all'inizio del giro e si riempiva
-                // alla fine: fra le due cose ci sono novecento risoluzioni
-                // contro il bundle, e per tutta quella finestra — ogni trenta
-                // secondi — nessuna corsa risultava cancellata. Un tabellone
-                // che si ricalcolava li' in mezzo mostrava un bus che non
-                // viene come se venisse.
-                val cancellate = snapshot.byTripHash.values
-                    .asSequence()
-                    .filter { it.canceled }
-                    .mapNotNull { d ->
-                        reader.findTripByIdHash(d.tripHash).takeIf { it >= 0 }
-                            ?: reader.findTripByRouteAndDeparture(
-                                d.routeHash,
-                                d.direction,
-                                d.startTimeSec,
-                            ).takeIf { it >= 0 }
-                    }
-                    .toSet()
-                canceledTrips.value = cancellate
-                // Le corse di cui non si sente parlare da mezz'ora sono
-                // finite: la memoria non deve crescere per sempre.
-                delayModel.forgetBefore(at - 30 * 60)
+                resolveDelays(snapshot)
                 // Per ultimo, quando tutto e' dentro: e' il segnale su cui i
                 // tabelloni si ricalcolano.
                 liveVersion.value += 1
@@ -556,25 +540,7 @@ class FluidTransitApp : Application() {
         // feed e la posizione nel pattern verificato contro le due ancore.
         applicationScope.launch {
             realtime.predictions.collect { set ->
-                val ready = bundleManager.state.value as? BundleManager.BundleState.Ready
-                val reader = ready?.reader
-                if (set == null || reader == null) {
-                    livePredictions.value = null
-                    return@collect
-                }
-                livePredictions.value = dev.antigravity.fluidtransit.data.departures
-                    .LiveFromPredictions.resolve(
-                        reader = reader,
-                        set = set,
-                        fallback = dev.antigravity.fluidtransit.data.departures.LiveFromFeed(
-                            delays = delayModel,
-                            canceled = canceledTrips.value,
-                            withVehicle = tripsWithVehicle.value,
-                            vehiclesFeedTimestamp = realtime.vehicles.value?.feedTimestamp ?: 0L,
-                        ),
-                        canceledTrips = canceledTrips.value,
-                        withVehicle = tripsWithVehicle.value,
-                    )
+                resolvePredictions(set)
                 liveVersion.value += 1
             }
         }
@@ -584,30 +550,160 @@ class FluidTransitApp : Application() {
         // dipenda da quale schermata e' aperta.
         applicationScope.launch {
             realtime.vehicles.collect { snapshot ->
-                val ready = bundleManager.state.value as? BundleManager.BundleState.Ready
-                val reader = ready?.reader
-                if (snapshot == null || reader == null) {
-                    tripsWithVehicle.value = emptySet()
-                    return@collect
-                }
-                tripsWithVehicle.value = snapshot.list
-                    .asSequence()
-                    .mapNotNull { v ->
-                        reader.findTripByIdHash(v.tripHash).takeIf { it >= 0 }
-                            ?: reader.findTripByRouteAndDeparture(
-                                v.routeHash,
-                                v.direction,
-                                v.startTimeSec,
-                            ).takeIf { it >= 0 }
-                    }
-                    .toSet()
+                resolveVehicles(snapshot)
                 liveVersion.value += 1
             }
         }
         // Il manifest remoto, se la copia in cache e' vecchia. Non blocca
         // niente: finche' non arriva l'app usa l'ultima risposta valida.
-        applicationScope.launch { runCatching { remoteConfig.refreshIfStale() } }
+        refreshRemoteConfig()
+        // Quando la rete torna dopo essere mancata, si riprova il controllo
+        // dell'aggiornamento: se il primo giro e' caduto in un momento senza
+        // rete non deve restare fallito per tutta la sessione.
+        applicationScope.launch {
+            var eraGiu = false
+            online.collect { su ->
+                if (su && eraGiu) updates.checkIfDue(reteTornata = true)
+                eraGiu = !su
+            }
+        }
     }
+
+    /**
+     * Rilegge il manifest remoto se la copia in cache e' piu' vecchia
+     * dell'intervallo (sei ore, lo decide l'engine).
+     *
+     * Con un solo volo alla volta: all'avvio la chiamano l'onCreate e il primo
+     * ritorno in primo piano a pochi millisecondi uno dall'altro, e
+     * `refreshIfStale` legge la cache prima di scrivere, quindi due chiamate
+     * vicine scaricavano due volte lo stesso file.
+     */
+    private fun refreshRemoteConfig() {
+        if (!remoteRefreshing.compareAndSet(false, true)) return
+        applicationScope.launch {
+            try {
+                runCatching { remoteConfig.refreshIfStale() }
+            } finally {
+                remoteRefreshing.set(false)
+            }
+        }
+    }
+
+    private val remoteRefreshing = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * Un giro di trip-updates, risolto contro il bundle di adesso: entra nel
+     * modello dei ritardi e fissa l'insieme delle cancellate.
+     *
+     * Sta in una funzione perche' lo chiamano in due: il collettore che
+     * riceve gli snapshot e lo scambio del bundle, che deve ricostruire tutto
+     * subito invece di aspettare il giro seguente.
+     */
+    private fun resolveDelays(snapshot: dev.antigravity.fluidtransit.data.rt.RtDelays?) {
+        // Le cancellate viaggiano insieme ai ritardi: chi le vuole
+        // (la navigazione) altrimenti doveva ricostruire l'intero
+        // snapshot risolto — ottocento oggetti e tre mappe — solo per
+        // leggerne un insieme di interi.
+        val ready = bundleManager.state.value as? BundleManager.BundleState.Ready
+        val reader = ready?.reader
+        if (reader == null || snapshot == null) {
+            // Senza orari o senza snapshot non si sa piu' niente di
+            // cosa sia cancellato: meglio nessuna informazione che
+            // una vecchia.
+            canceledTrips.value = emptySet()
+            return
+        }
+        val at = snapshot.feedTimestamp.takeIf { it > 0 }
+            ?: (System.currentTimeMillis() / 1000)
+        for (d in snapshot.byTripHash.values) {
+            if (d.canceled || d.noData) continue
+            val trip = reader.findTripByIdHash(d.tripHash).takeIf { it >= 0 }
+                ?: reader.findTripByRouteAndDeparture(
+                    d.routeHash,
+                    d.direction,
+                    d.startTimeSec,
+                ).takeIf { it >= 0 }
+                ?: continue
+            delayModel.observe(trip, d.delaySec, d.nextStopSeq, at)
+        }
+        // Si costruisce e poi si assegna, in un colpo solo. Prima
+        // l'insieme si svuotava all'inizio del giro e si riempiva
+        // alla fine: fra le due cose ci sono novecento risoluzioni
+        // contro il bundle, e per tutta quella finestra — ogni trenta
+        // secondi — nessuna corsa risultava cancellata. Un tabellone
+        // che si ricalcolava li' in mezzo mostrava un bus che non
+        // viene come se venisse.
+        val cancellate = snapshot.byTripHash.values
+            .asSequence()
+            .filter { it.canceled }
+            .mapNotNull { d ->
+                reader.findTripByIdHash(d.tripHash).takeIf { it >= 0 }
+                    ?: reader.findTripByRouteAndDeparture(
+                        d.routeHash,
+                        d.direction,
+                        d.startTimeSec,
+                    ).takeIf { it >= 0 }
+            }
+            .toSet()
+        // Se nel frattempo il bundle e' stato scambiato, questi indici sono
+        // gia' vecchi: lo scambio ricostruisce per conto suo, e scrivere qui
+        // li rimetterebbe sopra quelli giusti.
+        if (!ancoraCorrente(reader)) return
+        canceledTrips.value = cancellate
+        // Le corse di cui non si sente parlare da mezz'ora sono
+        // finite: la memoria non deve crescere per sempre.
+        delayModel.forgetBefore(at - 30 * 60)
+    }
+
+    /** Le previsioni per fermata, risolte contro il bundle di adesso. */
+    private fun resolvePredictions(set: dev.antigravity.fluidtransit.data.rt.RtPredictionSet?) {
+        val ready = bundleManager.state.value as? BundleManager.BundleState.Ready
+        val reader = ready?.reader
+        if (set == null || reader == null) {
+            livePredictions.value = null
+            return
+        }
+        val risolte = dev.antigravity.fluidtransit.data.departures
+            .LiveFromPredictions.resolve(
+                reader = reader,
+                set = set,
+                fallback = dev.antigravity.fluidtransit.data.departures.LiveFromFeed(
+                    delays = delayModel,
+                    canceled = canceledTrips.value,
+                    withVehicle = tripsWithVehicle.value,
+                    vehiclesFeedTimestamp = realtime.vehicles.value?.feedTimestamp ?: 0L,
+                ),
+                canceledTrips = canceledTrips.value,
+                withVehicle = tripsWithVehicle.value,
+            )
+        if (ancoraCorrente(reader)) livePredictions.value = risolte
+    }
+
+    /** I mezzi vivi, risolti in indici di corsa contro il bundle di adesso. */
+    private fun resolveVehicles(snapshot: dev.antigravity.fluidtransit.data.rt.RtVehicles?) {
+        val ready = bundleManager.state.value as? BundleManager.BundleState.Ready
+        val reader = ready?.reader
+        if (snapshot == null || reader == null) {
+            tripsWithVehicle.value = emptySet()
+            return
+        }
+        snapshot.list
+            .asSequence()
+            .mapNotNull { v ->
+                reader.findTripByIdHash(v.tripHash).takeIf { it >= 0 }
+                    ?: reader.findTripByRouteAndDeparture(
+                        v.routeHash,
+                        v.direction,
+                        v.startTimeSec,
+                    ).takeIf { it >= 0 }
+            }
+            .toSet()
+            .let { if (ancoraCorrente(reader)) tripsWithVehicle.value = it }
+    }
+
+    /** Il lettore con cui si e' risolto e' ancora quello in uso? */
+    private fun ancoraCorrente(reader: dev.antigravity.fluidtransit.routing.BundleReader): Boolean =
+        (bundleManager.state.value as? BundleManager.BundleState.Ready)?.reader === reader
 
     companion object {
         /** Quanto si aspetta, all'avvio, prima di toccare i widget. */

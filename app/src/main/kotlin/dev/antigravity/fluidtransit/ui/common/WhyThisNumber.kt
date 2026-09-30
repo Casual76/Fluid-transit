@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
@@ -43,8 +44,20 @@ fun WhyThisNumberPortal(
     origin: () -> Rect?,
     onDismiss: () -> Unit,
     onOpenDataStatus: (() -> Unit)? = null,
+    /**
+     * Quanto del tempo reale e' in strada adesso. Si chiede solo per una riga
+     * senza dati dal vivo — e' quella la domanda a cui risponde — e fuori
+     * dalla UI, perche' scorre tutte le corse del giorno.
+     */
+    coverage: (suspend () -> dev.antigravity.fluidtransit.routing.Coverage.Stato?)? = null,
 ) {
     val why = row?.let { DepartureText.why(it, nowEpoch) }
+    val copertura by androidx.compose.runtime.produceState<String?>(null, row) {
+        value = null
+        val r = row ?: return@produceState
+        if (coverage == null || r.certainty != null || r.canceled || r.skipped) return@produceState
+        value = runCatching { coverage() }.getOrNull()?.sentence()
+    }
     FluidGlassModalPortal(
         visible = row != null,
         onDismissRequest = onDismiss,
@@ -76,6 +89,15 @@ fun WhyThisNumberPortal(
                 text = line,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.widthIn(max = 320.dp).padding(horizontal = 18.dp),
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+        copertura?.let { frase ->
+            Text(
+                text = frase,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.widthIn(max = 320.dp).padding(horizontal = 18.dp),
             )
             Spacer(Modifier.height(8.dp))

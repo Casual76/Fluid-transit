@@ -15,6 +15,15 @@ import kotlin.test.assertEquals
  */
 class CoverageTest {
 
+    @Test
+    fun `la copertura si dice a parole, coi numeri all'italiana`() {
+        val frase = Coverage.Stato(inViaggio = 1650, seguite = 1234).sentence()
+        kotlin.test.assertNotNull(frase)
+        kotlin.test.assertTrue(frase.contains("1.234 delle 1.650"), frase)
+        kotlin.test.assertTrue(frase.contains("(75%)"), frase)
+        kotlin.test.assertNull(Coverage.Stato(0, 0).sentence(), "niente in strada, niente da dire")
+    }
+
     private val tmp = ArrayList<File>()
 
     @AfterTest

@@ -572,6 +572,17 @@ fun TodayTab(
         origin = { null },
         onDismiss = { whyRow = null },
         onOpenDataStatus = onOpenDataStatus,
+        coverage = {
+            val r = ready?.reader
+            if (r == null) {
+                null
+            } else {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    dev.antigravity.fluidtransit.routing.Coverage
+                        .now(r, java.time.Instant.now(), app.departureBoards.live())
+                }
+            }
+        },
     )
 }
 

@@ -34,6 +34,22 @@ object Coverage {
         /** La quota seguita, arrotondata. Null quando non c'e' niente in strada. */
         val percento: Int? get() =
             if (inViaggio <= 0) null else Math.round(seguite * 100.0 / inViaggio).toInt()
+
+        /**
+         * La stessa cosa detta a chi guarda una riga "orario da tabella".
+         *
+         * Il numero stava solo in Stato dei dati, cioe' dove non lo cerca
+         * nessuno; la domanda invece viene davanti a un tabellone con meta'
+         * delle righe senza ritardo. La risposta giusta non e' "non abbiamo
+         * agganciato quella corsa", e' "di quella corsa il feed non parla".
+         */
+        fun sentence(): String? {
+            val p = percento ?: return null
+            val it = java.util.Locale.ITALIAN
+            return "Adesso il tempo reale segue ${"%,d".format(it, seguite)} delle " +
+                "${"%,d".format(it, inViaggio)} corse in strada ($p%): delle altre la " +
+                "Regione non pubblica niente, e vale l'orario di tabella."
+        }
     }
 
     /**

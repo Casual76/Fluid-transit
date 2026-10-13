@@ -11,12 +11,12 @@
       "ref": "main"
     },
     "beta": {
-      "version": "1.3.0",
-      "releaseDate": "2026-10-01",
-      "changelog": "Navigazione a bordo: gli avvisi \"preparati\" e \"scendi\" arrivano in tempo anche col telefono in tasca, i minuti si aggiornano durante il viaggio, e l'arrivo non viene piu' annunciato in anticipo quando il bus e' in ritardo. Se il bus e' gia' passato o salta la tua fermata la navigazione lo dice e ti propone il prossimo. \"Termina\" chiede conferma.\nRicerca: trova \"S. Marco\", \"p.za\", \"via Roma, 12\", \"linea 23\" e le date scritte in cifre o in numeri romani, e perdona i refusi anche su luoghi e indirizzi.\nWidget: restano aggiornati e dicono di quando e' un dato vecchio.\nRoutine: non suonano due volte, ritirano l'avviso quando il bus sparisce e funzionano anche con le sveglie in ritardo.\nAssistente: dice \"fatto\" solo quando e' fatto, capisce \"domani alle 8:30\" e la conferma dice cosa sta per succedere.\nOrari e avvisi: si aggiornano mentre guardi, e \"Stato dei dati\" mostra l'eta' vera dei dati.",
-      "releaseTag": "stable-fluid-transit-v1.3.0",
-      "apkAsset": "fluid-transit-1.3.0.apk",
-      "sizeBytes": 27593314
+      "version": "1.3.1",
+      "releaseDate": "2026-10-13",
+      "changelog": "Il vetro dell'app è aggiornato (Fluid Engine 2.12.1). I pannelli grandi sono più sfocati e piegano di più la luce ai bordi. I pulsanti si possono tenere premuti e trascinare senza che la pagina scorra, e interruttori e cursori non la fanno più scorrere mentre li muovi. Cambiando scheda, la barra in basso non mostra più per un attimo la pagina nitida sotto il vetro, e la scheda che premi resta leggibile. Le notifiche dentro l'app si tirano giù per leggerle intere e si scartano verso l'alto. La barra delle schede diventa una capsula di vetro grande quanto le schede.",
+      "releaseTag": "stable-fluid-transit-v1.3.1",
+      "apkAsset": "fluid-transit-1.3.1.apk",
+      "sizeBytes": 27708002
     },
     "description": "Muoversi con i mezzi in Toscana: i bus dove sono davvero, orari che dicono se sono veri o previsti, e percorsi da un punto qualsiasi a un altro.",
     "iconUrl": "",
@@ -24,6 +24,14 @@
     "developer": "Pampa",
     "screenshots": [],
     "history": [
+      {
+        "version": "1.3.0",
+        "releaseDate": "2026-10-01",
+        "changelog": "Navigazione a bordo: gli avvisi \"preparati\" e \"scendi\" arrivano in tempo anche col telefono in tasca, i minuti si aggiornano durante il viaggio, e l'arrivo non viene piu' annunciato in anticipo quando il bus e' in ritardo. Se il bus e' gia' passato o salta la tua fermata la navigazione lo dice e ti propone il prossimo. \"Termina\" chiede conferma.\nRicerca: trova \"S. Marco\", \"p.za\", \"via Roma, 12\", \"linea 23\" e le date scritte in cifre o in numeri romani, e perdona i refusi anche su luoghi e indirizzi.\nWidget: restano aggiornati e dicono di quando e' un dato vecchio.\nRoutine: non suonano due volte, ritirano l'avviso quando il bus sparisce e funzionano anche con le sveglie in ritardo.\nAssistente: dice \"fatto\" solo quando e' fatto, capisce \"domani alle 8:30\" e la conferma dice cosa sta per succedere.\nOrari e avvisi: si aggiornano mentre guardi, e \"Stato dei dati\" mostra l'eta' vera dei dati.",
+        "releaseTag": "stable-fluid-transit-v1.3.0",
+        "apkAsset": "fluid-transit-1.3.0.apk",
+        "sizeBytes": 27593314
+      },
       {
         "version": "1.2.0",
         "releaseDate": "2026-09-16",
@@ -58,12 +66,12 @@
       }
     ],
     "stable": {
-      "version": "1.3.0",
-      "releaseDate": "2026-10-01",
-      "changelog": "Navigazione a bordo: gli avvisi \"preparati\" e \"scendi\" arrivano in tempo anche col telefono in tasca, i minuti si aggiornano durante il viaggio, e l'arrivo non viene piu' annunciato in anticipo quando il bus e' in ritardo. Se il bus e' gia' passato o salta la tua fermata la navigazione lo dice e ti propone il prossimo. \"Termina\" chiede conferma.\nRicerca: trova \"S. Marco\", \"p.za\", \"via Roma, 12\", \"linea 23\" e le date scritte in cifre o in numeri romani, e perdona i refusi anche su luoghi e indirizzi.\nWidget: restano aggiornati e dicono di quando e' un dato vecchio.\nRoutine: non suonano due volte, ritirano l'avviso quando il bus sparisce e funzionano anche con le sveglie in ritardo.\nAssistente: dice \"fatto\" solo quando e' fatto, capisce \"domani alle 8:30\" e la conferma dice cosa sta per succedere.\nOrari e avvisi: si aggiornano mentre guardi, e \"Stato dei dati\" mostra l'eta' vera dei dati.",
-      "releaseTag": "stable-fluid-transit-v1.3.0",
-      "apkAsset": "fluid-transit-1.3.0.apk",
-      "sizeBytes": 27593314
+      "version": "1.3.1",
+      "releaseDate": "2026-10-13",
+      "changelog": "Il vetro dell'app è aggiornato (Fluid Engine 2.12.1). I pannelli grandi sono più sfocati e piegano di più la luce ai bordi. I pulsanti si possono tenere premuti e trascinare senza che la pagina scorra, e interruttori e cursori non la fanno più scorrere mentre li muovi. Cambiando scheda, la barra in basso non mostra più per un attimo la pagina nitida sotto il vetro, e la scheda che premi resta leggibile. Le notifiche dentro l'app si tirano giù per leggerle intere e si scartano verso l'alto. La barra delle schede diventa una capsula di vetro grande quanto le schede.",
+      "releaseTag": "stable-fluid-transit-v1.3.1",
+      "apkAsset": "fluid-transit-1.3.1.apk",
+      "sizeBytes": 27708002
     }
   },
   "engine": {

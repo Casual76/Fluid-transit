@@ -3,25 +3,30 @@ package dev.antigravity.fluidtransit.pampai
 import android.content.Context
 import android.content.Intent
 import android.location.LocationManager
-import dev.antigravity.fluidtransit.FluidTransitApp
-import dev.antigravity.fluidtransit.ai.tools.ActionOutcome
-import dev.antigravity.fluidtransit.ai.tools.ActionSink
-import dev.antigravity.fluidtransit.ai.tools.AssistantAction
-import dev.antigravity.fluidtransit.ai.tools.ToolContext
-import dev.antigravity.fluidtransit.ai.tools.ToolGroup
 import dev.antigravity.fluidengine.ai.bridge.AiToolHostProvider
 import dev.antigravity.fluidengine.ai.bridge.ReadyState
 import dev.antigravity.fluidengine.ai.bridge.RemoteCall
-import dev.antigravity.fluidengine.ai.tools.AiTool as EngineTool
+import dev.antigravity.fluidengine.ai.tools.AiTool
 import dev.antigravity.fluidengine.ai.tools.AiToolGroup
 import dev.antigravity.fluidengine.ai.tools.ToolOutput
 import dev.antigravity.fluidengine.ai.tools.ToolRegistry
+import dev.antigravity.fluidtransit.FluidTransitApp
+import dev.antigravity.fluidtransit.ai.tools.ActionOutcome
+import dev.antigravity.fluidtransit.ai.tools.ActionSink
+import dev.antigravity.fluidtransit.ai.tools.AllTools
+import dev.antigravity.fluidtransit.ai.tools.AssistantAction
+import dev.antigravity.fluidtransit.ai.tools.ToolContext
+import dev.antigravity.fluidtransit.ai.tools.ToolGroup
+import dev.antigravity.fluidtransit.ai.tools.TransitTool
 import java.time.ZoneId
 import java.util.Locale
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.JsonObject
 
-/** I gruppi degli autobus nel vocabolario dell'engine: stessi id, stessi suggerimenti. */
+/**
+ * I gruppi degli autobus come li legge PampAI: stessi id dell'assistente di casa, ma con le righe
+ * scritte per il router di un assistente a piu' app.
+ */
 private enum class BridgeGroup(
   override val id: String,
   override val statusKey: String,
@@ -42,10 +47,11 @@ private enum class BridgeGroup(
 }
 
 /**
- * Uno strumento di Fluid Transit visto dall'engine: la firma tradotta (testo dentro, [ToolOutput]
- * fuori), il resto identico. I ventisette strumenti restano quelli dell'assistente di casa.
+ * Uno strumento di Fluid Transit visto da PampAI: lo stesso, col gruppo del ponte e i metadati
+ * che servono a chi lo chiama da fuori (conferma, azione). I ventisette strumenti restano quelli
+ * dell'assistente di casa, senza i tetti per gruppo: qui il tetto e' quello del ponte.
  */
-private class BridgedTool(private val inner: dev.antigravity.fluidtransit.ai.tools.AiTool) : EngineTool<ToolContext> {
+private class BridgedTool(private val inner: TransitTool) : AiTool<ToolContext> {
   override val name: String = inner.name
   override val group: AiToolGroup = BridgeGroup.of(inner.group)
   override val description: String = inner.description
@@ -54,7 +60,7 @@ private class BridgedTool(private val inner: dev.antigravity.fluidtransit.ai.too
   override val needsConfirmation: Boolean = inner.name in CONFIRMED
 
   override suspend fun run(args: JsonObject, ctx: ToolContext): ToolOutput {
-    val text = inner.run(args, ctx)
+    val text = inner.answer(args, ctx)
     return if (text.startsWith("errore")) ToolOutput.error(text.removePrefix("errore:").trim()) else ToolOutput(text)
   }
 
@@ -77,7 +83,7 @@ class TransitToolHostProvider : AiToolHostProvider<ToolContext>() {
   private val app: FluidTransitApp get() = context!!.applicationContext as FluidTransitApp
 
   private val bridged: ToolRegistry<ToolContext> by lazy {
-    val tools = dev.antigravity.fluidtransit.ai.tools.AllTools.registry().tools.map { BridgedTool(it) }
+    val tools = AllTools.tools().map { BridgedTool(it) }
     ToolRegistry(tools, BridgeGroup.entries.toList(), actionGroup = null)
   }
 

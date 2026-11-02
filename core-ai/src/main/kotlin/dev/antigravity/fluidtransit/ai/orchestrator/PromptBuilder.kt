@@ -1,5 +1,6 @@
 package dev.antigravity.fluidtransit.ai.orchestrator
 
+import dev.antigravity.fluidengine.ai.orchestrator.AskMode
 import dev.antigravity.fluidtransit.ai.tools.ToolContext
 import java.time.Instant
 import java.time.format.DateTimeFormatter

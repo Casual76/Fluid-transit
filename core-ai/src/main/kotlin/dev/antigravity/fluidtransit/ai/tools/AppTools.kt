@@ -1,6 +1,7 @@
 package dev.antigravity.fluidtransit.ai.tools
 
-import dev.antigravity.fluidtransit.ai.tools.Args.str
+import dev.antigravity.fluidengine.ai.tools.Args.str
+import dev.antigravity.fluidengine.ai.tools.Schema
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -11,7 +12,7 @@ import kotlinx.serialization.json.JsonObject
  * altrove; tutto quello che SCRIVE — un posto salvato, una stella, una
  * routine — o che accende la navigazione passa da un tocco dell'utente.
  */
-class ShowTool : AiTool {
+class ShowTool : TransitTool {
     override val name = "mostra"
     override val group = ToolGroup.APP
     override val description =
@@ -22,7 +23,7 @@ class ShowTool : AiTool {
         required = listOf("cosa"),
     )
 
-    override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+    override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
         val q = args.str("cosa") ?: return "errore: manca cosa mostrare"
         val t = Resolve.target(ctx, q) ?: return Resolve.notFound(ctx, "non trovo \"$q\"")
         val action = when {
@@ -34,17 +35,17 @@ class ShowTool : AiTool {
     }
 }
 
-class StartNavigationTool : AiTool {
+class StartNavigationTool : TransitTool {
     override val name = "avvia_navigazione"
     override val group = ToolGroup.APP
     override val description =
         "Avvia la navigazione passo passo verso una destinazione. Chiede conferma."
     override val parameters = Schema.obj(
-        mapOf("a" to Schema.place),
+        mapOf("a" to TransitSchema.place),
         required = listOf("a"),
     )
 
-    override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+    override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
         val q = args.str("a") ?: return "errore: manca la destinazione"
         val t = Resolve.target(ctx, q) ?: return Resolve.notFound(ctx, "non trovo \"$q\"")
         return outcomeText(
@@ -54,7 +55,7 @@ class StartNavigationTool : AiTool {
     }
 }
 
-class SavePlaceTool : AiTool {
+class SavePlaceTool : TransitTool {
     override val name = "salva_posto"
     override val group = ToolGroup.APP
     override val description =
@@ -63,14 +64,14 @@ class SavePlaceTool : AiTool {
     override val parameters = Schema.obj(
         mapOf(
             "nome" to Schema.str("l'etichetta con cui salvarlo"),
-            "dove" to Schema.place,
+            "dove" to TransitSchema.place,
         ),
         // `dove` non e' obbligatorio: lo schema stesso dice che vuoto vale "dove si trova
         // adesso", e "salva questo posto come Casa" e' proprio quel caso.
         required = listOf("nome"),
     )
 
-    override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+    override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
         val label = args.str("nome") ?: return "errore: manca l'etichetta"
         val q = args.str("dove")?.takeUnless { Resolve.isHere(it) }
         val point = if (q == null) {
@@ -95,7 +96,7 @@ class SavePlaceTool : AiTool {
     }
 }
 
-class StarTool : AiTool {
+class StarTool : TransitTool {
     override val name = "metti_stella"
     override val group = ToolGroup.APP
     override val description =
@@ -106,7 +107,7 @@ class StarTool : AiTool {
         required = listOf("cosa"),
     )
 
-    override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+    override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
         val q = args.str("cosa") ?: return "errore: manca cosa stellare"
         val t = Resolve.target(ctx, q) ?: return Resolve.notFound(ctx, "non trovo \"$q\"")
         val action = when {
@@ -118,7 +119,7 @@ class StarTool : AiTool {
     }
 }
 
-class CreateRoutineTool : AiTool {
+class CreateRoutineTool : TransitTool {
     override val name = "crea_routine"
     override val group = ToolGroup.APP
     override val description =
@@ -126,7 +127,7 @@ class CreateRoutineTool : AiTool {
             "Chiede conferma."
     override val parameters = Schema.obj(
         mapOf(
-            "a" to Schema.place,
+            "a" to TransitSchema.place,
             "da" to Schema.str(
                 "da dove si parte; vuoto per dove si trova adesso (la posizione resta fissata nella routine)",
             ),
@@ -139,7 +140,7 @@ class CreateRoutineTool : AiTool {
         required = listOf("a", "giorni", "ora"),
     )
 
-    override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+    override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
         val toText = args.str("a") ?: return "errore: manca la destinazione"
         val to = Resolve.target(ctx, toText) ?: return Resolve.notFound(ctx, "non trovo \"$toText\"")
         // Una partenza detta e non trovata non diventa "dove ti trovi": la routine partirebbe

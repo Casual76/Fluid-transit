@@ -143,13 +143,14 @@ dependencies {
     // il receiver dell'installazione: qui non serve toccare il manifest.
     implementation(project(":engine-update"))
     implementation(project(":engine-widget")) // i widget Glance della Fase 6
-    implementation(project(":engine-ai")) // i tipi dei tool per il bridge
+    implementation(project(":engine-ai")) // l'assistente: stati, provider, orchestratore, tool
     implementation(project(":engine-ai-bridge")) // tool federati: gli autobus per PampAI/Aria
 
     // Il formato .ftb e il lettore mmap.
     implementation(project(":core-routing"))
 
-    // L'assistente: provider, strumenti, voce. Niente Compose la dentro.
+    // L'assistente di Fluid Transit sopra engine-ai: strumenti dei trasporti,
+    // prompt, sessione. Niente Compose la dentro.
     implementation(project(":core-ai"))
 
     // Le icone estese (sole, mappa): artefatto stabile di soli vettori,

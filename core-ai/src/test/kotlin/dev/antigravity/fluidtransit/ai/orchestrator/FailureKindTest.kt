@@ -1,8 +1,11 @@
 package dev.antigravity.fluidtransit.ai.orchestrator
 
-import dev.antigravity.fluidtransit.ai.net.AiError
-import dev.antigravity.fluidtransit.ai.net.RateLimitInfo
-import dev.antigravity.fluidtransit.ai.provider.ProviderId
+import dev.antigravity.fluidengine.ai.net.AiError
+import dev.antigravity.fluidengine.ai.net.RateLimitInfo
+import dev.antigravity.fluidengine.ai.orchestrator.FailoverDecision
+import dev.antigravity.fluidengine.ai.orchestrator.FailoverPolicy
+import dev.antigravity.fluidengine.ai.orchestrator.FailureKind
+import dev.antigravity.fluidengine.ai.provider.ProviderId
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -20,12 +23,12 @@ class FailureKindTest {
 
     @Test
     fun `senza rete una domanda parlata dice niente rete e non audio incomprensibile`() {
-        assertEquals(FailureKind.NETWORK, FailureKind.of(AiError.Network("rete"), other = trascrizione))
+        assertEquals(FailureKind.NETWORK, FailureKinds.of(AiError.Network("rete"), other = trascrizione))
     }
 
     @Test
     fun `un provider che non risponde dice ci ha messo troppo`() {
-        assertEquals(FailureKind.TIMEOUT, FailureKind.of(AiError.Timeout("timeout"), other = trascrizione))
+        assertEquals(FailureKind.TIMEOUT, FailureKinds.of(AiError.Timeout("timeout"), other = trascrizione))
     }
 
     @Test
@@ -35,25 +38,25 @@ class FailureKindTest {
             rateLimit = RateLimitInfo.EMPTY,
             message = "429",
         )
-        assertEquals(FailureKind.RATE_LIMITED, FailureKind.of(limite, other = trascrizione))
-        assertEquals(FailureKind.UNAUTHORIZED, FailureKind.of(AiError.Unauthorized("401"), other = trascrizione))
+        assertEquals(FailureKind.RATE_LIMITED, FailureKinds.of(limite, other = trascrizione))
+        assertEquals(FailureKind.UNAUTHORIZED, FailureKinds.of(AiError.Unauthorized("401"), other = trascrizione))
     }
 
     @Test
     fun `un guasto del servizio non e un audio che non si capisce`() {
-        assertEquals(FailureKind.PROVIDER, FailureKind.of(AiError.Server(503, "giu"), other = trascrizione))
+        assertEquals(FailureKind.PROVIDER, FailureKinds.of(AiError.Server(503, "giu"), other = trascrizione))
     }
 
     @Test
     fun `solo quello che davvero non si capisce resta una trascrizione fallita`() {
-        assertEquals(trascrizione, FailureKind.of(AiError.BadRequest(400, "formato"), other = trascrizione))
-        assertEquals(trascrizione, FailureKind.of(AiError.Parse("json rotto"), other = trascrizione))
-        assertEquals(trascrizione, FailureKind.of(IllegalStateException("boh"), other = trascrizione))
+        assertEquals(trascrizione, FailureKinds.of(AiError.BadRequest(400, "formato"), other = trascrizione))
+        assertEquals(trascrizione, FailureKinds.of(AiError.Parse("json rotto"), other = trascrizione))
+        assertEquals(trascrizione, FailureKinds.of(IllegalStateException("boh"), other = trascrizione))
     }
 
     @Test
     fun `senza un ripiego indicato un errore sconosciuto e sconosciuto`() {
-        assertEquals(FailureKind.UNKNOWN, FailureKind.of(IllegalStateException("boh")))
+        assertEquals(FailureKind.UNKNOWN, FailureKinds.of(IllegalStateException("boh")))
     }
 
     // Il ripiego della domanda scritta usa la stessa tabella: se ne cambiasse una i due percorsi

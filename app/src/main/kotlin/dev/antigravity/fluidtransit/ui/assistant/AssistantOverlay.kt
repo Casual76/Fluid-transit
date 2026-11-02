@@ -48,6 +48,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.antigravity.fluidengine.ai.orchestrator.AskMode
+import dev.antigravity.fluidengine.ai.orchestrator.AssistantState
+import dev.antigravity.fluidengine.ai.orchestrator.FailureKind
 import dev.antigravity.fluidengine.ui.fluid.ContinuousCornerShape
 import dev.antigravity.fluidengine.ui.fluid.FluidGlassIconButton
 import dev.antigravity.fluidengine.ui.fluid.FluidHairline
@@ -58,8 +61,7 @@ import dev.antigravity.fluidengine.ui.fluid.GlassEdge
 import dev.antigravity.fluidengine.ui.fluid.GlassRole
 import dev.antigravity.fluidengine.ui.fluid.glassSurface
 import dev.antigravity.fluidtransit.FluidTransitApp
-import dev.antigravity.fluidtransit.ai.orchestrator.AskMode
-import dev.antigravity.fluidtransit.ai.orchestrator.AssistantState
+import dev.antigravity.fluidtransit.ai.orchestrator.TransitChips
 import dev.antigravity.fluidtransit.ui.map.GlassActionButton
 
 /**
@@ -88,7 +90,7 @@ fun AssistantOverlay(
     val session = remember { app.assistant.session }
     val state by session.state.collectAsStateWithLifecycle()
     val mic by session.micLevel.collectAsStateWithLifecycle()
-    val pending by session.pendingAction.collectAsStateWithLifecycle()
+    val pending by session.pendingConfirmation.collectAsStateWithLifecycle()
 
     var draft by remember { mutableStateOf("") }
 
@@ -251,8 +253,7 @@ fun AssistantOverlay(
         }
 
         // --- i posti che ha nominato, da aprire con un tocco ----------------
-        val chips = (state as? AssistantState.Done)?.chips.orEmpty()
-            .filterIsInstance<dev.antigravity.fluidtransit.ai.orchestrator.AnswerChip.Place>()
+        val chips = TransitChips.places((state as? AssistantState.Done)?.chips.orEmpty())
         if (chips.isNotEmpty()) {
             // I chip vanno a capo invece di stare tutti su una riga. Coi nomi
             // veri delle fermate ("STAZIONE SANTA MARIA NOVELLA", "SODERINI
@@ -269,13 +270,13 @@ fun AssistantOverlay(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                for (chip in chips.take(3)) {
+                for (name in chips.take(3)) {
                     GlassActionButton(
-                        text = chip.name,
+                        text = name,
                         icon = null,
                         backdrop = backdrop,
                         maxLines = 2,
-                        onClick = { onPlace(chip.name) },
+                        onClick = { onPlace(name) },
                     )
                 }
             }
@@ -286,11 +287,14 @@ fun AssistantOverlay(
         // Si guarda l'azione IN ATTESA, non lo stato: lo stato lo scrivono in
         // sei punti diversi l'orchestratore e la sessione, e basta che uno
         // arrivi dopo perche' il tasto non compaia mai — che e' esattamente
-        // quello che succedeva.
+        // quello che succedeva. La frase e' quella di `ActionText`, esaustiva,
+        // che la sessione consegna al cancello come titolo della conferma:
+        // nessuna azione ricade in un "Confermi?" che non dice cosa sta per
+        // succedere.
         val request = pending
         if (request != null) {
             Text(
-                text = actionLabel(request.action),
+                text = request.title,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
@@ -305,7 +309,7 @@ fun AssistantOverlay(
                     text = "Conferma",
                     icon = null,
                     backdrop = backdrop,
-                    onClick = { session.resolveAction(request.id, true) },
+                    onClick = { session.resolveConfirmation(request.id, true) },
                     emphasized = true,
                     modifier = Modifier.weight(1f),
                 )
@@ -313,7 +317,7 @@ fun AssistantOverlay(
                     text = "Annulla",
                     icon = null,
                     backdrop = backdrop,
-                    onClick = { session.resolveAction(request.id, false) },
+                    onClick = { session.resolveConfirmation(request.id, false) },
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -453,19 +457,19 @@ private fun statusText(state: AssistantState): String = when (state) {
 }
 
 private fun failureText(state: AssistantState.Failed): String = when (state.kind) {
-    dev.antigravity.fluidtransit.ai.orchestrator.FailureKind.NO_KEYS ->
+    FailureKind.NO_KEYS ->
         "Serve una chiave: mettila in Impostazioni → Assistente"
-    dev.antigravity.fluidtransit.ai.orchestrator.FailureKind.UNAUTHORIZED ->
+    FailureKind.UNAUTHORIZED ->
         "La chiave non e' valida: controllala in Impostazioni"
-    dev.antigravity.fluidtransit.ai.orchestrator.FailureKind.RATE_LIMITED ->
+    FailureKind.RATE_LIMITED ->
         "Il servizio e' a limite: riprova fra poco"
-    dev.antigravity.fluidtransit.ai.orchestrator.FailureKind.NETWORK ->
+    FailureKind.NETWORK ->
         "Niente rete"
-    dev.antigravity.fluidtransit.ai.orchestrator.FailureKind.TIMEOUT ->
+    FailureKind.TIMEOUT ->
         "Ci ha messo troppo"
-    dev.antigravity.fluidtransit.ai.orchestrator.FailureKind.MICROPHONE ->
+    FailureKind.MICROPHONE ->
         "Il microfono non parte: forse lo sta usando un'altra app"
-    dev.antigravity.fluidtransit.ai.orchestrator.FailureKind.TRANSCRIPTION ->
+    FailureKind.TRANSCRIPTION ->
         "Non sono riuscito a capire l'audio"
     else -> "Non ha funzionato"
 }
@@ -478,12 +482,3 @@ private fun answerText(state: AssistantState): String = when (state) {
     is AssistantState.Cancelled -> state.partial.orEmpty()
     else -> ""
 }
-
-/**
- * L'azione, detta all'utente prima di chiedergli di confermarla: la frase e'
- * di `:core-ai` ([ActionText]), esaustiva, cosi' nessuna azione ricade in un
- * "Confermi?" che non dice cosa sta per succedere.
- */
-private fun actionLabel(
-    action: dev.antigravity.fluidtransit.ai.tools.AssistantAction,
-): String = dev.antigravity.fluidtransit.ai.tools.ActionText.confirm(action)

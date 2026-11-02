@@ -1,7 +1,9 @@
 package dev.antigravity.fluidtransit.ai.tools
 
-import dev.antigravity.fluidtransit.ai.tools.Args.int
-import dev.antigravity.fluidtransit.ai.tools.Args.str
+import dev.antigravity.fluidengine.ai.tools.Args.int
+import dev.antigravity.fluidengine.ai.tools.Args.str
+import dev.antigravity.fluidengine.ai.tools.Schema
+import dev.antigravity.fluidengine.ai.tools.ToolText
 import dev.antigravity.fluidtransit.routing.BundleReader
 import dev.antigravity.fluidtransit.routing.DepartureText
 import dev.antigravity.fluidtransit.routing.Raptor
@@ -224,7 +226,7 @@ internal object Resolve {
 }
 
 /** Cerca qualsiasi cosa: fermate, linee, luoghi, indirizzi, posti salvati. */
-class SearchTool : AiTool {
+class SearchTool : TransitTool {
     override val name = "cerca"
     override val group = ToolGroup.PLACES
     override val description =
@@ -235,7 +237,7 @@ class SearchTool : AiTool {
         required = listOf("cosa"),
     )
 
-    override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+    override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
         val q = args.str("cosa") ?: return "errore: manca cosa cercare"
         val bridge = ctx.transit
         val ref = ctx.reference
@@ -268,13 +270,13 @@ class SearchTool : AiTool {
 }
 
 /** I posti che l'utente ha salvato. */
-class SavedPlacesTool : AiTool {
+class SavedPlacesTool : TransitTool {
     override val name = "posti_salvati"
     override val group = ToolGroup.PLACES
     override val description = "Elenca i posti salvati dall'utente (casa, lavoro, scuola, altri)."
     override val parameters = Schema.obj(emptyMap())
 
-    override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+    override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
         val places = ctx.transit.savedPlaces()
         if (places.isEmpty()) return "l'utente non ha salvato nessun posto"
         return ToolText.build { for (p in places) line(p.name, Resolve.distanceLabel(ctx, p.lat, p.lon)) }
@@ -282,7 +284,7 @@ class SavedPlacesTool : AiTool {
 }
 
 /** I prossimi passaggi di una fermata. */
-class NextDeparturesTool : AiTool {
+class NextDeparturesTool : TransitTool {
     override val name = "prossimi_passaggi"
     override val group = ToolGroup.SCHEDULE
     override val description =
@@ -295,7 +297,7 @@ class NextDeparturesTool : AiTool {
         ),
     )
 
-    override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+    override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
         val reader = ctx.transit.reader ?: return "errore: gli orari non sono ancora scaricati"
         val wanted = args.int("quanti")?.coerceIn(1, 8) ?: 5
         val query = args.str("fermata")
@@ -340,7 +342,7 @@ class NextDeparturesTool : AiTool {
 }
 
 /** Prima e ultima corsa, frequenza, prossima partenza di una linea. */
-class RouteScheduleTool : AiTool {
+class RouteScheduleTool : TransitTool {
     override val name = "orari_linea"
     override val group = ToolGroup.SCHEDULE
     override val description =
@@ -350,7 +352,7 @@ class RouteScheduleTool : AiTool {
         required = listOf("linea"),
     )
 
-    override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+    override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
         val reader = ctx.transit.reader ?: return "errore: gli orari non sono ancora scaricati"
         val q = args.str("linea") ?: return "errore: manca la linea"
         val hit = ctx.transit.findRoutes(q, 1).firstOrNull()
@@ -428,7 +430,7 @@ class RouteScheduleTool : AiTool {
 }
 
 /** Dove sono adesso i mezzi di una linea. */
-class LiveBusesTool : AiTool {
+class LiveBusesTool : TransitTool {
     override val name = "dove_sono_i_bus"
     override val group = ToolGroup.LIVE
     override val description =
@@ -439,7 +441,7 @@ class LiveBusesTool : AiTool {
         required = listOf("linea"),
     )
 
-    override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+    override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
         val q = args.str("linea") ?: return "errore: manca la linea"
         val hit = ctx.transit.findRoutes(q, 1).firstOrNull()
             ?: return Resolve.notFound(ctx, "non trovo una linea che si chiami \"$q\"")
@@ -478,14 +480,14 @@ class LiveBusesTool : AiTool {
 }
 
 /** Gli avvisi di servizio. */
-class AlertsTool : AiTool {
+class AlertsTool : TransitTool {
     override val name = "avvisi"
     override val group = ToolGroup.LIVE
     override val description =
         "Gli avvisi di servizio pubblicati dall'azienda: deviazioni, scioperi, lavori."
     override val parameters = Schema.obj(emptyMap())
 
-    override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+    override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
         val alerts = ctx.transit.alerts()
         if (alerts.isEmpty()) return "nessun avviso di servizio in corso"
         return ToolText.build { for (a in alerts.take(6)) line("- $a") }
@@ -493,7 +495,7 @@ class AlertsTool : AiTool {
 }
 
 /** Come si va da un posto a un altro. */
-class JourneyTool : AiTool {
+class JourneyTool : TransitTool {
     override val name = "come_arrivo"
     override val group = ToolGroup.JOURNEY
     override val description =
@@ -501,7 +503,7 @@ class JourneyTool : AiTool {
             "durata. Mostra anche le soluzioni sulla mappa."
     override val parameters = Schema.obj(
         mapOf(
-            "a" to Schema.place,
+            "a" to TransitSchema.place,
             "da" to Schema.str("da dove si parte; vuoto per dove si trova adesso"),
             "parti_alle" to Schema.str("ora di partenza, formato 8:30; vuoto per adesso"),
             "arriva_entro" to Schema.str("ora entro cui arrivare, formato 8:30"),
@@ -513,7 +515,7 @@ class JourneyTool : AiTool {
         required = listOf("a"),
     )
 
-    override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+    override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
         val toText = args.str("a") ?: return "errore: manca la destinazione"
         val to = Resolve.target(ctx, toText)
             ?: return Resolve.notFound(ctx, "non trovo un posto che si chiami \"$toText\"")

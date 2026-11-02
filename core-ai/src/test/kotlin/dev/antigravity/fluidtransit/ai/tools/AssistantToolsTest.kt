@@ -206,7 +206,7 @@ class AssistantToolsTest {
     fun `salva questo posto senza dove usa la posizione`() = runBlocking {
         val sink = Sink()
         val bridge = Bridge(here0 = 43.77 to 11.25)
-        val out = SavePlaceTool().run(args("nome" to "Casa"), ctx(bridge, sink))
+        val out = SavePlaceTool().answer(args("nome" to "Casa"), ctx(bridge, sink))
         assertEquals("salvato come \"Casa\"", out)
         val a = sink.actions.single() as AssistantAction.SavePlace
         assertEquals(43.77, a.point.lat, 0.0)
@@ -219,7 +219,7 @@ class AssistantToolsTest {
         for (qui in listOf("qui", "Qui.", "questo posto", "la tua posizione")) {
             val sink = Sink()
             val bridge = Bridge(here0 = 43.77 to 11.25)
-            val out = SavePlaceTool().run(args("nome" to "Lavoro", "dove" to qui), ctx(bridge, sink))
+            val out = SavePlaceTool().answer(args("nome" to "Lavoro", "dove" to qui), ctx(bridge, sink))
             assertFalse(out, out.startsWith("non trovo"))
             assertEquals(1, sink.actions.size)
         }
@@ -228,7 +228,7 @@ class AssistantToolsTest {
     @Test
     fun `senza posizione non si salva un punto inventato`() = runBlocking {
         val sink = Sink()
-        val out = SavePlaceTool().run(args("nome" to "Casa"), ctx(Bridge(here0 = null), sink))
+        val out = SavePlaceTool().answer(args("nome" to "Casa"), ctx(Bridge(here0 = null), sink))
         assertTrue(out, out.startsWith("errore:"))
         assertTrue(out, out.contains("non so dove ti trovi"))
         assertTrue(sink.actions.isEmpty())
@@ -242,7 +242,7 @@ class AssistantToolsTest {
             stops = listOf(careggi()),
             saved = listOf(NamedPoint("Casa", "Il tuo posto", 43.1, 11.1)),
         )
-        SavePlaceTool().run(args("nome" to "casa", "dove" to "Careggi"), ctx(bridge, sink))
+        SavePlaceTool().answer(args("nome" to "casa", "dove" to "Careggi"), ctx(bridge, sink))
         val a = sink.actions.single() as AssistantAction.SavePlace
         assertEquals("Careggi", a.point.name)
         assertEquals("Casa", a.replaces)
@@ -287,7 +287,7 @@ class AssistantToolsTest {
     fun `una routine senza partenza detta e senza posizione non arriva alla conferma`() = runBlocking {
         val sink = Sink()
         val bridge = Bridge(here0 = null, stops = listOf(careggi()))
-        val out = CreateRoutineTool().run(
+        val out = CreateRoutineTool().answer(
             args("a" to "Careggi", "giorni" to "feriali", "ora" to "8:30"),
             ctx(bridge, sink),
         )
@@ -318,19 +318,19 @@ class AssistantToolsTest {
         val sink = Sink()
         val bridge = Bridge(here0 = 43.0 to 11.0, stops = listOf(careggi()))
         // Sono le 07:10: le 06:00 di OGGI sono passate, e slittare a domani e' roba del campo vuoto.
-        val passata = JourneyTool().run(
+        val passata = JourneyTool().answer(
             args("a" to "Careggi", "arriva_entro" to "6:00", "giorno" to "oggi"),
             ctx(bridge, sink),
         )
         assertEquals(Resolve.PASSED_TODAY, passata)
         assertTrue(bridge.planCalls.isEmpty())
-        val uscire = WhenToLeaveTool().run(
+        val uscire = WhenToLeaveTool().answer(
             args("a" to "Careggi", "entro" to "6:00", "giorno" to "oggi"),
             ctx(bridge, sink),
         )
         assertEquals(Resolve.PASSED_TODAY, uscire)
         // "adesso" dove lo schema dice "vuoto per adesso": si calcola per adesso.
-        JourneyTool().run(
+        JourneyTool().answer(
             args("a" to "Careggi", "parti_alle" to "adesso"),
             ctx(bridge, sink),
         )
@@ -350,7 +350,7 @@ class AssistantToolsTest {
     fun `una partenza detta e non trovata non diventa dove ti trovi`() = runBlocking {
         val sink = Sink()
         val bridge = Bridge(here0 = 43.0 to 11.0, stops = listOf(careggi()))
-        val out = CreateRoutineTool().run(
+        val out = CreateRoutineTool().answer(
             args("a" to "Careggi", "da" to "Posto che non esiste", "giorni" to "feriali", "ora" to "8:30"),
             ctx(bridge, sink),
         )
@@ -362,7 +362,7 @@ class AssistantToolsTest {
     fun `un'ora con parole in coda non diventa le otto`() = runBlocking {
         val sink = Sink()
         val bridge = Bridge(here0 = 43.0 to 11.0, stops = listOf(careggi()))
-        val out = CreateRoutineTool().run(
+        val out = CreateRoutineTool().answer(
             args("a" to "Careggi", "giorni" to "feriali", "ora" to "8:30 di sera"),
             ctx(bridge, sink),
         )
@@ -378,7 +378,7 @@ class AssistantToolsTest {
         val bridge = Bridge(
             starredStops0 = listOf(StarredStop("a", "Stazione"), StarredStop("b", "Stazione Nord")),
         )
-        UnstarTool().run(args("cosa" to "stazione"), ctx(bridge, sink))
+        UnstarTool().answer(args("cosa" to "stazione"), ctx(bridge, sink))
         val a = sink.actions.single() as AssistantAction.UnstarStop
         assertEquals("a", a.idHashHex)
     }
@@ -389,7 +389,7 @@ class AssistantToolsTest {
         val bridge = Bridge(
             starredStops0 = listOf(StarredStop("a", "Stazione Sud"), StarredStop("b", "Stazione Nord")),
         )
-        val out = UnstarTool().run(args("cosa" to "stazione"), ctx(bridge, sink))
+        val out = UnstarTool().answer(args("cosa" to "stazione"), ctx(bridge, sink))
         assertTrue(out, out.contains("Stazione Sud"))
         assertTrue(out, out.contains("Stazione Nord"))
         assertTrue(out, out.contains("Chiedi all'utente quale"))
@@ -442,7 +442,7 @@ class AssistantToolsTest {
     fun `come_arrivo con un giorno calcola su quel giorno`() = runBlocking {
         val sink = Sink()
         val bridge = Bridge(here0 = 43.0 to 11.0, stops = listOf(careggi()))
-        JourneyTool().run(
+        JourneyTool().answer(
             args("a" to "Careggi", "arriva_entro" to "8:30", "giorno" to "domani"),
             ctx(bridge, sink),
         )
@@ -457,7 +457,7 @@ class AssistantToolsTest {
     fun `come_arrivo non trasforma un'ora non capita in adesso`() = runBlocking {
         val sink = Sink()
         val bridge = Bridge(here0 = 43.0 to 11.0, stops = listOf(careggi()))
-        val out = JourneyTool().run(
+        val out = JourneyTool().answer(
             args("a" to "Careggi", "parti_alle" to "8 e mezza"),
             ctx(bridge, sink),
         )
@@ -469,7 +469,7 @@ class AssistantToolsTest {
     fun `un altro giorno senza l'ora e' un errore, non un calcolo per adesso`() = runBlocking {
         val sink = Sink()
         val bridge = Bridge(here0 = 43.0 to 11.0, stops = listOf(careggi()))
-        val out = JourneyTool().run(
+        val out = JourneyTool().answer(
             args("a" to "Careggi", "giorno" to "sabato"),
             ctx(bridge, sink),
         )
@@ -481,7 +481,7 @@ class AssistantToolsTest {
     fun `un giorno non capito si dice`() = runBlocking {
         val sink = Sink()
         val bridge = Bridge(here0 = 43.0 to 11.0, stops = listOf(careggi()))
-        val out = JourneyTool().run(
+        val out = JourneyTool().answer(
             args("a" to "Careggi", "parti_alle" to "8:30", "giorno" to "fra un po'"),
             ctx(bridge, sink),
         )
@@ -492,9 +492,9 @@ class AssistantToolsTest {
     fun `gli itinerari di oggi chiedono il tempo reale, quelli di un altro giorno no`() = runBlocking {
         val sink = Sink()
         val bridge = Bridge(here0 = 43.0 to 11.0, stops = listOf(careggi()))
-        JourneyTool().run(args("a" to "Careggi"), ctx(bridge, sink))
+        JourneyTool().answer(args("a" to "Careggi"), ctx(bridge, sink))
         assertEquals(1, bridge.liveAsked)
-        JourneyTool().run(
+        JourneyTool().answer(
             args("a" to "Careggi", "parti_alle" to "8:30", "giorno" to "domani"),
             ctx(bridge, sink),
         )
@@ -505,7 +505,7 @@ class AssistantToolsTest {
     fun `quando_uscire legge il giorno come come_arrivo`() = runBlocking {
         val sink = Sink()
         val bridge = Bridge(here0 = 43.0 to 11.0, stops = listOf(careggi()))
-        WhenToLeaveTool().run(
+        WhenToLeaveTool().answer(
             args("a" to "Careggi", "entro" to "9", "giorno" to "domani"),
             ctx(bridge, sink),
         )
@@ -513,7 +513,7 @@ class AssistantToolsTest {
             LocalDate.of(2026, 10, 1).atTime(9, 0).atZone(rome).toEpochSecond(),
             bridge.planCalls.single().arriveBy,
         )
-        val rotto = WhenToLeaveTool().run(
+        val rotto = WhenToLeaveTool().answer(
             args("a" to "Careggi", "entro" to "9 di sera"),
             ctx(bridge, sink),
         )
@@ -530,7 +530,7 @@ class AssistantToolsTest {
             override fun vehiclesOfRoute(routeIndex: Int): List<LiveVehicle>? = null
         }
         val c = ToolContext(bridge, Locale.ITALIAN, rome, now.toEpochMilli(), true, Sink())
-        val out = LiveBusesTool().run(args("linea" to "6"), c)
+        val out = LiveBusesTool().answer(args("linea" to "6"), c)
         assertFalse(out, out.contains("nessun mezzo"))
         assertTrue(out, out.startsWith("non so dove sono"))
         assertNotNull(out)

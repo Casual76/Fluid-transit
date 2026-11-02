@@ -1,21 +1,23 @@
 package dev.antigravity.fluidtransit.ai.tools
 
-import dev.antigravity.fluidtransit.ai.tools.Args.bool
-import dev.antigravity.fluidtransit.ai.tools.Args.int
-import dev.antigravity.fluidtransit.ai.tools.Args.list
-import dev.antigravity.fluidtransit.ai.tools.Args.str
+import dev.antigravity.fluidengine.ai.tools.Args.bool
+import dev.antigravity.fluidengine.ai.tools.Args.int
+import dev.antigravity.fluidengine.ai.tools.Args.list
+import dev.antigravity.fluidengine.ai.tools.Args.str
+import dev.antigravity.fluidengine.ai.tools.Schema
+import dev.antigravity.fluidengine.ai.tools.ToolText
 import dev.antigravity.fluidtransit.routing.DaysText
 import dev.antigravity.fluidtransit.routing.Times
 import kotlinx.serialization.json.JsonObject
 
 /** Lo stato dell'orario offline, e con `aggiorna` lo riscarica (chiede conferma: consuma rete). */
-class DataStatusTool : AiTool {
+class DataStatusTool : TransitTool {
   override val name = "stato_dati"
   override val group = ToolGroup.APP
   override val description = "Se l'orario offline e' scaricato e aggiornato; con aggiorna=si lo riscarica (chiede conferma). Da usare quando gli orari sembrano vecchi o mancano."
   override val parameters = Schema.obj(mapOf("aggiorna" to Schema.bool("true per riscaricare l'orario")))
 
-  override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+  override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
     if (args.bool("aggiorna") != true) {
       return ToolText.build {
         line("orario offline", ctx.transit.dataStatus())
@@ -30,13 +32,13 @@ class DataStatusTool : AiTool {
 }
 
 /** I preferiti dell'utente: fermate con la stella, linee con la stella, posti salvati. */
-class FavouritesTool : AiTool {
+class FavouritesTool : TransitTool {
   override val name = "preferiti_elenco"
   override val group = ToolGroup.APP
   override val description = "I preferiti dell'utente: le fermate e le linee con la stella, e i posti salvati con il loro nome."
   override val parameters = Schema.obj(emptyMap())
 
-  override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+  override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
     val stops = ctx.transit.starredStops()
     val routes = ctx.transit.starredRoutes()
     val places = ctx.transit.savedPlacesWithId()
@@ -50,13 +52,13 @@ class FavouritesTool : AiTool {
 }
 
 /** Toglie la stella a una fermata o a una linea (con conferma). */
-class UnstarTool : AiTool {
+class UnstarTool : TransitTool {
   override val name = "togli_stella"
   override val group = ToolGroup.APP
   override val description = "Toglie la stella a una fermata o a una linea che ce l'ha. Chiede conferma."
   override val parameters = Schema.obj(mapOf("cosa" to Schema.str("il nome della fermata o il numero della linea")), required = listOf("cosa"))
 
-  override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+  override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
     if (!ctx.actionsEnabled) return ACTIONS_OFF
     val query = args.str("cosa")?.lowercase()?.trim() ?: return "errore: dimmi cosa"
     val stops = ctx.transit.starredStops()
@@ -88,13 +90,13 @@ class UnstarTool : AiTool {
 }
 
 /** Toglie un posto salvato (con conferma). */
-class RemoveSavedPlaceTool : AiTool {
+class RemoveSavedPlaceTool : TransitTool {
   override val name = "posto_rimuovi"
   override val group = ToolGroup.APP
   override val description = "Toglie un posto salvato dall'elenco (casa, lavoro, un indirizzo). Chiede conferma."
   override val parameters = Schema.obj(mapOf("nome" to Schema.str("il nome del posto salvato")), required = listOf("nome"))
 
-  override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+  override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
     if (!ctx.actionsEnabled) return ACTIONS_OFF
     val query = args.str("nome")?.lowercase()?.trim() ?: return "errore: dimmi quale posto"
     val places = ctx.transit.savedPlacesWithId()
@@ -106,13 +108,13 @@ class RemoveSavedPlaceTool : AiTool {
 }
 
 /** Ferma la navigazione in corso. */
-class StopNavigationTool : AiTool {
+class StopNavigationTool : TransitTool {
   override val name = "ferma_navigazione"
   override val group = ToolGroup.APP
   override val description = "Ferma la navigazione passo passo in corso."
   override val parameters = Schema.obj(emptyMap())
 
-  override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+  override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
     if (!ctx.actionsEnabled) return ACTIONS_OFF
     val running = ctx.transit.navigationLabel() ?: return "non c'e' nessuna navigazione in corso"
     return outcomeText(ctx.actions.perform(AssistantAction.StopNavigation), "fatto: navigazione fermata ($running)")
@@ -120,13 +122,13 @@ class StopNavigationTool : AiTool {
 }
 
 /** Le routine: i viaggi ricorrenti che l'app calcola da sola prima che serva partire. */
-class RoutineListTool : AiTool {
+class RoutineListTool : TransitTool {
   override val name = "routine_elenco"
   override val group = ToolGroup.ROUTINE
   override val description = "Le routine dell'utente: destinazione, giorni, ora, se sono accese, e l'ultimo consiglio calcolato."
   override val parameters = Schema.obj(emptyMap())
 
-  override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+  override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
     val routines = ctx.transit.routines()
     if (routines.isEmpty()) return "non ci sono routine: si creano con crea_routine"
     return ToolText.build {
@@ -142,7 +144,7 @@ class RoutineListTool : AiTool {
 }
 
 /** Accende, spegne o sposta l'ora di una routine (con conferma). */
-class RoutineUpdateTool : AiTool {
+class RoutineUpdateTool : TransitTool {
   override val name = "routine_modifica"
   override val group = ToolGroup.ROUTINE
   override val description = "Accende o spegne una routine. Chiede conferma."
@@ -154,7 +156,7 @@ class RoutineUpdateTool : AiTool {
     required = listOf("quale", "attiva"),
   )
 
-  override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+  override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
     if (!ctx.actionsEnabled) return ACTIONS_OFF
     val routine = find(args.str("quale"), ctx) ?: return "routine non trovata: guarda routine_elenco"
     val enabled = args.bool("attiva") ?: return "errore: dimmi se accenderla o spegnerla"
@@ -167,13 +169,13 @@ class RoutineUpdateTool : AiTool {
 }
 
 /** Toglie una routine (con conferma). */
-class RoutineRemoveTool : AiTool {
+class RoutineRemoveTool : TransitTool {
   override val name = "routine_rimuovi"
   override val group = ToolGroup.ROUTINE
   override val description = "Toglie una routine dall'elenco. Chiede conferma."
   override val parameters = Schema.obj(mapOf("quale" to Schema.str("l'id della routine o parole del suo nome")), required = listOf("quale"))
 
-  override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+  override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
     if (!ctx.actionsEnabled) return ACTIONS_OFF
     val routine = find(args.str("quale"), ctx) ?: return "routine non trovata: guarda routine_elenco"
     return outcomeText(ctx.actions.perform(AssistantAction.RemoveRoutine(routine.id, routine.label)), "fatto: routine \"${routine.label}\" tolta")
@@ -190,7 +192,7 @@ private fun find(raw: String?, ctx: ToolContext): RoutineInfo? {
     ?: routines.firstOrNull { it.label.lowercase().contains(lower) || it.destination.lowercase().contains(lower) }
 }
 
-fun appExtraTools(): List<AiTool> = listOf(
+fun appExtraTools(): List<TransitTool> = listOf(
   DataStatusTool(), FavouritesTool(), UnstarTool(), RemoveSavedPlaceTool(), StopNavigationTool(),
   RoutineListTool(), RoutineUpdateTool(), RoutineRemoveTool(),
 )

@@ -1,8 +1,10 @@
 package dev.antigravity.fluidtransit.ai.tools
 
-import dev.antigravity.fluidtransit.ai.tools.Args.bool
-import dev.antigravity.fluidtransit.ai.tools.Args.int
-import dev.antigravity.fluidtransit.ai.tools.Args.str
+import dev.antigravity.fluidengine.ai.tools.Args.bool
+import dev.antigravity.fluidengine.ai.tools.Args.int
+import dev.antigravity.fluidengine.ai.tools.Args.str
+import dev.antigravity.fluidengine.ai.tools.Schema
+import dev.antigravity.fluidengine.ai.tools.ToolText
 import dev.antigravity.fluidtransit.routing.BundleReader
 import dev.antigravity.fluidtransit.routing.Ftb
 import dev.antigravity.fluidtransit.routing.DepartureText
@@ -19,7 +21,7 @@ private fun BundleReader.lineName(routeIndex: Int): String =
   routeShortName(routeIndex).ifEmpty { routeLongName(routeIndex) }
 
 /** Le fermate intorno a un punto: la domanda "da dove parto?" prima ancora degli orari. */
-class NearbyStopsTool : AiTool {
+class NearbyStopsTool : TransitTool {
   override val name = "fermate_vicine"
   override val group = ToolGroup.PLACES
   override val description = "Le fermate piu' vicine a dove si trova l'utente (o a un luogo che gli dai), con la distanza e le linee che ci passano."
@@ -31,7 +33,7 @@ class NearbyStopsTool : AiTool {
     ),
   )
 
-  override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+  override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
     val reader = ctx.transit.reader ?: return NO_DATA
     val point = args.str("luogo")?.let { Resolve.target(ctx, it)?.point } ?: ctx.reference?.let { NamedPoint("qui", "", it.first, it.second) }
       ?: return "errore: non so dove ti trovi"
@@ -64,13 +66,13 @@ class NearbyStopsTool : AiTool {
 }
 
 /** Che linee passano da una fermata: la domanda che viene prima di "quando passa". */
-class StopLinesTool : AiTool {
+class StopLinesTool : TransitTool {
   override val name = "linee_fermata"
   override val group = ToolGroup.SCHEDULE
   override val description = "Le linee che passano da una fermata, con le destinazioni. Per \"che autobus passano da qui?\"."
   override val parameters = Schema.obj(mapOf("fermata" to Schema.str("il nome della fermata; vuoto per la piu' vicina")))
 
-  override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+  override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
     val reader = ctx.transit.reader ?: return NO_DATA
     val stop = Resolve.stopIndex(ctx, args.str("fermata")) ?: return Resolve.stopNotFound(ctx, args.str("fermata"), "non trovo la fermata")
     // Tutte le banchine della fermata: il palo trovato dalla ricerca e' uno,
@@ -91,7 +93,7 @@ class StopLinesTool : AiTool {
 }
 
 /** Il percorso di una linea, fermata per fermata. */
-class RoutePathTool : AiTool {
+class RoutePathTool : TransitTool {
   override val name = "percorso_linea"
   override val group = ToolGroup.SCHEDULE
   override val description = "Le fermate di una linea in ordine, in una direzione. Per \"dove passa il 23?\", \"la linea arriva in centro?\"."
@@ -103,7 +105,7 @@ class RoutePathTool : AiTool {
     required = listOf("linea"),
   )
 
-  override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+  override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
     val reader = ctx.transit.reader ?: return NO_DATA
     val query = args.str("linea") ?: return "errore: manca la linea"
     val route = ctx.transit.findRoutes(query, 1).firstOrNull() ?: return Resolve.notFound(ctx, "non trovo una linea che si chiami \"$query\"")
@@ -125,7 +127,7 @@ class RoutePathTool : AiTool {
 }
 
 /** Gli orari di una fermata in un giorno qualsiasi, non solo adesso. */
-class StopDayScheduleTool : AiTool {
+class StopDayScheduleTool : TransitTool {
   override val name = "orari_fermata_giorno"
   override val group = ToolGroup.SCHEDULE
   override val description = "Gli orari di una fermata in un giorno, anche per una linea sola. Senza fascia oraria: tutto il giorno, dal primo all'ultimo mezzo, comprese le corse dopo mezzanotte. Per \"a che ora passa il primo bus domani?\", \"che bus passano stanotte fra le 23 e le 2?\"."
@@ -139,7 +141,7 @@ class StopDayScheduleTool : AiTool {
     ),
   )
 
-  override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+  override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
     val reader = ctx.transit.reader ?: return NO_DATA
     val stop = Resolve.stopIndex(ctx, args.str("fermata")) ?: return Resolve.stopNotFound(ctx, args.str("fermata"), "non trovo la fermata")
     val today = Resolve.today(ctx)
@@ -240,7 +242,7 @@ class StopDayScheduleTool : AiTool {
 }
 
 /** "Quando passa il prossimo per il centro": la linea giusta scelta dalla destinazione. */
-class NextBusForTool : AiTool {
+class NextBusForTool : TransitTool {
   override val name = "prossimo_bus_per"
   override val group = ToolGroup.SCHEDULE
   override val description = "Il prossimo mezzo da una fermata che va verso un posto (per destinazione del percorso). Per \"quando passa il prossimo per la stazione?\"."
@@ -252,7 +254,7 @@ class NextBusForTool : AiTool {
     required = listOf("verso"),
   )
 
-  override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+  override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
     val reader = ctx.transit.reader ?: return NO_DATA
     val stop = Resolve.stopIndex(ctx, args.str("fermata")) ?: return Resolve.stopNotFound(ctx, args.str("fermata"), "non trovo la fermata di partenza")
     val wanted = args.str("verso")?.lowercase()?.trim() ?: return "errore: manca la destinazione"
@@ -294,34 +296,34 @@ class NextBusForTool : AiTool {
 }
 
 /** Se i dati dal vivo stanno arrivando: la differenza fra "il bus è in ritardo" e "non lo so". */
-class NetworkStatusTool : AiTool {
+class NetworkStatusTool : TransitTool {
   override val name = "stato_rete"
   override val group = ToolGroup.LIVE
   override val description = "Se i dati dal vivo (posizioni e ritardi dei mezzi) stanno arrivando, da dove e quanto sono freschi. Da usare quando i minuti sembrano sbagliati."
   override val parameters = Schema.obj(emptyMap())
 
-  override suspend fun run(args: JsonObject, ctx: ToolContext): String = ToolText.build {
+  override suspend fun answer(args: JsonObject, ctx: ToolContext): String = ToolText.build {
     line("dati dal vivo", ctx.transit.realtimeStatus())
     line("orario offline", ctx.transit.dataStatus())
   }
 }
 
 /** "A che ora devo uscire": l'orario di partenza per arrivare in tempo. */
-class WhenToLeaveTool : AiTool {
+class WhenToLeaveTool : TransitTool {
   override val name = "quando_uscire"
   override val group = ToolGroup.JOURNEY
   override val description = "A che ora conviene uscire per arrivare in un posto entro un'ora: calcola l'itinerario a ritroso e dice l'orario di partenza e la prima corsa da prendere."
   override val parameters = Schema.obj(
     mapOf(
-      "a" to Schema.place,
+      "a" to TransitSchema.place,
       "entro" to Schema.str("l'ora di arrivo, es. 08:30"),
-      "da" to Schema.place,
+      "da" to TransitSchema.place,
       "giorno" to Schema.str("il giorno dell'arrivo: oggi, domani, dopodomani, un giorno della settimana (sabato) o una data aaaa-mm-gg; vuoto = la prossima volta che quell'ora viene"),
     ),
     required = listOf("a", "entro"),
   )
 
-  override suspend fun run(args: JsonObject, ctx: ToolContext): String {
+  override suspend fun answer(args: JsonObject, ctx: ToolContext): String {
     val to = args.str("a")?.let { Resolve.target(ctx, it)?.point } ?: return Resolve.notFound(ctx, "non trovo la destinazione")
     val from = args.str("da")?.let { Resolve.target(ctx, it)?.point }
       ?: ctx.reference?.let { NamedPoint("qui", "", it.first, it.second) }
@@ -370,6 +372,6 @@ class WhenToLeaveTool : AiTool {
   }
 }
 
-fun scheduleExtraTools(): List<AiTool> = listOf(
+fun scheduleExtraTools(): List<TransitTool> = listOf(
   NearbyStopsTool(), StopLinesTool(), RoutePathTool(), StopDayScheduleTool(), NextBusForTool(), NetworkStatusTool(), WhenToLeaveTool(),
 )

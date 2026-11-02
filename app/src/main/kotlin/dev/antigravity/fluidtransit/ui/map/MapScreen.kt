@@ -440,12 +440,12 @@ fun MapScreen(
         )
     }
     var assistantMode by remember {
-        mutableStateOf(dev.antigravity.fluidtransit.ai.orchestrator.AskMode.VOICE)
+        mutableStateOf(dev.antigravity.fluidengine.ai.orchestrator.AskMode.VOICE)
     }
     var assistantQuestion by remember { mutableStateOf("") }
 
     fun openAssistant(
-        mode: dev.antigravity.fluidtransit.ai.orchestrator.AskMode,
+        mode: dev.antigravity.fluidengine.ai.orchestrator.AskMode,
         question: String = "",
     ) {
         assistantMode = mode
@@ -459,7 +459,7 @@ fun MapScreen(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (granted && assistantEnabled) {
-            openAssistant(dev.antigravity.fluidtransit.ai.orchestrator.AskMode.VOICE)
+            openAssistant(dev.antigravity.fluidengine.ai.orchestrator.AskMode.VOICE)
         } else {
             launchSystemMic(permessoNegato = !granted && assistantEnabled)
         }
@@ -2327,7 +2327,7 @@ fun MapScreen(
                         !assistantEnabled -> launchSystemMic()
                         !granted -> audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         else ->
-                            openAssistant(dev.antigravity.fluidtransit.ai.orchestrator.AskMode.VOICE)
+                            openAssistant(dev.antigravity.fluidengine.ai.orchestrator.AskMode.VOICE)
                     }
                 },
                 // Scrivendo, il tasto del mic diventa "chiedi all'IA": e' la
@@ -2336,7 +2336,7 @@ fun MapScreen(
                 onAsk = if (assistantEnabled) {
                     {
                         openAssistant(
-                            dev.antigravity.fluidtransit.ai.orchestrator.AskMode.TEXT,
+                            dev.antigravity.fluidengine.ai.orchestrator.AskMode.TEXT,
                             query,
                         )
                     }

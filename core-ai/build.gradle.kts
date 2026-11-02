@@ -1,8 +1,10 @@
-// L'assistente: provider, ciclo degli strumenti, chiavi, voce.
+// L'assistente di Fluid Transit: il dominio sopra engine-ai.
 //
-// Sta in un modulo suo e non dentro :app perche' non sa niente di Compose ne'
-// di MapLibre: parla coi provider, esegue gli strumenti e produce stati. La
-// UI vive in app/ui/assistant.
+// Il trasporto (provider, chiavi, stream, failover), il router, l'orchestratore,
+// la voce e gli stati sono quelli dell'engine; qui restano gli strumenti dei
+// trasporti, il prompt, la sessione con le sue azioni e le scelte di prima
+// (alias delle chiavi, preferenze di partenza). Niente Compose ne' MapLibre:
+// la UI vive in app/ui/assistant.
 //
 // Le versioni sono quelle dell'engine, come per :app: un ospite che negozia
 // versioni diverse dai moduli che include non configura nemmeno.
@@ -34,12 +36,9 @@ dependencies {
     // Gli strumenti leggono il bundle: fermate, linee, orari, itinerari.
     api(project(":core-routing"))
 
-    implementation("androidx.datastore:datastore-preferences:1.1.1")
-
-    // Solo il runtime (JsonElement): i JSON dei provider si navigano a mano,
-    // e ogni campo mancante e' una decisione, non una eccezione.
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    // L'assistente senza dominio. Porta come api DataStore, kotlinx-serialization
+    // (solo il runtime: i JSON si navigano a mano) e le coroutine.
+    api(project(":engine-ai"))
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")

@@ -14,7 +14,7 @@ fatto perdere tempo una volta. Il *cosa* sta nel codice; i commenti dicono il
 |---|---|---|
 | `:app` | l'app Android: Compose, MapLibre, widget Glance | |
 | `:core-routing` | formato `.ftb`, lettore mmap, RAPTOR, orari | **Kotlin/JVM puro, niente Android**: i golden test girano in CI sulla JVM |
-| `:core-ai` | l'assistente (provider, strumenti, voce) | niente Compose |
+| `:core-ai` | l'assistente sopra `engine-ai`: strumenti dei trasporti, prompt, sessione | niente Compose; provider, chiavi, orchestratore e voce sono dell'engine |
 | `:bundler` (`tools/bundler`) | GTFS CSV -> `.ftb`, overlay PMTiles, luoghi | gira in CI di notte |
 | `engine/` | Fluid Engine, submodule | nove moduli, versione in `engine.properties` |
 | `worker/` | proxy realtime su Cloudflare, JavaScript | nessuna dipendenza a runtime |

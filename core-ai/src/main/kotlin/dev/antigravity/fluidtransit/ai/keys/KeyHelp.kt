@@ -1,6 +1,6 @@
 package dev.antigravity.fluidtransit.ai.keys
 
-import dev.antigravity.fluidtransit.ai.provider.ProviderId
+import dev.antigravity.fluidengine.ai.provider.ProviderId
 
 /**
  * Le parole con cui l'app spiega la chiave dell'assistente.

@@ -21,14 +21,14 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.antigravity.fluidengine.ai.keys.KeyState
+import dev.antigravity.fluidengine.ai.keys.VerifyResult
+import dev.antigravity.fluidengine.ai.provider.ProviderId
 import dev.antigravity.fluidengine.ui.fluid.FluidSwitch
 import dev.antigravity.fluidengine.ui.theme.FluidListGroup
 import dev.antigravity.fluidengine.ui.theme.FluidListRow
 import dev.antigravity.fluidtransit.FluidTransitApp
 import dev.antigravity.fluidtransit.ai.keys.KeyHelp
-import dev.antigravity.fluidtransit.ai.keys.KeyState
-import dev.antigravity.fluidtransit.ai.keys.VerifyResult
-import dev.antigravity.fluidtransit.ai.provider.ProviderId
 import kotlinx.coroutines.launch
 
 /**
@@ -50,7 +50,7 @@ fun AssistantSettingsGroup(app: FluidTransitApp) {
     val assistant = remember { app.assistant }
     val states by assistant.keys.states.collectAsStateWithLifecycle(initialValue = emptyMap())
     val settings by assistant.settings.settings.collectAsStateWithLifecycle(
-        initialValue = dev.antigravity.fluidtransit.ai.keys.AiSettings(),
+        initialValue = dev.antigravity.fluidengine.ai.keys.AiSettings(actionsEnabled = true),
     )
 
     var editing by remember { mutableStateOf<ProviderId?>(null) }
@@ -204,7 +204,7 @@ fun AssistantSettingsGroup(app: FluidTransitApp) {
                         when (val result = assistant.verifier.verify(target)) {
                             // La chiave funziona: si accende l'assistente, se l'utente non ha
                             // mai scelto. Senza, restava spento con "ok" accanto alla chiave.
-                            is VerifyResult.Ok -> assistant.settings.enableIfNeverChosen()
+                            is VerifyResult.Ok -> assistant.enableIfNeverChosen()
                             is VerifyResult.Failed -> {
                                 lastError = result.error?.message
                                     ?: "Il servizio non ha risposto. Riprova fra poco."

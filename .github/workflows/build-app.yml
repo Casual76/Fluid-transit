@@ -48,10 +48,14 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      # :core-ai ha i suoi test (i tetti di tempo degli strumenti, i valori di partenza delle
+      # preferenze, la tabella dei guasti della voce) e qui non girava: `:app:testDebugUnitTest`
+      # non li comprende, e una modifica all'assistente poteva rompere un tetto senza che nessuno
+      # lo vedesse prima di un telefono.
       - name: Test JVM e compilazione debug
         run: >-
           ./gradlew --no-daemon
-          :core-routing:test :bundler:test :app:testDebugUnitTest :app:assembleDebug
+          :core-routing:test :bundler:test :core-ai:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug
 
       # Lint di Android: gli errori fermano la build, gli avvisi no. Il primo
       # che ha trovato era una chiamata alla posizione senza controllo del

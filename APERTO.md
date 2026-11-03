@@ -129,9 +129,10 @@ tracce dentro `HardwareRenderer.setStopped`: `top` dava 1,87 GB occupati su
 Con `-memory 4096 -cores 4 -gpu host -feature -Vulkan` parte. Ma quello che
 l'emulatore non da' — la rete che si apre in ritardo all'avvio, i dati di
 lingua del produttore, i font veri — l'ha dato solo il telefono: la build di
-debug sul telefono si installa accanto a PampAI rifirmandola con la chiave
+debug sul telefono si installava accanto a PampAI rifirmandola con la chiave
 di release (`apksigner sign --ks ...`), perche' il permesso AI_TOOLS
-dichiarato da tutte e due vuole la stessa firma (vedi "Due app Pampa").
+dichiarato da tutte e due voleva la stessa firma. Dall'engine 3.0 (app 1.4.0)
+il permesso non c'e' piu' e la rifirma non serve (vedi "Due app Pampa").
 — 30/09/2026
 
 **Per guardare l'app su un emulatore che va in ANR di continuo**, i dialoghi
@@ -317,26 +318,18 @@ distribuiti.** È stata tolta da `local.properties`, ma quello che è stato
 pubblicato resta pubblicato: l'unico rimedio è revocarla dalla console Google
 Cloud, e può farlo solo il proprietario del progetto. — aperto
 
-**Due app Pampa sullo stesso telefono litigano.** `dev.pampa.pampai.debug` e
-Fluid Transit dichiarano entrambe il permesso
-`dev.antigravity.fluidengine.permission.AI_TOOLS`, e l'installazione della
-seconda fallisce con `INSTALL_FAILED_DUPLICATE_PERMISSION`. Sull'emulatore si
-risolve disinstallando; in distribuzione no.
-
-Il difetto sta nell'engine, non qui: `engine-ai-bridge` dichiara il
-`<permission>` in ogni app che include il modulo, e il suo commento dice
-"la prima installata lo definisce per le altre: stesso nome, stesso livello,
-nessun conflitto". **Quell'assunzione non vale su Android moderno**: un
-secondo pacchetto che dichiara un permesso gia' definito viene rifiutato se
-non e' firmato con lo stesso certificato del primo — ed e' esattamente quello
-che succede fra una build di debug e una firmata con la chiave di release, o
-fra due macchine diverse.
-
-Le strade sono due, e sono tutt'e due dell'engine: dichiarare il permesso in
-UNA sola app della famiglia e lasciare alle altre il solo `<uses-permission>`,
-oppure dare a ogni app un nome di permesso suo. Va deciso li' e committato
-nel repo dell'engine: il codice dentro `engine/` non e' codice di quest'app.
-— diagnosticato il 16/09/2026
+**Due app Pampa sullo stesso telefono litigavano: l'engine 3.0 ha tolto il
+permesso.** `dev.pampa.pampai.debug` e Fluid Transit dichiaravano entrambe il
+permesso `dev.antigravity.fluidengine.permission.AI_TOOLS`, e l'installazione
+della seconda falliva con `INSTALL_FAILED_DUPLICATE_PERMISSION` quando le due
+firme erano diverse (una build di debug e una firmata con la chiave di release).
+Dall'engine 3.0.0 `AI_TOOLS` non esiste piu': il `<provider>` degli strumenti non
+ha `android:permission` e controlla da se' la firma di chi chiama
+(`AiToolHostProvider.call`, `SecurityException` per chi ha un'altra chiave). Il
+manifest di quest'app e' gia' cosi' (1.4.0). **Da provare sul telefono**: le due
+app installate insieme, e una chiamata di PampAI agli autobus (con le chiavi
+uguali deve rispondere, con chiavi diverse deve dire che non e' autorizzata).
+— diagnosticato il 16/09/2026, risolto dall'engine il 02/11/2026
 
 **Il verde di un ritardo grosso: deciso.** Si leggeva "+33 min di ritardo"
 in verde, perche' il verde diceva la provenienza. Deciso con Alessio il

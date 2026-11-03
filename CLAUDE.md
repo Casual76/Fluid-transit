@@ -16,7 +16,7 @@ fatto perdere tempo una volta. Il *cosa* sta nel codice; i commenti dicono il
 | `:core-routing` | formato `.ftb`, lettore mmap, RAPTOR, orari | **Kotlin/JVM puro, niente Android**: i golden test girano in CI sulla JVM |
 | `:core-ai` | l'assistente sopra `engine-ai`: strumenti dei trasporti, prompt, sessione | niente Compose; provider, chiavi, orchestratore e voce sono dell'engine |
 | `:bundler` (`tools/bundler`) | GTFS CSV -> `.ftb`, overlay PMTiles, luoghi | gira in CI di notte |
-| `engine/` | Fluid Engine, submodule | nove moduli, versione in `engine.properties` |
+| `engine/` | Fluid Engine, submodule | dieci moduli (con `engine-ai-ui`), versione in `engine.properties` |
 | `worker/` | proxy realtime su Cloudflare, JavaScript | nessuna dipendenza a runtime |
 
 Due backend, non uno:
@@ -68,6 +68,29 @@ la stessa linea.
 `app/google-services.json` non sono versionati; senza, il build riesce
 identico, solo non firmato e senza Crashlytics. Serve a far compilare un clone
 fresco e il job notturno senza trattamenti speciali.
+
+**L'app e' GPL-3.0, dalla 1.4.0.** Il Fluid Engine 3.0 porta codice di LibrePods
+(GPL-3.0: i pulsanti e le pagine), e un'app che lo distribuisce e' un'opera
+derivata. Il repository e' pubblico, quindi i sorgenti sono gia' a disposizione
+di chi riceve l'APK; `LICENSE`, la sezione "Licenza" del `README.md` e
+`fluidLicensesSection()` in Impostazioni lo dicono. Le versioni fino alla 1.3.2
+restano Apache-2.0. Crashlytics e' proprietario, ma entra solo se esiste
+`google-services.json`, che non e' nel repo: la build che si ricostruisce da qui
+ne e' libera.
+
+**Un pulsante tiene il dito, e in una lista che scorre non deve.** Dalla 3.0 un
+dito che scende su un pulsante e' del pulsante fino al rilascio: la lista sotto
+non scorre. Un pulsante ripetuto su ogni riga (il "vola sul bus" di
+`StopSheet`) o dentro un pannello che si trascina per intero (i mini della linea
+e della corsa) passa `grip = FluidPressGrip.YieldsToScroll`; la mappa ha il
+pan, quindi `FluidBackSwipe.EdgeOnly`.
+
+**Lo stato salvabile delle schede lo tiene la shell, non l'host delle pagine.**
+`FluidPageHost` butta il suo quando una pagina lascia la pila, e la mappa
+tornerebbe al punto di partenza a ogni giro su Oggi: per questo ogni pagina e'
+dentro `tabState.SaveableStateProvider` di `AppShell`. Le pagine sotto un'altra
+restano composte ma col ciclo di vita fermo a `CREATED`: la mappa ascolta quello
+e va in pausa da sola.
 
 **Solo `arm64-v8a` e `armeabi-v7a`.** Le due ABI x86 di MapLibre pesavano 22,5
 dei 50 MB dell'APK e servono solo agli emulatori, che usano la build di debug.
@@ -252,7 +275,7 @@ verifica. Se un giorno il feed cambiasse, si vedrebbe da qui.
 ## Compilare e verificare
 
 ```bash
-./gradlew :core-routing:test :app:testDebugUnitTest :app:assembleDebug
+./gradlew :core-routing:test :core-ai:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug
 cd worker && npm test
 ```
 

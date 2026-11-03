@@ -40,8 +40,8 @@ android {
         applicationId = "dev.antigravity.fluidtransit"
         minSdk = 29
         targetSdk = 36
-        versionCode = 8
-        versionName = "1.3.2"
+        versionCode = 9
+        versionName = "1.4.0"
 
         ndk {
             // MapLibre porta le librerie native per quattro ABI. Le due x86

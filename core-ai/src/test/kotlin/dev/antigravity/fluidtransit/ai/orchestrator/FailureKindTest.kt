@@ -2,6 +2,7 @@ package dev.antigravity.fluidtransit.ai.orchestrator
 
 import dev.antigravity.fluidengine.ai.net.AiError
 import dev.antigravity.fluidengine.ai.net.RateLimitInfo
+import dev.antigravity.fluidengine.ai.orchestrator.AssistantFailure
 import dev.antigravity.fluidengine.ai.orchestrator.FailoverDecision
 import dev.antigravity.fluidengine.ai.orchestrator.FailoverPolicy
 import dev.antigravity.fluidengine.ai.orchestrator.FailureKind
@@ -10,7 +11,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * Da un errore del provider alla frase che l'utente legge.
+ * Da un errore del provider alla frase che l'utente legge: la tabella e' quella dell'engine
+ * (`AssistantFailure.of`), che la sessione usa per la trascrizione di una domanda parlata.
  *
  * Una domanda parlata su un treno senza campo diceva "Non sono riuscito a capire l'audio": la
  * trascrizione mappava ogni errore sullo stesso guasto, e l'utente alzava la voce invece di
@@ -21,14 +23,17 @@ class FailureKindTest {
 
     private val trascrizione = FailureKind.TRANSCRIPTION
 
+    /** Come la sessione trasforma un guasto di trascrizione. */
+    private fun failure(e: Throwable) = AssistantFailure.of(e, other = trascrizione)
+
     @Test
     fun `senza rete una domanda parlata dice niente rete e non audio incomprensibile`() {
-        assertEquals(FailureKind.NETWORK, FailureKinds.of(AiError.Network("rete"), other = trascrizione))
+        assertEquals(FailureKind.NETWORK, failure(AiError.Network("rete")).kind)
     }
 
     @Test
     fun `un provider che non risponde dice ci ha messo troppo`() {
-        assertEquals(FailureKind.TIMEOUT, FailureKinds.of(AiError.Timeout("timeout"), other = trascrizione))
+        assertEquals(FailureKind.TIMEOUT, failure(AiError.Timeout("timeout")).kind)
     }
 
     @Test
@@ -38,25 +43,31 @@ class FailureKindTest {
             rateLimit = RateLimitInfo.EMPTY,
             message = "429",
         )
-        assertEquals(FailureKind.RATE_LIMITED, FailureKinds.of(limite, other = trascrizione))
-        assertEquals(FailureKind.UNAUTHORIZED, FailureKinds.of(AiError.Unauthorized("401"), other = trascrizione))
+        assertEquals(FailureKind.RATE_LIMITED, failure(limite).kind)
+        assertEquals(FailureKind.UNAUTHORIZED, failure(AiError.Unauthorized("401")).kind)
+    }
+
+    @Test
+    fun `l'attesa del limite diventa secondi interi, per eccesso`() {
+        val limite = AiError.RateLimited(retryAfterSec = 2.2, rateLimit = RateLimitInfo.EMPTY, message = "429")
+        assertEquals(3, failure(limite).retryAfterSec)
     }
 
     @Test
     fun `un guasto del servizio non e un audio che non si capisce`() {
-        assertEquals(FailureKind.PROVIDER, FailureKinds.of(AiError.Server(503, "giu"), other = trascrizione))
+        assertEquals(FailureKind.PROVIDER, failure(AiError.Server(503, "giu")).kind)
     }
 
     @Test
     fun `solo quello che davvero non si capisce resta una trascrizione fallita`() {
-        assertEquals(trascrizione, FailureKinds.of(AiError.BadRequest(400, "formato"), other = trascrizione))
-        assertEquals(trascrizione, FailureKinds.of(AiError.Parse("json rotto"), other = trascrizione))
-        assertEquals(trascrizione, FailureKinds.of(IllegalStateException("boh"), other = trascrizione))
+        assertEquals(trascrizione, failure(AiError.BadRequest(400, "formato")).kind)
+        assertEquals(trascrizione, failure(AiError.Parse("json rotto")).kind)
+        assertEquals(trascrizione, failure(IllegalStateException("boh")).kind)
     }
 
     @Test
     fun `senza un ripiego indicato un errore sconosciuto e sconosciuto`() {
-        assertEquals(FailureKind.UNKNOWN, FailureKinds.of(IllegalStateException("boh")))
+        assertEquals(FailureKind.UNKNOWN, AssistantFailure.of(IllegalStateException("boh")).kind)
     }
 
     // Il ripiego della domanda scritta usa la stessa tabella: se ne cambiasse una i due percorsi

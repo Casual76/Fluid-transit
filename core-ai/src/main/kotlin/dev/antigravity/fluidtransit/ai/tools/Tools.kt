@@ -13,6 +13,17 @@ import java.util.Locale
 import kotlinx.serialization.json.JsonObject
 
 /**
+ * I tetti di tempo dei gruppi stanno fuori dall'enum: i valori di un'entrata si
+ * calcolano prima del companion, che li' dentro non e' ancora inizializzato.
+ *
+ * Chi legge sta in venti secondi.
+ */
+const val READ_TOOL_TIMEOUT_MILLIS = 20_000L
+
+/** L'attesa che uno strumento che scrive si prende DOPO la conferma (l'aggiornamento dei dati: 20 s). */
+const val WRITE_TOOL_WAIT_MILLIS = 25_000L
+
+/**
  * I gruppi del catalogo a due stadi: uno stadio piccolo sceglie i gruppi, lo
  * stadio grande riceve solo gli strumenti di quei gruppi.
  *
@@ -28,6 +39,21 @@ enum class ToolGroup(
     override val id: String,
     override val statusKey: String,
     override val hint: String,
+    /**
+     * Quanto puo' lavorare uno strumento del gruppo, senza l'attesa del tocco
+     * dell'utente. Chi legge sta in venti secondi: oltre, un feed che non
+     * risponde lasciava l'utente a guardare "Guardo gli orari..." per mezzo
+     * minuto. Chi scrive ci mette poco, ma "stato dei dati: aggiorna" aspetta
+     * l'aggiornamento (venti secondi), quindi venticinque.
+     */
+    override val toolTimeoutMillis: Long = READ_TOOL_TIMEOUT_MILLIS,
+    /**
+     * Gli strumenti dei gruppi APP e ROUTINE si fermano dentro `perform()` ad
+     * aspettare Conferma/Annulla: l'orchestratore aggiunge al loro tempo la
+     * finestra del cancello (sessanta secondi), una per ogni conferma del
+     * giro, e la scheda non sparisce a meta'.
+     */
+    override val awaitsConfirmation: Boolean = false,
 ) : AiToolGroup {
     PLACES(
         "luogo", "places",
@@ -49,10 +75,14 @@ enum class ToolGroup(
         "app", "app",
         "azioni nell'app: mostrare qualcosa sulla mappa, avviare o fermare la navigazione, " +
             "salvare o togliere un posto, mettere o togliere una stella, i preferiti, lo stato dei dati offline",
+        toolTimeoutMillis = WRITE_TOOL_WAIT_MILLIS,
+        awaitsConfirmation = true,
     ),
     ROUTINE(
         "routine", "routine",
         "le routine dell'utente: i viaggi ricorrenti con i giorni e l'ora, crearle, cambiarle, toglierle",
+        toolTimeoutMillis = WRITE_TOOL_WAIT_MILLIS,
+        awaitsConfirmation = true,
     ),
     ;
 

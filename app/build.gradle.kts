@@ -145,6 +145,7 @@ dependencies {
     implementation(project(":engine-widget")) // i widget Glance della Fase 6
     implementation(project(":engine-ai")) // l'assistente: stati, provider, orchestratore, tool
     implementation(project(":engine-ai-bridge")) // tool federati: gli autobus per PampAI/Aria
+    implementation(project(":engine-ai-ui")) // il pannello dell'assistente e le sue impostazioni
 
     // Il formato .ftb e il lettore mmap.
     implementation(project(":core-routing"))

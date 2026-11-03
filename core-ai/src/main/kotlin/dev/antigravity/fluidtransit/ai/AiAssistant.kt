@@ -3,6 +3,7 @@ package dev.antigravity.fluidtransit.ai
 import android.content.Context
 import dev.antigravity.fluidengine.ai.keys.AiKeyStore
 import dev.antigravity.fluidengine.ai.keys.AiKeyVerifier
+import dev.antigravity.fluidengine.ai.keys.AiSettingsDefaults
 import dev.antigravity.fluidengine.ai.keys.AiSettingsStore
 import dev.antigravity.fluidengine.ai.keys.KeystoreCipher
 import dev.antigravity.fluidengine.ai.keys.ModelCatalogStore
@@ -12,17 +13,16 @@ import dev.antigravity.fluidengine.ai.orchestrator.AiDiagnosticsLog
 import dev.antigravity.fluidengine.ai.orchestrator.AiOrchestrator
 import dev.antigravity.fluidengine.ai.orchestrator.AiOrchestratorConfig
 import dev.antigravity.fluidengine.ai.orchestrator.AiRouter
+import dev.antigravity.fluidengine.ai.provider.OpenRouterDataPolicy
 import dev.antigravity.fluidengine.ai.provider.ProviderFactory
 import dev.antigravity.fluidengine.ai.speech.AndroidPcmSource
 import dev.antigravity.fluidengine.ai.speech.SpeechCapture
 import dev.antigravity.fluidengine.ai.speech.Transcriber
-import dev.antigravity.fluidtransit.ai.keys.TransitAiPreferences
 import dev.antigravity.fluidtransit.ai.orchestrator.ActionExecutor
 import dev.antigravity.fluidtransit.ai.orchestrator.AppStatusInfo
 import dev.antigravity.fluidtransit.ai.orchestrator.AssistantSession
 import dev.antigravity.fluidtransit.ai.tools.AllTools
 import dev.antigravity.fluidtransit.ai.tools.ToolGroup
-import dev.antigravity.fluidtransit.ai.tools.ToolLimits
 import dev.antigravity.fluidtransit.ai.tools.TransitBridge
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -34,9 +34,10 @@ import kotlinx.coroutines.launch
  * L'assistente, montato: chiavi, provider, strumenti, sessione.
  *
  * Tutto quello che non sa di autobus e' di `engine-ai` (provider, chiavi
- * cifrate, stream, failover, router, orchestratore, voce, stati); da qui
- * passano solo le scelte di Fluid Transit: l'alias delle chiavi, il file delle
- * preferenze con le sue migrazioni, i numeri del giro, i gruppi e gli strumenti.
+ * cifrate, stream, failover, router, orchestratore, cancello delle conferme,
+ * voce, stati); da qui passano solo le scelte di Fluid Transit: l'alias delle
+ * chiavi, i valori di partenza delle preferenze, i numeri del giro, i gruppi e
+ * gli strumenti.
  *
  * Si costruisce una volta nell'Application e si tiene: la sessione vive nello
  * scope dell'app, non in un composable, perche' una domanda deve poter
@@ -65,9 +66,19 @@ class AiAssistant(
      */
     val keys = AiKeyStore(appContext, KeystoreCipher(KEYSTORE_ALIAS))
 
-    private val preferences = TransitAiPreferences(appContext)
-
-    val settings: AiSettingsStore = preferences.settings
+    /**
+     * Le preferenze, nel file `ai` di sempre. Finche' l'utente non sceglie, le
+     * azioni nell'app sono accese ("mostra subito, agisci con conferma") e a
+     * OpenRouter si chiede di non usare i messaggi per addestrare: sono le due
+     * scelte che l'app faceva da prima dell'engine, e che un valore mai scritto
+     * si risolveva diversamente. Con i default dell'engine non serve piu'
+     * riscrivere il file con una migrazione: un valore scritto dall'utente vale
+     * quello, uno assente vale questi.
+     */
+    val settings: AiSettingsStore = AiSettingsStore(
+        appContext,
+        AiSettingsDefaults(actionsEnabled = true, openRouterDataPolicy = OpenRouterDataPolicy.DENY),
+    )
 
     val catalogs = ModelCatalogStore(File(appContext.filesDir, "ai/models"))
 
@@ -101,27 +112,18 @@ class AiAssistant(
         defaultGroups = listOf(ToolGroup.PLACES, ToolGroup.SCHEDULE, ToolGroup.LIVE),
     )
 
+    /** Dalla stessa configurazione: la finestra del cancello e quella che l'orchestratore somma sono lo stesso numero. */
+    private val gate = AiConfirmationGate(orchestratorConfig)
+
     private val orchestrator = AiOrchestrator(
         registry = AllTools.registry(),
         router = router,
         diagnostics = diagnostics,
-        // I numeri dell'assistente di prima: una card a schermo, sopra la mappa,
-        // che vive novanta secondi. Il tetto dei tool e' il piu' largo (quello
-        // di chi aspetta la conferma): i tetti per gruppo li mette ToolLimits.
-        config = AiOrchestratorConfig(
-            maxRounds = 6,
-            maxMoreTools = 2,
-            maxOutputTokens = 1_200,
-            parallelTools = 4,
-            toolTimeoutMillis = ToolLimits.ORCHESTRATOR_TIMEOUT_MILLIS,
-            totalBudgetMillis = ToolLimits.TOTAL_BUDGET_MILLIS,
-            finalReserveMillis = ToolLimits.FINAL_RESERVE_MILLIS,
-        ),
+        config = orchestratorConfig,
+        gate = gate,
     )
 
     private val transcriber = Transcriber { providers.ordered(ProviderFactory.Kind.STT) }
-
-    private val gate = AiConfirmationGate(ToolLimits.CONFIRMATION_TIMEOUT_MILLIS)
 
     val session = AssistantSession(
         scope = scope,
@@ -143,11 +145,38 @@ class AiAssistant(
         s.enabled && anyKey
     }
 
-    /** Dopo una chiave verificata: accende l'assistente, se l'utente non ha mai scelto. */
-    suspend fun enableIfNeverChosen() = preferences.enableIfNeverChosen()
+    /**
+     * Dopo una chiave verificata: accende l'assistente, se l'utente non ha mai
+     * scelto. Chi l'ha spento una volta lo trova spento.
+     */
+    suspend fun enableIfNeverChosen() = settings.enableIfNeverChosen()
 
-    private companion object {
+    companion object {
         /** L'alias del Keystore della copia di prima: e' quello sotto cui stanno le chiavi. */
         const val KEYSTORE_ALIAS = "fluidtransit.ai"
+
+        /**
+         * I numeri dell'assistente di prima: una card a schermo, sopra la mappa,
+         * che vive novanta secondi (sei giri, milleduecento token, quindici
+         * secondi di riserva per scrivere la risposta). Chi legge ha venti secondi,
+         * ed e' il tetto dell'orchestratore; chi scrive lo dice il suo gruppo
+         * ([dev.antigravity.fluidtransit.ai.tools.ToolGroup.awaitsConfirmation]) e
+         * ci si somma la finestra di conferma (sessanta secondi, quella del
+         * cancello), una per ogni conferma del giro. Il livello profondo
+         * dell'engine e' spento: nessuna domanda passa a un modello piu' lento o
+         * piu' caro dei due che l'utente conosce, router e chat.
+         *
+         * Pubblica perche' i test la provano com'e', non una copia dei numeri.
+         */
+        val orchestratorConfig = AiOrchestratorConfig(
+            maxRounds = 6,
+            maxMoreTools = 2,
+            maxOutputTokens = 1_200,
+            parallelTools = 4,
+            toolTimeoutMillis = 20_000L,
+            totalBudgetMillis = 90_000L,
+            finalReserveMillis = 15_000L,
+            deepTierEnabled = false,
+        )
     }
 }

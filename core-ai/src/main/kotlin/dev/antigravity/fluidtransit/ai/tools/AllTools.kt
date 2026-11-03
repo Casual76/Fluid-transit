@@ -37,12 +37,13 @@ object AllTools {
     ) + scheduleExtraTools() + appExtraTools()
 
     /**
-     * Il catalogo dell'assistente di casa: ogni strumento col tetto del suo
-     * gruppo ([ToolLimits.timed]), che l'orchestratore dell'engine da solo
-     * non sa mettere.
+     * Il catalogo dell'assistente di casa. Il tetto di tempo di ogni strumento
+     * e' del suo gruppo ([ToolGroup.toolTimeoutMillis], [ToolGroup.awaitsConfirmation]):
+     * l'orchestratore dell'engine lo legge da solo e ai gruppi che aspettano il
+     * tocco dell'utente somma la finestra del cancello delle conferme.
      */
-    fun registry(clock: () -> Long = System::currentTimeMillis): ToolRegistry<ToolContext> = ToolRegistry(
-        tools = tools().map { tool -> ToolLimits.timed(tool, clock) },
+    fun registry(): ToolRegistry<ToolContext> = ToolRegistry(
+        tools = tools(),
         groups = ToolGroup.entries,
         actionGroup = ToolGroup.APP,
     )

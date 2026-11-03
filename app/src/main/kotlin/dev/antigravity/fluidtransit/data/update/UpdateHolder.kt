@@ -83,6 +83,9 @@ class UpdateHolder(
     @Volatile
     private var lastCheckOk = false
 
+    /** Quando e' finito l'ultimo controllo di questo processo, o null se non ce n'e' ancora stato uno. */
+    val lastCheckedAtMillis: Long? get() = lastCheckAtMs
+
     /**
      * Ricontrolla solo se e' ora (vedi [UpdateCheckPolicy]): e' quello che si
      * chiama dal ritorno in primo piano e dal ritorno della rete, dove

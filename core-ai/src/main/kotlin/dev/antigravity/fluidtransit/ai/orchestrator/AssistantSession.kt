@@ -13,6 +13,7 @@ import dev.antigravity.fluidengine.ai.orchestrator.Conversation
 import dev.antigravity.fluidengine.ai.orchestrator.FailureKind
 import dev.antigravity.fluidengine.ai.orchestrator.MicLevel
 import dev.antigravity.fluidengine.ai.orchestrator.PendingConfirmation
+import dev.antigravity.fluidengine.ai.orchestrator.questionOrNull
 import dev.antigravity.fluidengine.ai.provider.ProviderFactory
 import dev.antigravity.fluidengine.ai.provider.ProviderId
 import dev.antigravity.fluidengine.ai.speech.SpeechCapture
@@ -27,19 +28,12 @@ import java.io.File
 import java.time.ZoneId
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.math.ceil
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -97,6 +91,14 @@ class AssistantSession(
 
     private val stateFlow = MutableStateFlow<AssistantState>(AssistantState.Idle)
     val state: StateFlow<AssistantState> = stateFlow
+
+    init {
+        // Il cancello scrive da solo "Confermi?" sullo stato mentre una scheda e'
+        // a schermo e lo rimette com'era alla risposta: prima erano un collettore
+        // e un lucchetto qui dentro. Il provider di ripiego e' quello che l'app ha
+        // sempre detto quando lo stato non ne ha uno (l'ascolto, la trascrizione).
+        gate.bindState(stateFlow, ProviderId.GROQ)
+    }
 
     private val conversationFlow = MutableStateFlow(Conversation(0L, clock()))
     val conversation: StateFlow<Conversation> = conversationFlow
@@ -285,13 +287,11 @@ class AssistantSession(
      * perfetto e mancava la rete: su un treno senza campo l'utente alzava la voce e ripeteva, e non
      * serviva a niente. Solo quello che davvero non si capisce (una richiesta rifiutata, una risposta
      * illeggibile) resta una trascrizione fallita; il resto dice quello che la domanda scritta dice
-     * gia': niente rete, ci ha messo troppo, il servizio e' a limite.
+     * gia': niente rete, ci ha messo troppo, il servizio e' a limite. La tabella e' quella
+     * dell'engine (`AssistantFailure.of`).
      */
-    private fun transcriptionFailure(e: Throwable): AssistantFailure = AssistantFailure(
-        kind = FailureKinds.of(e, other = FailureKind.TRANSCRIPTION),
-        error = e as? AiError,
-        retryAfterSec = (e as? AiError.RateLimited)?.retryAfterSec?.let { ceil(it).toInt() },
-    )
+    private fun transcriptionFailure(e: Throwable): AssistantFailure =
+        AssistantFailure.of(e, other = FailureKind.TRANSCRIPTION)
 
     private suspend fun run(question: String, mode: AskMode) {
         val now = clock()
@@ -302,11 +302,11 @@ class AssistantSession(
         }
         conversation.lastActivityMillis = now
         val settings = settingsStore.current()
-        // Due livelli, come l'assistente ha sempre avuto: il router e la chat.
-        // Il profondo dell'engine (che la verifica della chiave sceglie dal
-        // catalogo) qui si spegne, cosi' nessuna domanda passa a un modello
-        // piu' lento o piu' caro di quello che l'utente conosce.
-        val ordered = providers.ordered(ProviderFactory.Kind.CHAT).map { it.copy(deepModel = null) }
+        // Due livelli, come l'assistente ha sempre avuto: il router e la chat. Il
+        // profondo dell'engine e' spento dalla configurazione dell'orchestratore
+        // (`deepTierEnabled = false`, vedi AiAssistant), quindi qui i provider si
+        // lasciano come li costruisce la ProviderFactory.
+        val ordered = providers.ordered(ProviderFactory.Kind.CHAT)
         if (ordered.isEmpty()) throw AssistantFailure(FailureKind.NO_KEYS, null)
 
         val toolContext = ToolContext(
@@ -363,70 +363,25 @@ class AssistantSession(
     // ------------------------------------------------------------- ActionSink
 
     /**
-     * Una scheda di conferma per volta.
+     * Una scheda di conferma per volta, nell'ordine in cui arrivano.
      *
      * Il prompt invita a chiamare piu' strumenti insieme, e "togli la stella a X e alla linea 6"
-     * produce due azioni nello stesso giro. Il cancello dell'engine ne tiene una sola: una seconda
-     * richiesta fa cadere la prima come rifiutata, e la prima stella restava li' senza che
-     * l'utente avesse detto no. Con il lucchetto le azioni si chiedono in fila, ognuna con la sua
-     * scheda e la sua finestra di sessanta secondi.
+     * produce due azioni nello stesso giro. Il cancello dell'engine le mette in fila (dalla 3.0:
+     * prima una seconda richiesta faceva cadere la prima come rifiutata, e la prima stella restava
+     * li' senza che l'utente avesse detto no): ognuna ha la sua scheda e la sua finestra di sessanta
+     * secondi, che comincia quando compare. "Confermi?" sullo stato in testa alla card lo scrive il
+     * cancello (`bindState`), con la frase di [ActionText] per la scheda.
      */
-    private val confirmation = Mutex()
-
     override suspend fun perform(action: AssistantAction): ActionOutcome {
         if (!action.needsConfirmation) return execute(action)
-        return when (confirmation.withLock { askConfirmation(action) }) {
+        return when (gate.ask(ActionText.confirm(action), null)) {
             ConfirmationOutcome.CONFIRMED -> execute(action)
             ConfirmationOutcome.REJECTED -> ActionOutcome.REJECTED
             ConfirmationOutcome.TIMEOUT -> ActionOutcome.TIMEOUT
         }
     }
 
-    /**
-     * La domanda al cancello, con lo stato che la dice: "Confermi?" in testa
-     * finche' l'utente non sceglie, poi lo stato di prima. La frase e' di
-     * [ActionText], esaustiva, cosi' nessuna azione ricade in un "Confermi?"
-     * che non dice cosa sta per succedere.
-     */
-    private suspend fun askConfirmation(action: AssistantAction): ConfirmationOutcome = coroutineScope {
-        val previous = stateFlow.value
-        var own: AssistantState? = null
-        // Il cancello da' un id alla richiesta solo quando la apre: lo stato la
-        // segue da li'.
-        val watcher = launch(start = CoroutineStart.UNDISPATCHED) {
-            val request = gate.current.filterNotNull().first()
-            val awaiting = AssistantState.AwaitingConfirmation(
-                previous.questionOrNull().orEmpty(),
-                request,
-                (previous as? AssistantState.Working)?.provider ?: ProviderId.GROQ,
-            )
-            own = awaiting
-            stateFlow.value = awaiting
-        }
-        try {
-            gate.ask(ActionText.confirm(action), null)
-        } finally {
-            watcher.cancel()
-            // Lo stato si rimette solo se e' ancora il MIO: se nel frattempo e' arrivato altro
-            // (una cancellazione, un errore) non lo si calpesta con uno vecchio.
-            if (own != null && stateFlow.value === own) stateFlow.value = previous
-        }
-    }
-
     private suspend fun execute(action: AssistantAction): ActionOutcome = executor.execute(action)
-
-    private fun AssistantState.questionOrNull(): String? = when (this) {
-        is AssistantState.Classifying -> question
-        is AssistantState.Working -> question
-        is AssistantState.WaitingRateLimit -> question
-        is AssistantState.SwitchingProvider -> question
-        is AssistantState.Answering -> question
-        is AssistantState.AwaitingConfirmation -> question
-        is AssistantState.Done -> question
-        is AssistantState.Failed -> question
-        is AssistantState.Cancelled -> question
-        else -> null
-    }
 
     companion object {
         /**

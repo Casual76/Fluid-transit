@@ -3,31 +3,43 @@ package dev.antigravity.fluidtransit.ui.settings
 import android.os.Build
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.antigravity.fluidengine.foundation.AccentMode
+import dev.antigravity.fluidengine.aiui.settings.fluidAiSettingsSection
+import dev.antigravity.fluidengine.foundation.EngineBuild
 import dev.antigravity.fluidengine.foundation.EngineSettings
-import dev.antigravity.fluidengine.foundation.ThemeMode
+import dev.antigravity.fluidengine.ui.fluid.FluidEngineLicenses
 import dev.antigravity.fluidengine.ui.fluid.FluidScreen
+import dev.antigravity.fluidengine.ui.fluid.FluidSectionHeader
 import dev.antigravity.fluidengine.ui.fluid.FluidSegmentedControl
-import dev.antigravity.fluidengine.ui.fluid.FluidSwitch
+import dev.antigravity.fluidengine.ui.fluid.FluidUpdateChannelStyle
+import dev.antigravity.fluidengine.ui.fluid.fluidAppearanceSection
+import dev.antigravity.fluidengine.ui.fluid.fluidLicensesSection
+import dev.antigravity.fluidengine.ui.fluid.fluidUpdateSection
 import dev.antigravity.fluidengine.ui.theme.FluidListGroup
 import dev.antigravity.fluidengine.ui.theme.FluidListRow
-import dev.antigravity.fluidengine.ui.theme.FluidSectionTitle
 import dev.antigravity.fluidtransit.BuildConfig
 import dev.antigravity.fluidtransit.FluidTransitApp
+import dev.antigravity.fluidtransit.data.nav.TravelMode
+import dev.antigravity.fluidtransit.ui.theme.TransitBrand
 import kotlinx.coroutines.launch
 
 /**
- * Impostazioni: tema (sistema/chiaro/scuro), dynamic color opzionale, e in
- * fondo — visibile, non dietro un gesto: deciso cosi' — lo stato dei dati.
+ * Impostazioni: l'aspetto, il modo viaggio, l'assistente, gli aggiornamenti, e
+ * in fondo — visibile, non dietro un gesto: deciso cosi' — lo stato dei dati e
+ * le licenze.
+ *
+ * Quasi tutte le sezioni sono dell'engine (`fluidAppearanceSection`,
+ * `fluidAiSettingsSection`, `fluidUpdateSection`, `fluidLicensesSection`: la
+ * stessa pagina di ogni app Pampa, quindi con gli stessi bug corretti una volta
+ * sola). Qui restano il modo viaggio, che e' di questa app, e i collegamenti.
  *
  * Lo stato dei dati era un `if` qui dentro, e quindi esisteva solo per chi
  * passava da questa schermata: non aveva un nome, non lo poteva aprire un
@@ -40,71 +52,24 @@ fun SettingsTab(app: FluidTransitApp, onOpenDataStatus: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     val settings by app.settingsStore.settings
         .collectAsStateWithLifecycle(initialValue = EngineSettings())
+    val assistant = rememberAssistantSettingsSection(app)
+    val update = rememberUpdateSection(app)
 
     FluidScreen(title = "Impostazioni") {
-        item { FluidSectionTitle(eyebrow = "Aspetto", title = "Come si vede l'app") }
-        item {
-            FluidListGroup {
-                // Il segmented control e' un SubcomposeLayout: non puo' stare
-                // nel trailing di una FluidListRow, dove ListItem gli chiede
-                // le misure intrinseche (crash trovato sul device). Vive come
-                // riga propria del gruppo.
-                FluidListRow(
-                    title = "Tema",
-                    subtitle = "Chiaro e scuro seguono il telefono, se li lasci decidere",
-                )
-                FluidSegmentedControl(
-                    options = listOf(ThemeMode.SYSTEM, ThemeMode.LIGHT, ThemeMode.DARK),
-                    selected = if (settings.themeMode == ThemeMode.AMOLED) ThemeMode.DARK else settings.themeMode,
-                    onSelect = { mode -> scope.launch { app.settingsStore.setThemeMode(mode) } },
-                    label = {
-                        when (it) {
-                            ThemeMode.SYSTEM -> "Sistema"
-                            ThemeMode.LIGHT -> "Chiaro"
-                            else -> "Scuro"
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .padding(bottom = 12.dp),
-                )
-                if (Build.VERSION.SDK_INT >= 31) {
-                    val titolo = "Colori dal telefono"
-                    FluidListRow(
-                        title = titolo,
-                        subtitle = "Usa i colori del tuo sfondo al posto dell'ametista",
-                        badge = {
-                            FluidSwitch(
-                                checked = settings.accentMode == AccentMode.DYNAMIC,
-                                // Il nome sta sul tasto stesso, e non solo
-                                // sulla riga: l'interruttore e' un nodo a
-                                // se' — Material non fonde un figlio che e'
-                                // gia' un toggle — e con TalkBack la riga
-                                // veniva letta senza poterla toccare, e il
-                                // tasto dopo diceva solo "Interruttore,
-                                // attivo", senza dire di cosa.
-                                modifier = Modifier.semantics { contentDescription = titolo },
-                                onCheckedChange = { enabled ->
-                                    scope.launch {
-                                        app.settingsStore.setAccentMode(
-                                            if (enabled) AccentMode.DYNAMIC else AccentMode.BRAND,
-                                        )
-                                        app.settingsStore.setDynamicColorEnabled(enabled)
-                                    }
-                                },
-                            )
-                        },
-                    )
-                }
-            }
-        }
+        // Tema, nero assoluto, accento e aptica. L'accento e' quello di sempre: l'ametista
+        // dell'app oppure i colori del telefono (dove ci sono), senza i quattro preset
+        // dell'engine, che qui non c'erano.
+        fluidAppearanceSection(
+            settings = settings,
+            onSettingsChange = { next -> scope.launch { app.settingsStore.update { next } } },
+            brand = TransitBrand,
+            presets = emptyList(),
+            dynamicAccent = Build.VERSION.SDK_INT >= 31,
+        )
 
-        item { FluidSectionTitle(eyebrow = "Viaggio", title = "A bordo") }
-        item {
-            var mode by androidx.compose.runtime.remember {
-                androidx.compose.runtime.mutableStateOf(app.travelMode.mode)
-            }
+        item(key = "travel-header") { FluidSectionHeader(title = "A bordo") }
+        item(key = "travel") {
+            var mode by remember { mutableStateOf(app.travelMode.mode) }
             FluidListGroup {
                 // Tre scelte visibili, come il tema. Prima era una riga che a
                 // ogni tocco passava al modo dopo, senza niente che dicesse
@@ -112,16 +77,16 @@ fun SettingsTab(app: FluidTransitApp, onOpenDataStatus: () -> Unit = {}) {
                 FluidListRow(
                     title = "Modo viaggio",
                     subtitle = when (mode) {
-                        dev.antigravity.fluidtransit.data.nav.TravelMode.PRECISO ->
+                        TravelMode.PRECISO ->
                             "GPS continuo e aggiornamenti fitti: il massimo, la batteria se ne accorge"
-                        dev.antigravity.fluidtransit.data.nav.TravelMode.BILANCIATO ->
+                        TravelMode.BILANCIATO ->
                             "Preciso quando serve, gentile con la batteria"
-                        dev.antigravity.fluidtransit.data.nav.TravelMode.RISPARMIO ->
+                        TravelMode.RISPARMIO ->
                             "Aggiornamenti radi: quasi zero batteria"
                     },
                 )
                 FluidSegmentedControl(
-                    options = dev.antigravity.fluidtransit.data.nav.TravelMode.entries.toList(),
+                    options = TravelMode.entries.toList(),
                     selected = mode,
                     onSelect = {
                         mode = it
@@ -136,12 +101,30 @@ fun SettingsTab(app: FluidTransitApp, onOpenDataStatus: () -> Unit = {}) {
             }
         }
 
-        item { FluidSectionTitle(eyebrow = "Assistente", title = "Chiedi all'app") }
-        item { AssistantSettingsGroup(app) }
+        item(key = "assistant-header") {
+            FluidSectionHeader(title = "Assistente", detail = "Chiedi all'app, a voce o scrivendo")
+        }
+        fluidAiSettingsSection(
+            state = assistant.state,
+            actions = assistant.actions,
+            strings = AssistantSettingsStrings,
+            options = AssistantSettingsOptions,
+            glass = false,
+        )
 
-        item { FluidSectionTitle(eyebrow = "Informazioni", title = "L'app") }
-        item { UpdateSettingsGroup(app) }
-        item {
+        fluidUpdateSection(
+            state = update.state,
+            onCheck = update.onCheck,
+            onInstall = update.onInstall,
+            currentVersion = BuildConfig.VERSION_NAME,
+            lastCheckedAtMillis = update.lastCheckedAtMillis,
+            channel = update.channel,
+            onChannelChange = update.onChannelChange,
+            channelStyle = FluidUpdateChannelStyle.BetaToggle,
+        )
+
+        item(key = "data-header") { FluidSectionHeader(title = "Dati") }
+        item(key = "data") {
             FluidListGroup {
                 FluidListRow(
                     title = "Stato dei dati",
@@ -150,5 +133,16 @@ fun SettingsTab(app: FluidTransitApp, onOpenDataStatus: () -> Unit = {}) {
                 )
             }
         }
+
+        // Le licenze: quelle dell'engine (fra cui LibrePods, GPL-3.0, che fa di Fluid Transit
+        // un'opera GPL-3.0 con i sorgenti a disposizione) e le altre cose che l'APK porta.
+        fluidLicensesSection(
+            footnote = "Fluid Transit è software libero (GPL-3.0): chi riceve l'APK ha diritto ai " +
+                "sorgenti, che sono su github.com/Casual76/Fluid-transit. Il Fluid Engine " +
+                "${EngineBuild.VERSION} include opere di terze parti, fra cui codice GPL-3.0 " +
+                "(LibrePods); le licenze complete sono nel repository dell'engine, in LICENSES/. " +
+                "Orari e posizioni dei mezzi: Regione Toscana e Autolinee Toscane (CC-BY 4.0).",
+            licences = TransitLicenses + FluidEngineLicenses,
+        )
     }
 }

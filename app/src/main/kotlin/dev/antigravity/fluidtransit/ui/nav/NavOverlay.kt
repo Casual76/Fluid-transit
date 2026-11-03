@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.dp
 import dev.antigravity.fluidengine.ui.fluid.ContinuousCornerShape
 import dev.antigravity.fluidengine.ui.fluid.FluidCapsuleShape
 import dev.antigravity.fluidengine.ui.fluid.FluidRadius
-import dev.antigravity.fluidengine.ui.fluid.FluidTabBarDefaults
+import dev.antigravity.fluidengine.ui.fluid.FluidFloatingTabBarDefaults
 import dev.antigravity.fluidengine.ui.fluid.GlassBackdropState
 import dev.antigravity.fluidtransit.data.nav.NavFocus
 import dev.antigravity.fluidtransit.data.nav.NavPlan
@@ -94,8 +94,8 @@ fun BoxScope.NavOverlay(
                 paneTitle = "Navigazione",
                 modifier = Modifier
                     .widthIn(max = PanelMaxWidth)
-                    .padding(horizontal = FluidTabBarDefaults.HorizontalMargin)
-                    .padding(bottom = FluidTabBarDefaults.BottomMargin)
+                    .padding(horizontal = FluidFloatingTabBarDefaults.HorizontalMargin)
+                    .padding(bottom = FluidFloatingTabBarDefaults.BottomMargin)
                     .onSizeChanged { onHeight(it.height) },
             ) {
                 NavCard(

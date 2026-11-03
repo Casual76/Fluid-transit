@@ -25,8 +25,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.antigravity.fluidengine.ui.fluid.FluidGlassModalHost
 import dev.antigravity.fluidengine.ui.fluid.FluidNotificationHost
 import dev.antigravity.fluidengine.ui.fluid.FluidScrollToTopBus
-import dev.antigravity.fluidengine.ui.fluid.FluidTabBar
-import dev.antigravity.fluidengine.ui.fluid.FluidTabBarDefaults
+import dev.antigravity.fluidengine.ui.fluid.FluidFloatingTabBar
+import dev.antigravity.fluidengine.ui.fluid.FluidFloatingTabBarDefaults
+import dev.antigravity.fluidengine.ui.fluid.FluidFloatingTabBarInlineBehavior
 import dev.antigravity.fluidengine.ui.fluid.FluidTabItem
 import dev.antigravity.fluidengine.ui.fluid.LocalFluidGlassModalHostState
 import dev.antigravity.fluidengine.ui.fluid.LocalFluidNotificationHostState
@@ -35,7 +36,12 @@ import dev.antigravity.fluidengine.ui.fluid.fluidGlassModalObscured
 import dev.antigravity.fluidengine.ui.fluid.rememberFluidChromeController
 import dev.antigravity.fluidengine.ui.fluid.rememberFluidGlassModalHostState
 import dev.antigravity.fluidengine.ui.fluid.rememberFluidNotificationHostState
+import dev.antigravity.fluidengine.ui.fluid.rememberFluidFloatingTabBarScrollConnection
 import dev.antigravity.fluidengine.ui.fluid.rememberGlassBackdrop
+import dev.antigravity.fluidengine.ui.page.FluidBackSwipe
+import dev.antigravity.fluidengine.ui.page.FluidPageHost
+import dev.antigravity.fluidengine.ui.page.FluidPageTransition
+import dev.antigravity.fluidengine.ui.page.FluidPeerMove
 import dev.antigravity.fluidtransit.FluidTransitApp
 import dev.antigravity.fluidtransit.data.bundle.BundleManager.BundleState
 import dev.antigravity.fluidtransit.ui.favorites.FavoritesTab
@@ -47,10 +53,10 @@ import dev.antigravity.fluidtransit.ui.settings.SettingsTab
 import dev.antigravity.fluidtransit.ui.today.TodayTab
 import dev.antigravity.fluidtransit.ui.welcome.WelcomeScreen
 
-private const val RouteMap = "map"
-private const val RouteToday = "today"
-private const val RouteFavorites = "favorites"
-private const val RouteSettings = "settings"
+internal const val RouteMap = "map"
+internal const val RouteToday = "today"
+internal const val RouteFavorites = "favorites"
+internal const val RouteSettings = "settings"
 
 /**
  * Lo stato dei dati: non e' una scheda, sta sopra a quella che c'e'.
@@ -59,10 +65,10 @@ private const val RouteSettings = "settings"
  * raggiungere da nessun'altra parte — ne' da un deep link, ne' dalla capsula
  * "Bus live non disponibili" che di quello parla.
  */
-private const val RouteDataStatus = "data-status"
+internal const val RouteDataStatus = "data-status"
 
 /** Gli avvisi di servizio: come lo stato dei dati, sopra la scheda che c'e'. */
-private const val RouteAlerts = "alerts"
+internal const val RouteAlerts = "alerts"
 
 private val Tabs = listOf(
     FluidTabItem(route = RouteMap, label = "Mappa", icon = Icons.Rounded.Map),
@@ -70,6 +76,29 @@ private val Tabs = listOf(
     FluidTabItem(route = RouteFavorites, label = "Preferiti", icon = Icons.Rounded.Star),
     FluidTabItem(route = RouteSettings, label = "Impostazioni", icon = Icons.Rounded.Settings),
 )
+
+/** L'ordine delle schede nella barra. */
+internal val TabRoutes = Tabs.map { it.route }
+
+/**
+ * Il passo laterale fra due schede, nel verso in cui stanno nella barra: positivo se [to] sta dopo
+ * [from], negativo se sta prima, zero se una delle due non e' una scheda (una pagina sopra le
+ * schede non e' pari a niente: si apre da destra e si chiude col dito) o se sono la stessa.
+ */
+internal fun tabStep(from: String, to: String): Int {
+    val a = TabRoutes.indexOf(from)
+    val b = TabRoutes.indexOf(to)
+    return if (a < 0 || b < 0) 0 else b - a
+}
+
+private val TabOrder = FluidPeerMove<String> { from, to -> tabStep(from, to) }
+
+/**
+ * La pila delle pagine: la scheda, e sopra di lei (se c'e') lo stato dei dati o gli avvisi. Le
+ * schede non si impilano mai l'una sull'altra: cambiare scheda sostituisce la radice, e il tasto
+ * Indietro non e' una cronologia.
+ */
+internal fun shellStack(route: String, above: String?): List<String> = listOfNotNull(route, above)
 
 /**
  * La radice: benvenuto finche' il bundle non c'e', poi la shell.
@@ -182,13 +211,18 @@ private fun AppShell(app: FluidTransitApp) {
      * esattamente il genere di cosa che si impara a non fidarsi. Qui la
      * frase e' una: Indietro riporta alla mappa, e dalla mappa si esce.
      *
+     * Dalla 3.0 la prima meta' ("chiude cio' che sta sopra") e' dell'host
+     * delle pagine: il suo back, dal dito o dal sistema, accorcia la pila e
+     * chiama `onBack`. Resta qui la seconda: da una scheda si torna alla
+     * Mappa, che non e' una pagina sopra ma un passo laterale.
+     *
      * I pannelli della mappa, la ricerca e il pianificatore registrano i
      * loro BackHandler piu' internamente e quindi vincono su questo finche'
      * sono aperti: Indietro li chiude uno alla volta, e solo quando non c'e'
      * piu' niente da chiudere arriva qui.
      */
-    androidx.activity.compose.BackHandler(enabled = above != null || route != RouteMap) {
-        if (above != null) above = null else route = RouteMap
+    androidx.activity.compose.BackHandler(enabled = above == null && route != RouteMap) {
+        route = RouteMap
     }
 
     val chromeController = rememberFluidChromeController()
@@ -196,6 +230,12 @@ private fun AppShell(app: FluidTransitApp) {
     val modalHost = rememberFluidGlassModalHostState()
     val notificationHost = rememberFluidNotificationHostState()
     val fallbackBackdrop = rememberGlassBackdrop()
+    // La barra non si ripiega scorrendo, come la barra di sempre: la connessione c'e' (la barra la
+    // vuole) ma non e' collegata a nessuno scorrimento, e `Never` lo dice. Ripiegarsi e' una scelta
+    // d'aspetto, e non e' stata fatta.
+    val tabBarScroll = rememberFluidFloatingTabBarScrollConnection(
+        inlineBehavior = FluidFloatingTabBarInlineBehavior.Never,
+    )
 
     // La mappa e' un AndroidView e non passa dal registro dei FluidScreen:
     // il suo backdrop si crea qui e si consegna sia alla schermata (che lo
@@ -207,6 +247,9 @@ private fun AppShell(app: FluidTransitApp) {
         chromeController.activeBackdrop.value ?: fallbackBackdrop
     }
 
+    // La pila delle pagine: la scheda, e sopra di lei (se c'e') lo stato dei dati o gli avvisi.
+    val stack = remember(route, above) { shellStack(route, above) }
+
     CompositionLocalProvider(
         LocalFluidGlassModalHostState provides modalHost,
         LocalFluidNotificationHostState provides notificationHost,
@@ -214,7 +257,7 @@ private fun AppShell(app: FluidTransitApp) {
         Box(modifier = Modifier.fillMaxSize()) {
             ProvideFluidChrome(
                 controller = chromeController,
-                bottomInset = FluidTabBarDefaults.ContentInset,
+                bottomInset = FluidFloatingTabBarDefaults.ContentInset,
                 scrollToTop = scrollToTop,
             ) {
                 Box(
@@ -222,36 +265,57 @@ private fun AppShell(app: FluidTransitApp) {
                         .fillMaxSize()
                         .fluidGlassModalObscured(),
                 ) {
-                    tabState.SaveableStateProvider(above ?: route) {
-                        when {
-                            above == RouteDataStatus ->
-                                DataStatusScreen(app, onBack = { above = null })
+                    // Le pagine dell'engine: opache, da destra, con il back che segue il dito. Fra
+                    // due schede e' il passo laterale (senza gesto); lo stato dei dati e gli avvisi
+                    // si aprono sopra la scheda che c'e' e si chiudono col dito. La scheda sotto
+                    // resta composta ma coperta, con il ciclo di vita fermo: la mappa, che ascolta
+                    // quello, si mette in pausa da sola.
+                    FluidPageHost(
+                        stack = stack,
+                        onBack = { above = null },
+                        modifier = Modifier.fillMaxSize(),
+                        transition = { FluidPageTransition.Slide },
+                        // La mappa ha il pan orizzontale: da un punto qualunque il dito e' suo, il back
+                        // parte solo dal bordo. Le pagine che vi si aprono sopra sono liste.
+                        backSwipe = { page ->
+                            if (page == RouteMap) FluidBackSwipe.EdgeOnly else FluidBackSwipe.Anywhere
+                        },
+                        peer = TabOrder,
+                    ) { page ->
+                        // Lo stato salvabile di ogni pagina, tenuto da parte mentre un'altra e'
+                        // davanti: l'host butta il suo quando una pagina lascia la pila, e senza
+                        // questo la mappa tornava al punto di partenza, col pannello chiuso, i
+                        // filtri azzerati e la ricerca svuotata a ogni giro su Oggi.
+                        tabState.SaveableStateProvider(page) {
+                            when (page) {
+                                RouteDataStatus -> DataStatusScreen(app, onBack = { above = null })
 
-                            above == RouteAlerts ->
-                                dev.antigravity.fluidtransit.ui.alerts.AlertsScreen(
+                                RouteAlerts ->
+                                    dev.antigravity.fluidtransit.ui.alerts.AlertsScreen(
+                                        app,
+                                        onBack = { above = null },
+                                    )
+
+                                RouteToday -> TodayTab(
                                     app,
-                                    onBack = { above = null },
+                                    onOpenOnMap = openOnMap,
+                                    onOpenAlerts = { above = RouteAlerts },
+                                    onOpenDataStatus = { above = RouteDataStatus },
                                 )
+                                RouteFavorites -> FavoritesTab(app, onOpenOnMap = openOnMap)
+                                RouteSettings ->
+                                    SettingsTab(app, onOpenDataStatus = { above = RouteDataStatus })
 
-                            route == RouteToday -> TodayTab(
-                                app,
-                                onOpenOnMap = openOnMap,
-                                onOpenAlerts = { above = RouteAlerts },
-                                onOpenDataStatus = { above = RouteDataStatus },
-                            )
-                            route == RouteFavorites -> FavoritesTab(app, onOpenOnMap = openOnMap)
-                            route == RouteSettings ->
-                                SettingsTab(app, onOpenDataStatus = { above = RouteDataStatus })
-
-                            else -> MapScreen(
-                                app,
-                                mapBackdrop,
-                                onTabBarHidden = { mapHidesTabBar = it },
-                                intent = mapIntent,
-                                onIntentConsumed = { mapIntent = null },
-                                onOpenDataStatus = { above = RouteDataStatus },
-                                onOpenAlerts = { above = RouteAlerts },
-                            )
+                                else -> MapScreen(
+                                    app,
+                                    mapBackdrop,
+                                    onTabBarHidden = { mapHidesTabBar = it },
+                                    intent = mapIntent,
+                                    onIntentConsumed = { mapIntent = null },
+                                    onOpenDataStatus = { above = RouteDataStatus },
+                                    onOpenAlerts = { above = RouteAlerts },
+                                )
+                            }
                         }
                     }
                 }
@@ -273,11 +337,11 @@ private fun AppShell(app: FluidTransitApp) {
                     modifier = Modifier
                         .navigationBarsPadding()
                         .padding(
-                            horizontal = FluidTabBarDefaults.HorizontalMargin,
-                            vertical = FluidTabBarDefaults.BottomMargin,
+                            horizontal = FluidFloatingTabBarDefaults.HorizontalMargin,
+                            vertical = FluidFloatingTabBarDefaults.BottomMargin,
                         ),
                 ) {
-                    FluidTabBar(
+                    FluidFloatingTabBar(
                         items = Tabs,
                         selectedRoute = route,
                         onSelect = {
@@ -285,6 +349,7 @@ private fun AppShell(app: FluidTransitApp) {
                             route = it.route
                         },
                         onReselect = { scrollToTop.request() },
+                        scrollConnection = tabBarScroll,
                         backdrop = backdrop,
                     )
                 }

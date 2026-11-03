@@ -39,8 +39,12 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.antigravity.fluidengine.ui.fluid.FluidLiveDot
+import dev.antigravity.fluidengine.ui.fluid.FluidPressGrip
+import dev.antigravity.fluidengine.ui.fluid.FluidCapsuleAction
+import dev.antigravity.fluidengine.ui.fluid.FluidGlassButton
 import dev.antigravity.fluidengine.ui.fluid.FluidHairline
-import dev.antigravity.fluidengine.ui.fluid.FluidTabBarDefaults
+import dev.antigravity.fluidengine.ui.fluid.FluidFloatingTabBarDefaults
 import dev.antigravity.fluidtransit.routing.BundleReader
 import dev.antigravity.fluidtransit.routing.Certainty
 import dev.antigravity.fluidtransit.routing.DepartureText
@@ -234,24 +238,6 @@ fun veryLateRed(): Color =
         Color(0xFFB3261E)
     }
 
-/** Il pallino pulsante accanto ai minuti veri: la convenzione decisa. */
-@Composable
-fun LiveDot(color: Color, modifier: Modifier = Modifier) {
-    val transition = rememberInfiniteTransition(label = "live")
-    val alpha by transition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
-        label = "liveAlpha",
-    )
-    Box(
-        modifier = modifier
-            .size(7.dp)
-            .graphicsLayer { this.alpha = alpha }
-            .background(color, CircleShape),
-    )
-}
-
 /**
  * La frase del ritardo, nel tono diretto dell'app. L'arrotondamento e'
  * quello di [Times] e non uno suo: la capsula qui e il conteggio nella lista
@@ -271,7 +257,7 @@ fun TripMiniContent(info: TripInfo) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(FluidTabBarDefaults.Height)
+            .height(FluidFloatingTabBarDefaults.OpenHeight)
             .padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -296,7 +282,7 @@ fun TripMiniContent(info: TripInfo) {
                 // pallino verde accanto a "+19 min" scritto in rosso da due
                 // segnali opposti nello stesso centimetro. A dire che il
                 // dato e' vivo basta che il pallino ci SIA, e che pulsi.
-                if (info.delaySec != null && !info.canceled) LiveDot(tonoRitardo)
+                if (info.delaySec != null && !info.canceled) FluidLiveDot(color = tonoRitardo)
                 Text(
                     text = buildString {
                         append(delayLabel(info.delaySec, info.canceled))
@@ -392,22 +378,13 @@ fun TripFullContent(
             // Il parametro per chiuderla arrivava fin qui da settimane e non
             // lo usava nessuno, e la X era perfino gia' importata.
             if (onDismiss != null) {
-                Icon(
-                    imageVector = Icons.Rounded.Close,
+                FluidCapsuleAction(
+                    icon = Icons.Rounded.Close,
                     contentDescription = "Chiudi",
+                    onClick = onDismiss,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .size(38.dp)
-                        .clickable(
-                            interactionSource = androidx.compose.runtime.remember {
-                                androidx.compose.foundation.interaction.MutableInteractionSource()
-                            },
-                            indication = null,
-                            role = androidx.compose.ui.semantics.Role.Button,
-                            onClick = onDismiss,
-                        )
-                        .padding(7.dp),
+                    size = 38.dp,
+                    grip = FluidPressGrip.YieldsToScroll,
                 )
             }
         }
@@ -422,7 +399,7 @@ fun TripFullContent(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             if (info.delaySec != null && !info.canceled) {
-                LiveDot(
+                FluidLiveDot(color = 
                     dev.antigravity.fluidtransit.ui.common
                         .toneColor(DepartureText.toneOf(info.delaySec)),
                 )
@@ -448,11 +425,10 @@ fun TripFullContent(
         if (backdrop != null && boardGuard != null && info.ref.tripIndex >= 0) {
             when (boardGuard) {
                 "ok" -> Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
-                    GlassActionButton(
+                    FluidGlassButton(
                         text = "Sono su questo bus",
-                        icon = null,
                         backdrop = backdrop,
-                        emphasized = true,
+                        selected = true,
                         onClick = { onBoardBus?.invoke() },
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -601,7 +577,7 @@ fun TripFullContent(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(5.dp),
                         ) {
-                            if (phrase.pulse) LiveDot(toneColor(phrase.tone))
+                            if (phrase.pulse) FluidLiveDot(color = toneColor(phrase.tone))
                             Text(
                                 text = phrase.headline,
                                 style = MaterialTheme.typography.titleSmall,

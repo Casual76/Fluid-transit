@@ -21,9 +21,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.antigravity.fluidengine.ui.fluid.FluidLiveDot
 import dev.antigravity.fluidtransit.routing.DepartureText
 import dev.antigravity.fluidtransit.routing.NextDeparture
-import dev.antigravity.fluidtransit.ui.map.LiveDot
 import dev.antigravity.fluidtransit.ui.map.RoutePill
 import dev.antigravity.fluidtransit.ui.map.lateAmber
 import dev.antigravity.fluidtransit.ui.map.liveGreen
@@ -228,7 +228,7 @@ fun DepartureRowUi(
             horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             // Il pallino pulsa solo dove il feed sta guardando adesso.
-            if (phrase.pulse) LiveDot(toneColor(phrase.tone))
+            if (phrase.pulse) FluidLiveDot(color = toneColor(phrase.tone))
             Text(
                 text = phrase.headline,
                 style = MaterialTheme.typography.titleSmall,

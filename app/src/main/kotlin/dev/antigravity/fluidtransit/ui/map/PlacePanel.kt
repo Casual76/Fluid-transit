@@ -42,11 +42,12 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import dev.antigravity.fluidengine.ui.fluid.FluidCapsuleAction
+import dev.antigravity.fluidengine.ui.fluid.FluidGlassButton
 import dev.antigravity.fluidengine.ui.fluid.FluidCapsuleShape
-import dev.antigravity.fluidengine.ui.fluid.FluidTabBarDefaults
+import dev.antigravity.fluidengine.ui.fluid.FluidFloatingTabBarDefaults
 import dev.antigravity.fluidengine.ui.fluid.GlassBackdropState
 import dev.antigravity.fluidengine.ui.fluid.GlassDefaults
-import dev.antigravity.fluidengine.ui.fluid.GlassEdge
 import dev.antigravity.fluidengine.ui.fluid.glassSurface
 
 /** Un luogo scelto: dalla ricerca, da un posto salvato o dal tieni-premuto. */
@@ -57,74 +58,6 @@ class PlaceRef(
     val lon: Double,
     val savedId: Long? = null,
 )
-
-/** Un bottone di testo in vetro: vetro su vetro, come da regola dei pannelli. */
-@Composable
-fun GlassActionButton(
-    text: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector?,
-    backdrop: GlassBackdropState,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    emphasized: Boolean = false,
-    /**
-     * Spento quando toccarlo non farebbe niente. Prima il tocco finiva nel
-     * vuoto — "Salva" senza nome, "Crea la routine" senza giorni — e da
-     * fuori sembrava un pulsante rotto.
-     */
-    enabled: Boolean = true,
-    /**
-     * Quante righe al massimo. Di norma quante ne servono; i tasti dei posti
-     * nominati dall'assistente si fermano a due, perche' un nome di fermata
-     * lungo occupava da solo mezza risposta.
-     */
-    maxLines: Int = Int.MAX_VALUE,
-) {
-    val alfa = if (enabled) 1f else 0.38f
-    Row(
-        modifier = modifier
-            .glassSurface(
-                state = backdrop,
-                tint = GlassDefaults.floatingTint(),
-                shape = FluidCapsuleShape,
-                edge = GlassEdge.None,
-            )
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                enabled = enabled,
-                role = Role.Button,
-                onClick = onClick,
-            )
-            .padding(horizontal = 18.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-    ) {
-        if (icon != null) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = if (emphasized) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                }.copy(alpha = alfa),
-                modifier = Modifier.size(18.dp),
-            )
-        }
-        Text(
-            text = text,
-            maxLines = maxLines,
-            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-            style = MaterialTheme.typography.labelLarge,
-            color = if (emphasized) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurface
-            }.copy(alpha = alfa),
-        )
-    }
-}
 
 /**
  * Il pannello del luogo: nome, dove sta, e i due gesti decisi — "Portami
@@ -188,20 +121,12 @@ fun PlacePanelContent(
                 )
             }
         }
-        Icon(
-            imageVector = Icons.Rounded.Close,
+        FluidCapsuleAction(
+            icon = Icons.Rounded.Close,
             contentDescription = "Chiudi",
+            onClick = onDismiss,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .minimumInteractiveComponentSize()
-                .size(40.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    role = Role.Button,
-                    onClick = onDismiss,
-                )
-                .padding(8.dp),
+            size = 40.dp,
         )
     }
 
@@ -212,25 +137,25 @@ fun PlacePanelContent(
                 .padding(horizontal = 20.dp, vertical = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            GlassActionButton(
+            FluidGlassButton(
                 text = "Portami qui",
-                icon = Icons.Rounded.Directions,
+                leading = { Icon(Icons.Rounded.Directions, contentDescription = null) },
                 backdrop = backdrop,
                 onClick = onGo,
-                emphasized = true,
+                selected = true,
                 modifier = Modifier.weight(1f),
             )
             if (onRemoveSaved != null) {
-                GlassActionButton(
+                FluidGlassButton(
                     text = "Rimuovi",
-                    icon = Icons.Rounded.Star,
+                    leading = { Icon(Icons.Rounded.Star, contentDescription = null) },
                     backdrop = backdrop,
                     onClick = onRemoveSaved,
                 )
             } else {
-                GlassActionButton(
+                FluidGlassButton(
                     text = "Salva",
-                    icon = Icons.Rounded.Star,
+                    leading = { Icon(Icons.Rounded.Star, contentDescription = null) },
                     backdrop = backdrop,
                     onClick = { saving = true },
                 )
@@ -246,9 +171,9 @@ fun PlacePanelContent(
                     .padding(horizontal = 20.dp)
                     .padding(bottom = 14.dp),
             ) {
-                GlassActionButton(
+                FluidGlassButton(
                     text = "Parti da qui",
-                    icon = Icons.Rounded.MyLocation,
+                    leading = { Icon(Icons.Rounded.MyLocation, contentDescription = null) },
                     backdrop = backdrop,
                     onClick = onStartHere,
                     modifier = Modifier.weight(1f),
@@ -270,9 +195,8 @@ fun PlacePanelContent(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             for (label in listOf("Casa", "Lavoro", "Scuola")) {
-                GlassActionButton(
+                FluidGlassButton(
                     text = label,
-                    icon = null,
                     backdrop = backdrop,
                     onClick = { salva(label) },
                     modifier = Modifier.weight(1f),
@@ -293,7 +217,6 @@ fun PlacePanelContent(
                         state = backdrop,
                         tint = GlassDefaults.floatingTint(),
                         shape = FluidCapsuleShape,
-                        edge = GlassEdge.None,
                     )
                     .padding(horizontal = 16.dp, vertical = 12.dp),
             ) {
@@ -330,11 +253,10 @@ fun PlacePanelContent(
                     },
                 )
             }
-            GlassActionButton(
+            FluidGlassButton(
                 text = "Salva",
-                icon = null,
                 backdrop = backdrop,
-                emphasized = true,
+                selected = true,
                 // Senza un nome non c'e' niente da salvare: il campo accanto
                 // dice gia' cosa manca.
                 enabled = customLabel.isNotBlank(),
@@ -372,7 +294,7 @@ fun PlacePanelContent(
  * pannello che non e' in modalita' linea): se la' cambia, cambia anche qui,
  * altrimenti il modulo si alza troppo poco o troppo.
  */
-internal val PLACE_PANEL_RESTING_MARGIN = FluidTabBarDefaults.ContentInset + 10.dp
+internal val PLACE_PANEL_RESTING_MARGIN = FluidFloatingTabBarDefaults.ContentInset + 10.dp
 
 /**
  * Di quanto alzare il modulo perche' la tastiera non lo copra.

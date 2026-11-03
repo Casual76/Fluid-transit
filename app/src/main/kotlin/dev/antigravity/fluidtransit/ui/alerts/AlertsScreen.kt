@@ -25,6 +25,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.antigravity.fluidengine.ui.fluid.FluidSkeletonText
 import dev.antigravity.fluidengine.ui.fluid.FluidButton
 import dev.antigravity.fluidengine.ui.fluid.FluidButtonStyle
 import dev.antigravity.fluidengine.ui.fluid.FluidScreen
@@ -218,9 +219,11 @@ fun AlertsScreen(app: FluidTransitApp, onBack: () -> Unit) {
             // secondo a scaricarsi, e per tutto quel tempo la schermata non
             // diceva nemmeno che forma avra'.
             item {
-                dev.antigravity.fluidtransit.ui.common.CardSkeleton(lines = 3)
-                dev.antigravity.fluidtransit.ui.common.CardSkeleton(lines = 2)
-                dev.antigravity.fluidtransit.ui.common.CardSkeleton(lines = 4)
+                Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
+                    FluidSkeletonText(lines = 3)
+                    FluidSkeletonText(lines = 2)
+                    FluidSkeletonText(lines = 4)
+                }
             }
             return@FluidScreen
         }

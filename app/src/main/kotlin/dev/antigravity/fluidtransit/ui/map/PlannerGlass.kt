@@ -36,7 +36,6 @@ import dev.antigravity.fluidengine.ui.fluid.FluidHairline
 import dev.antigravity.fluidengine.ui.fluid.FluidRadius
 import dev.antigravity.fluidengine.ui.fluid.GlassBackdropState
 import dev.antigravity.fluidengine.ui.fluid.GlassDefaults
-import dev.antigravity.fluidengine.ui.fluid.GlassEdge
 import dev.antigravity.fluidengine.ui.fluid.GlassRole
 import dev.antigravity.fluidengine.ui.fluid.glassSurface
 
@@ -82,7 +81,6 @@ fun PlannerGlass(
                 state = backdrop,
                 tint = GlassDefaults.floatingTint(),
                 shape = ContinuousCornerShape(FluidRadius.Sheet),
-                edge = GlassEdge.None,
                 role = GlassRole.Floating,
             ),
     ) {

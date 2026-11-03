@@ -60,7 +60,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import dev.antigravity.fluidengine.ui.fluid.FluidNotification
 import dev.antigravity.fluidengine.ui.fluid.FluidNotificationTone
-import dev.antigravity.fluidengine.ui.fluid.FluidTabBarDefaults
+import dev.antigravity.fluidengine.ui.fluid.FluidFloatingTabBarDefaults
 import dev.antigravity.fluidengine.ui.fluid.GlassBackdropState
 import dev.antigravity.fluidengine.ui.fluid.glassBackdropSource
 import dev.antigravity.fluidtransit.FluidTransitApp
@@ -2076,7 +2076,7 @@ fun MapScreen(
         controller.chromeBottomPx = if (copertoSotto > 0) {
             copertoSotto + with(density) { 6.dp.toPx() }.toInt()
         } else {
-            with(density) { (FluidTabBarDefaults.ContentInset + 6.dp).toPx() }.toInt()
+            with(density) { (FluidFloatingTabBarDefaults.ContentInset + 6.dp).toPx() }.toInt()
         }
     }
 
@@ -2092,44 +2092,55 @@ fun MapScreen(
             is24Hour = true,
         )
         var timeMode by remember { mutableStateOf(if (journeyTimeMode == "arrive") 1 else 0) }
-        androidx.compose.material3.AlertDialog(
+        // L'avviso dell'engine, nell'host dei modali alla radice: il vetro vero al posto del
+        // dialogo di Material. Il selettore d'orario e' ancora quello di Material (l'engine non
+        // ne ha uno), dentro il corpo dell'avviso.
+        dev.antigravity.fluidengine.ui.fluid.FluidAlert(
             onDismissRequest = { showTimeDialog = false },
-            confirmButton = {
-                androidx.compose.material3.TextButton(onClick = {
-                    val chosen = java.time.ZonedDateTime.now(zone)
-                        .withHour(timeState.hour)
-                        .withMinute(timeState.minute)
-                        .withSecond(0)
-                    val instant = if (chosen.toInstant().isBefore(Instant.now().minusSeconds(60))) {
-                        chosen.plusDays(1).toInstant()
-                    } else {
-                        chosen.toInstant()
-                    }
-                    journeyTimeEpoch = instant.epochSecond
-                    journeyTimeMode = if (timeMode == 1) "arrive" else "depart"
-                    showTimeDialog = false
-                }) { androidx.compose.material3.Text("Fatto") }
-            },
-            dismissButton = {
-                androidx.compose.material3.TextButton(onClick = {
-                    journeyTimeMode = "now"
-                    showTimeDialog = false
-                }) { androidx.compose.material3.Text("Adesso") }
-            },
-            text = {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    dev.antigravity.fluidengine.ui.fluid.FluidSegmentedControl(
-                        options = listOf(0, 1),
-                        selected = timeMode,
-                        onSelect = { timeMode = it },
-                        label = { if (it == 0) "Parti alle" else "Arriva entro" },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(14.dp))
-                    androidx.compose.material3.TimePicker(state = timeState)
-                }
-            },
-        )
+            title = "Quando?",
+            actions = listOf(
+                dev.antigravity.fluidengine.ui.fluid.FluidAlertAction(
+                    label = "Adesso",
+                    onClick = {
+                        journeyTimeMode = "now"
+                        showTimeDialog = false
+                    },
+                ),
+                dev.antigravity.fluidengine.ui.fluid.FluidAlertAction(
+                    label = "Fatto",
+                    emphasis = dev.antigravity.fluidengine.ui.fluid.FluidAlertAction.Emphasis.Preferred,
+                    onClick = {
+                        val chosen = java.time.ZonedDateTime.now(zone)
+                            .withHour(timeState.hour)
+                            .withMinute(timeState.minute)
+                            .withSecond(0)
+                        val instant = if (chosen.toInstant().isBefore(Instant.now().minusSeconds(60))) {
+                            chosen.plusDays(1).toInstant()
+                        } else {
+                            chosen.toInstant()
+                        }
+                        journeyTimeEpoch = instant.epochSecond
+                        journeyTimeMode = if (timeMode == 1) "arrive" else "depart"
+                        showTimeDialog = false
+                    },
+                ),
+            ),
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                dev.antigravity.fluidengine.ui.fluid.FluidSegmentedControl(
+                    options = listOf(0, 1),
+                    selected = timeMode,
+                    onSelect = { timeMode = it },
+                    label = { if (it == 0) "Parti alle" else "Arriva entro" },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(14.dp))
+                androidx.compose.material3.TimePicker(state = timeState)
+            }
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -2604,7 +2615,7 @@ fun MapScreen(
                     onClick = { toccaPosizione(FollowMode.FREE) },
                     modifier = Modifier
                         .padding(top = 10.dp)
-                        .padding(horizontal = FluidTabBarDefaults.HorizontalMargin),
+                        .padding(horizontal = FluidFloatingTabBarDefaults.HorizontalMargin),
                 )
             }
             // Fuori dalla Toscana non c'e' niente da dire sui bus.
@@ -2628,7 +2639,7 @@ fun MapScreen(
                     backdrop = backdrop,
                     modifier = Modifier
                         .padding(top = 10.dp)
-                        .padding(horizontal = FluidTabBarDefaults.HorizontalMargin),
+                        .padding(horizontal = FluidFloatingTabBarDefaults.HorizontalMargin),
                 )
             }
             // Ci sono orari nuovi e siamo sui dati mobili: l'app chiede prima di
@@ -2649,7 +2660,7 @@ fun MapScreen(
                     onClick = onOpenDataStatus,
                     modifier = Modifier
                         .padding(top = 10.dp)
-                        .padding(horizontal = FluidTabBarDefaults.HorizontalMargin),
+                        .padding(horizontal = FluidFloatingTabBarDefaults.HorizontalMargin),
                 )
             }
             // Cosa passa qui intorno, dove la tab bar lascia spazio: si legge
@@ -2677,10 +2688,10 @@ fun MapScreen(
                     onClick = { panel = Panel.Nearby },
                     modifier = Modifier
                         .padding(top = 10.dp)
-                        .padding(horizontal = FluidTabBarDefaults.HorizontalMargin),
+                        .padding(horizontal = FluidFloatingTabBarDefaults.HorizontalMargin),
                 )
             }
-            Spacer(Modifier.height(FluidTabBarDefaults.ContentInset + 10.dp))
+            Spacer(Modifier.height(FluidFloatingTabBarDefaults.ContentInset + 10.dp))
         }
 
         // --- l'unico pannello dal basso: fermata, linea, o linea ridotta ---
@@ -2693,9 +2704,9 @@ fun MapScreen(
         // il rimbalzo del congedo si legge come la capsula che ritorna.
         val bottomPad by androidx.compose.animation.core.animateDpAsState(
             targetValue = if (inRoutePanel) {
-                FluidTabBarDefaults.BottomMargin
+                FluidFloatingTabBarDefaults.BottomMargin
             } else {
-                FluidTabBarDefaults.ContentInset + 10.dp
+                FluidFloatingTabBarDefaults.ContentInset + 10.dp
             },
             label = "panelBottomPad",
         )
@@ -2792,7 +2803,7 @@ fun MapScreen(
                     },
                     modifier = Modifier
                         .widthIn(max = PanelMaxWidth)
-                        .padding(horizontal = FluidTabBarDefaults.HorizontalMargin)
+                        .padding(horizontal = FluidFloatingTabBarDefaults.HorizontalMargin)
                         .padding(bottom = bottomPad)
                         // Mentre si scrive il nome di un posto il pannello
                         // sale sopra la tastiera, tutto, senza cambiare le
@@ -3308,8 +3319,8 @@ fun MapScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
-                    .padding(horizontal = FluidTabBarDefaults.HorizontalMargin)
-                    .padding(bottom = FluidTabBarDefaults.BottomMargin),
+                    .padding(horizontal = FluidFloatingTabBarDefaults.HorizontalMargin)
+                    .padding(bottom = FluidFloatingTabBarDefaults.BottomMargin),
             ) {
                 dev.antigravity.fluidtransit.ui.assistant.AssistantOverlay(
                     app = app,

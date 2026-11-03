@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import dev.antigravity.fluidengine.ui.fluid.FluidMotion
 import dev.antigravity.fluidengine.ui.fluid.ContinuousCornerShape
 import dev.antigravity.fluidengine.ui.fluid.FluidGrabber
 import dev.antigravity.fluidengine.ui.fluid.FluidLoadingBlock
@@ -42,7 +43,6 @@ import dev.antigravity.fluidengine.ui.fluid.FluidRadius
 import dev.antigravity.fluidengine.ui.fluid.FluidSpinner
 import dev.antigravity.fluidengine.ui.fluid.GlassBackdropState
 import dev.antigravity.fluidengine.ui.fluid.GlassDefaults
-import dev.antigravity.fluidengine.ui.fluid.GlassEdge
 import dev.antigravity.fluidengine.ui.fluid.GlassRole
 import dev.antigravity.fluidengine.ui.fluid.glassSurface
 import kotlin.math.roundToInt
@@ -274,10 +274,7 @@ fun BottomGlassPanel(
             },
             onDragEnd = {
                 scope.launch {
-                    val settle = spring<Float>(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessMediumLow,
-                    )
+                    val settle = FluidMotion.fluid<Float>()
                     when {
                         offsetY.value <= expandAt && currentExpand != null -> {
                             currentExpand?.invoke()
@@ -314,7 +311,6 @@ fun BottomGlassPanel(
                 state = backdrop,
                 tint = GlassDefaults.floatingTint(),
                 shape = shape,
-                edge = GlassEdge.None,
                 role = GlassRole.Modal,
                 // Fermo: una cattura sola (era il lag). In movimento: vivo,
                 // o il riflesso resta congelato alla vecchia posizione.
@@ -329,10 +325,7 @@ fun BottomGlassPanel(
                 },
             )
             .animateContentSize(
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioLowBouncy,
-                    stiffness = Spring.StiffnessMediumLow,
-                ),
+                animationSpec = FluidMotion.fluid(),
             ),
     ) {
         if (showGrabber) {

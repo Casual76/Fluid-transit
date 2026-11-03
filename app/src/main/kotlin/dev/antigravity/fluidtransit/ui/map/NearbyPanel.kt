@@ -30,13 +30,14 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.antigravity.fluidengine.ui.fluid.FluidLiveDot
+import dev.antigravity.fluidengine.ui.fluid.FluidCapsuleAction
 import dev.antigravity.fluidengine.ui.fluid.ContinuousCornerShape
 import dev.antigravity.fluidengine.ui.fluid.FluidHairline
 import dev.antigravity.fluidengine.ui.fluid.FluidRadius
 import dev.antigravity.fluidengine.ui.fluid.FluidSpinner
 import dev.antigravity.fluidengine.ui.fluid.GlassBackdropState
 import dev.antigravity.fluidengine.ui.fluid.GlassDefaults
-import dev.antigravity.fluidengine.ui.fluid.GlassEdge
 import dev.antigravity.fluidengine.ui.fluid.glassSurface
 import dev.antigravity.fluidengine.ui.theme.FluidEmptyState
 import dev.antigravity.fluidtransit.routing.DepartureBoard
@@ -84,7 +85,6 @@ fun MapNoticeCapsule(
                 state = backdrop,
                 tint = GlassDefaults.floatingTint(),
                 shape = ContinuousCornerShape(FluidRadius.Card),
-                edge = GlassEdge.None,
             )
             .let { m ->
                 if (onClick == null) {
@@ -143,7 +143,6 @@ fun NearbyCapsule(
                 state = backdrop,
                 tint = GlassDefaults.floatingTint(),
                 shape = ContinuousCornerShape(FluidRadius.Card),
-                edge = GlassEdge.None,
             )
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
@@ -208,7 +207,7 @@ fun NearbyCapsule(
         )
         Spacer(Modifier.width(10.dp))
         if (phrase.pulse) {
-            LiveDot(toneColor(phrase.tone))
+            FluidLiveDot(color = toneColor(phrase.tone))
             Spacer(Modifier.width(5.dp))
         }
         Text(
@@ -252,20 +251,12 @@ fun NearbyPanelContent(
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
-        Icon(
-            imageVector = Icons.Rounded.Close,
+        FluidCapsuleAction(
+            icon = Icons.Rounded.Close,
             contentDescription = "Chiudi",
+            onClick = onDismiss,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .minimumInteractiveComponentSize()
-                .size(40.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    role = Role.Button,
-                    onClick = onDismiss,
-                )
-                .padding(8.dp),
+            size = 40.dp,
         )
     }
 

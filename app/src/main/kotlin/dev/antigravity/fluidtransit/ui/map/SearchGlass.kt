@@ -56,13 +56,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.antigravity.fluidengine.ui.fluid.FluidMotion
 import dev.antigravity.fluidengine.ui.fluid.ContinuousCornerShape
 import dev.antigravity.fluidengine.ui.fluid.FluidGlassIconButton
 import dev.antigravity.fluidengine.ui.fluid.FluidHairline
 import dev.antigravity.fluidengine.ui.fluid.FluidRadius
 import dev.antigravity.fluidengine.ui.fluid.GlassBackdropState
 import dev.antigravity.fluidengine.ui.fluid.GlassDefaults
-import dev.antigravity.fluidengine.ui.fluid.GlassEdge
 import dev.antigravity.fluidengine.ui.fluid.GlassRole
 import dev.antigravity.fluidengine.ui.fluid.glassSurface
 import dev.antigravity.fluidtransit.data.places.PlacesManager
@@ -177,14 +177,10 @@ fun SearchGlass(
                 state = backdrop,
                 tint = GlassDefaults.floatingTint(),
                 shape = ContinuousCornerShape(radius),
-                edge = GlassEdge.None,
                 role = if (open) GlassRole.Modal else GlassRole.Floating,
             )
             .animateContentSize(
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioLowBouncy,
-                    stiffness = Spring.StiffnessMediumLow,
-                ),
+                animationSpec = FluidMotion.fluid(),
             ),
     ) {
         // --- la riga della barra, sempre presente -------------------------
@@ -286,10 +282,7 @@ fun SearchGlass(
             visible = open,
             enter = expandVertically(
                 expandFrom = Alignment.Top,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioLowBouncy,
-                    stiffness = Spring.StiffnessMediumLow,
-                ),
+                animationSpec = FluidMotion.fluid(),
             ) + fadeIn(),
             exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(),
         ) {

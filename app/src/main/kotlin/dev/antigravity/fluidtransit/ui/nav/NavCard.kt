@@ -25,13 +25,13 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.antigravity.fluidengine.ui.fluid.FluidLiveDot
 import dev.antigravity.fluidengine.ui.fluid.FluidProgressBar
-import dev.antigravity.fluidengine.ui.fluid.FluidTabBarDefaults
+import dev.antigravity.fluidengine.ui.fluid.FluidFloatingTabBarDefaults
 import dev.antigravity.fluidtransit.data.nav.NavFocus
 import dev.antigravity.fluidtransit.data.nav.NavPlan
 import dev.antigravity.fluidtransit.data.nav.NavState
 import dev.antigravity.fluidtransit.routing.DepartureText
-import dev.antigravity.fluidtransit.ui.map.LiveDot
 import dev.antigravity.fluidtransit.ui.map.RoutePill
 import dev.antigravity.fluidtransit.ui.map.liveGreen
 import dev.antigravity.fluidtransit.ui.map.panelListMax
@@ -153,7 +153,7 @@ private fun Testata(state: NavState, onToggle: () -> Unit, onStop: () -> Unit) {
         if (state.lineName.isNotEmpty()) {
             RoutePill(state.lineName, state.lineColorRgb)
         } else if (state.phase == "ride") {
-            LiveDot(liveGreen())
+            FluidLiveDot(color = liveGreen())
         }
         Column(
             modifier = Modifier
@@ -227,7 +227,7 @@ private fun NavMini(state: NavState, onToggle: () -> Unit, onStop: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(FluidTabBarDefaults.Height)
+            .height(FluidFloatingTabBarDefaults.OpenHeight)
             .padding(start = 18.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -235,7 +235,7 @@ private fun NavMini(state: NavState, onToggle: () -> Unit, onStop: () -> Unit) {
         if (state.lineName.isNotEmpty()) {
             RoutePill(state.lineName, state.lineColorRgb)
         } else if (state.phase == "ride") {
-            LiveDot(liveGreen())
+            FluidLiveDot(color = liveGreen())
         }
         Column(
             modifier = Modifier

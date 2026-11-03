@@ -37,6 +37,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.antigravity.fluidengine.ui.fluid.FluidPressGrip
+import dev.antigravity.fluidengine.ui.fluid.FluidCapsuleAction
 import dev.antigravity.fluidengine.ui.fluid.ContinuousCornerShape
 import dev.antigravity.fluidengine.ui.fluid.FluidHairline
 import dev.antigravity.fluidengine.ui.fluid.FluidRadius
@@ -418,7 +420,7 @@ fun RouteMiniContent(info: RouteInfo, direction: Int) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(dev.antigravity.fluidengine.ui.fluid.FluidTabBarDefaults.Height)
+            .height(dev.antigravity.fluidengine.ui.fluid.FluidFloatingTabBarDefaults.OpenHeight)
             .padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -515,25 +517,17 @@ fun RouteFullContent(
                 )
             }
             // La stella dei preferiti, come nella scheda fermata.
-            androidx.compose.material3.Icon(
-                imageVector = if (isFavorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+            FluidCapsuleAction(
+                icon = if (isFavorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
                 contentDescription = if (isFavorite) "Togli dai preferiti" else "Salva nei preferiti",
+                onClick = onToggleFavorite,
                 tint = if (isFavorite) {
                     MaterialTheme.colorScheme.primary
                 } else {
                     MaterialTheme.colorScheme.onSurfaceVariant
                 },
-                modifier = Modifier
-                    .minimumInteractiveComponentSize()
-                    .size(38.dp)
-                    .clickable(
-                        interactionSource = androidx.compose.runtime.remember {
-                            androidx.compose.foundation.interaction.MutableInteractionSource()
-                        },
-                        indication = null,
-                        onClick = onToggleFavorite,
-                    )
-                    .padding(7.dp),
+                size = 38.dp,
+                grip = FluidPressGrip.YieldsToScroll,
             )
             // La X, come nelle schede fermata, luogo e viaggi.
             //
@@ -543,22 +537,13 @@ fun RouteFullContent(
             // cose che fanno dire "si comporta in modo diverso ogni volta",
             // e costa una icona.
             if (onDismiss != null) {
-                androidx.compose.material3.Icon(
-                    imageVector = Icons.Rounded.Close,
+                FluidCapsuleAction(
+                    icon = Icons.Rounded.Close,
                     contentDescription = "Chiudi",
+                    onClick = onDismiss,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .size(38.dp)
-                        .clickable(
-                            interactionSource = androidx.compose.runtime.remember {
-                                androidx.compose.foundation.interaction.MutableInteractionSource()
-                            },
-                            indication = null,
-                            role = androidx.compose.ui.semantics.Role.Button,
-                            onClick = onDismiss,
-                        )
-                        .padding(7.dp),
+                    size = 38.dp,
+                    grip = FluidPressGrip.YieldsToScroll,
                 )
             }
         }

@@ -34,6 +34,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.antigravity.fluidengine.ui.fluid.FluidPressGrip
+import dev.antigravity.fluidengine.ui.fluid.FluidCapsuleAction
+import dev.antigravity.fluidengine.ui.fluid.FluidGlassButton
 import dev.antigravity.fluidengine.ui.fluid.FluidHairline
 import dev.antigravity.fluidengine.ui.fluid.FluidSpinner
 import dev.antigravity.fluidengine.ui.theme.FluidEmptyState
@@ -155,39 +158,23 @@ fun StopPanelContent(
             modifier = Modifier.weight(1f),
         )
         // La stella dei preferiti: piena quando la fermata e' tua.
-        Icon(
-            imageVector = if (isFavorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+        FluidCapsuleAction(
+            icon = if (isFavorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
             contentDescription = if (isFavorite) "Togli dai preferiti" else "Salva nei preferiti",
+            onClick = onToggleFavorite,
             tint = if (isFavorite) {
                 MaterialTheme.colorScheme.primary
             } else {
                 MaterialTheme.colorScheme.onSurfaceVariant
             },
-            modifier = Modifier
-                .minimumInteractiveComponentSize()
-                .size(40.dp)
-                .clickable(
-                    interactionSource = androidx.compose.runtime.remember { MutableInteractionSource() },
-                    indication = null,
-                    role = Role.Button,
-                    onClick = onToggleFavorite,
-                )
-                .padding(8.dp),
+            size = 40.dp,
         )
-        Icon(
-            imageVector = Icons.Rounded.Close,
+        FluidCapsuleAction(
+            icon = Icons.Rounded.Close,
             contentDescription = "Chiudi",
+            onClick = onDismiss,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .minimumInteractiveComponentSize()
-                .size(40.dp)
-                .clickable(
-                    interactionSource = androidx.compose.runtime.remember { MutableInteractionSource() },
-                    indication = null,
-                    role = Role.Button,
-                    onClick = onDismiss,
-                )
-                .padding(8.dp),
+            size = 40.dp,
         )
     }
 
@@ -266,9 +253,9 @@ fun StopPanelContent(
                 .padding(horizontal = 20.dp)
                 .padding(top = 8.dp, bottom = 4.dp),
         ) {
-            GlassActionButton(
+            FluidGlassButton(
                 text = "Parti da qui",
-                icon = Icons.Rounded.MyLocation,
+                leading = { Icon(Icons.Rounded.MyLocation, contentDescription = null) },
                 backdrop = backdrop,
                 onClick = onStartHere,
                 modifier = Modifier.weight(1f),
@@ -366,6 +353,12 @@ fun StopPanelContent(
                                 dev.antigravity.fluidengine.ui.fluid.FluidGlassIconButton(
                                     onClick = { onFlyToBus(row.tripIndex) },
                                     backdrop = backdrop,
+                                    // Un tasto per ogni riga viva, sul bordo destro di una lista che
+                                    // scorre: e' li' che un pollice destro fa partire lo scorrimento.
+                                    // Con la 3.0 un pulsante tiene il dito, e da qui l'elenco non si
+                                    // muoverebbe piu': cede il dito alla lista, e se il dito scorre
+                                    // il tasto si scioglie senza cliccare.
+                                    grip = FluidPressGrip.YieldsToScroll,
                                 ) {
                                     Icon(
                                         imageVector = Icons.Rounded.DirectionsBus,

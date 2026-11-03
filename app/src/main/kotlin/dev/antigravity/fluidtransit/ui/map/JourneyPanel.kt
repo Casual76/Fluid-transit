@@ -45,6 +45,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.antigravity.fluidengine.ui.fluid.FluidLiveDot
+import dev.antigravity.fluidengine.ui.fluid.FluidCapsuleAction
+import dev.antigravity.fluidengine.ui.fluid.FluidGlassButton
 import dev.antigravity.fluidengine.ui.fluid.FluidHairline
 import dev.antigravity.fluidengine.ui.fluid.FluidSpinner
 import dev.antigravity.fluidengine.ui.fluid.GlassBackdropState
@@ -224,9 +227,9 @@ sealed class UiLeg {
 private fun UseLocationButton(onUseLocation: (() -> Unit)?, backdrop: GlassBackdropState) {
     if (onUseLocation == null) return
     Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
-        GlassActionButton(
+        FluidGlassButton(
             text = dev.antigravity.fluidtransit.routing.OriginText.USE_LOCATION,
-            icon = Icons.Rounded.MyLocation,
+            leading = { Icon(Icons.Rounded.MyLocation, contentDescription = null) },
             backdrop = backdrop,
             onClick = onUseLocation,
         )
@@ -295,27 +298,19 @@ fun JourneysContent(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Icon(
-            imageVector = Icons.Rounded.Close,
+        FluidCapsuleAction(
+            icon = Icons.Rounded.Close,
             contentDescription = "Chiudi",
+            onClick = onDismiss,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .minimumInteractiveComponentSize()
-                .size(40.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    role = Role.Button,
-                    onClick = onDismiss,
-                )
-                .padding(8.dp),
+            size = 40.dp,
         )
     }
 
     Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
-        GlassActionButton(
+        FluidGlassButton(
             text = timeLabel,
-            icon = Icons.Rounded.Schedule,
+            leading = { Icon(Icons.Rounded.Schedule, contentDescription = null) },
             backdrop = backdrop,
             onClick = onTimeTap,
         )
@@ -470,7 +465,7 @@ private fun JourneyRow(j: UiJourney, onClick: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                 )
-                if (j.hasLive) LiveDot(liveGreen())
+                if (j.hasLive) FluidLiveDot(color = liveGreen())
             }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -530,7 +525,7 @@ fun JourneyDetailContent(
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                if (j.hasLive) LiveDot(liveGreen())
+                if (j.hasLive) FluidLiveDot(color = liveGreen())
             }
             Text(
                 // "0 min a piedi" usciva su ogni viaggio senza camminate: la
@@ -553,20 +548,12 @@ fun JourneyDetailContent(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Icon(
-            imageVector = Icons.Rounded.Close,
+        FluidCapsuleAction(
+            icon = Icons.Rounded.Close,
             contentDescription = "Chiudi",
+            onClick = onDismiss,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .minimumInteractiveComponentSize()
-                .size(40.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    role = Role.Button,
-                    onClick = onDismiss,
-                )
-                .padding(8.dp),
+            size = 40.dp,
         )
     }
 
@@ -770,7 +757,7 @@ fun JourneyDetailContent(
                             // d'occhio un bus in ritardo di mezz'ora sembrava a
                             // posto. Che il dato sia dal vivo lo dicono gia' il
                             // pulsare e le parole, non il colore.
-                            if (leg.live) LiveDot(toneColor(DepartureText.toneOf(leg.delaySeconds)))
+                            if (leg.live) FluidLiveDot(color = toneColor(DepartureText.toneOf(leg.delaySeconds)))
                             Text(
                                 text = if (leg.live) {
                                     "dal bus · " +
@@ -803,11 +790,11 @@ fun JourneyDetailContent(
     // --- "Avvia": la navigazione a bordo (Fase 7) -------------------------
     if (backdrop != null && onStart != null && !j.walkOnly) {
         Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
-            GlassActionButton(
+            FluidGlassButton(
                 text = "Avvia il viaggio",
-                icon = Icons.AutoMirrored.Rounded.DirectionsWalk,
+                leading = { Icon(Icons.AutoMirrored.Rounded.DirectionsWalk, contentDescription = null) },
                 backdrop = backdrop,
-                emphasized = true,
+                selected = true,
                 onClick = onStart,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -862,9 +849,9 @@ private fun RoutineForm(
 
     if (!open) {
         Row(modifier = Modifier.padding(horizontal = inset, vertical = 10.dp)) {
-            GlassActionButton(
+            FluidGlassButton(
                 text = "Fanne una routine",
-                icon = Icons.Rounded.Schedule,
+                leading = { Icon(Icons.Rounded.Schedule, contentDescription = null) },
                 backdrop = backdrop,
                 onClick = { open = true },
                 modifier = Modifier.fillMaxWidth(),
@@ -949,14 +936,13 @@ private fun RoutineForm(
         )
     }
     Row(modifier = Modifier.padding(horizontal = inset, vertical = 8.dp)) {
-        GlassActionButton(
+        FluidGlassButton(
             text = "Crea la routine",
-            icon = null,
             backdrop = backdrop,
-            emphasized = true,
+            selected = true,
             enabled = days.isNotEmpty(),
             onClick = {
-                if (days.isEmpty()) return@GlassActionButton
+                if (days.isEmpty()) return@FluidGlassButton
                 val time = if (anchor == "arrive") j.arrTime else j.depTime
                 val minutes = time.split(':').let { it[0].toInt() * 60 + it[1].toInt() }
                 // "Arriva entro" si arrotonda in su ai 5 minuti: un margine

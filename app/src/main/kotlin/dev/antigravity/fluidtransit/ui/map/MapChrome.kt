@@ -43,11 +43,11 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.antigravity.fluidengine.ui.fluid.FluidGlassButton
 import dev.antigravity.fluidengine.ui.fluid.FluidCapsuleShape
 import dev.antigravity.fluidengine.ui.fluid.FluidGlassIconButton
 import dev.antigravity.fluidengine.ui.fluid.GlassBackdropState
 import dev.antigravity.fluidengine.ui.fluid.GlassDefaults
-import dev.antigravity.fluidengine.ui.fluid.GlassEdge
 import dev.antigravity.fluidengine.ui.fluid.glassSurface
 
 // La barra di ricerca vive in SearchGlass.kt: e' la stessa superficie che si
@@ -197,7 +197,6 @@ fun CategoryChipsRow(
                         state = backdrop,
                         tint = GlassDefaults.floatingTint(),
                         shape = FluidCapsuleShape,
-                        edge = GlassEdge.None,
                     )
                     .selectable(
                         selected = isSelected,
@@ -351,7 +350,6 @@ fun LiveDownCapsule(
                 shape = dev.antigravity.fluidengine.ui.fluid.ContinuousCornerShape(
                     dev.antigravity.fluidengine.ui.fluid.FluidRadius.Card,
                 ),
-                edge = GlassEdge.None,
             )
             .clickable(
                 interactionSource = remember2(),
@@ -428,7 +426,6 @@ fun UpdateCapsule(
                 shape = dev.antigravity.fluidengine.ui.fluid.ContinuousCornerShape(
                     dev.antigravity.fluidengine.ui.fluid.FluidRadius.Card,
                 ),
-                edge = GlassEdge.None,
             )
             .clickable(
                 interactionSource = remember2(),
@@ -458,16 +455,14 @@ fun UpdateCapsule(
                 modifier = Modifier.padding(top = 8.dp),
                 horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
             ) {
-                GlassActionButton(
+                FluidGlassButton(
                     text = "Installa",
-                    icon = null,
                     backdrop = backdrop,
                     onClick = onInstall,
-                    emphasized = true,
+                    selected = true,
                 )
-                GlassActionButton(
+                FluidGlassButton(
                     text = "Non ora",
-                    icon = null,
                     backdrop = backdrop,
                     onClick = onDismiss,
                 )

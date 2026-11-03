@@ -1,5 +1,6 @@
 package dev.antigravity.fluidtransit.ui.map
 
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.ime
@@ -2128,7 +2129,7 @@ fun MapScreen(
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier = Modifier.padding(vertical = 8.dp),
             ) {
                 dev.antigravity.fluidengine.ui.fluid.FluidSegmentedControl(
                     options = listOf(0, 1),
@@ -2138,7 +2139,13 @@ fun MapScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(14.dp))
-                androidx.compose.material3.TimePicker(state = timeState)
+                // Il quadrante di Material e' un quadrato da 256 dp e non si adatta: in un
+                // avviso piu' stretto diventava un ovale. Misura sua, anche se sborda dal margine
+                // del corpo (l'avviso ha il suo, dentro).
+                androidx.compose.material3.TimePicker(
+                    state = timeState,
+                    modifier = Modifier.requiredWidth(256.dp),
+                )
             }
         }
     }

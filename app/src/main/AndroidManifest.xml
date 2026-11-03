@@ -136,14 +136,16 @@
             </intent-filter>
         </receiver>
         <!--
-            Gli strumenti degli autobus per PampAI/Aria: permesso `signature`, quindi li chiama solo
-            un'app firmata con la stessa chiave. L'authority segue l'applicationId.
+            Gli strumenti degli autobus per PampAI/Aria. Senza `android:permission`, dall'engine 3.0:
+            il permesso `signature` che dichiarava ogni app impediva a due app Pampa con firme diverse
+            di installarsi insieme (INSTALL_FAILED_DUPLICATE_PERMISSION). Adesso e' il provider a
+            controllare la firma di chi chiama (`AiToolHostProvider.call`), e un'app con un'altra
+            chiave riceve una SecurityException. L'authority segue l'applicationId.
         -->
         <provider
             android:name=".pampai.TransitToolHostProvider"
             android:authorities="${applicationId}.ai.tools"
-            android:exported="true"
-            android:permission="dev.antigravity.fluidengine.permission.AI_TOOLS">
+            android:exported="true">
             <meta-data
                 android:name="dev.antigravity.fluidengine.ai.TOOL_HOST"
                 android:value="1" />

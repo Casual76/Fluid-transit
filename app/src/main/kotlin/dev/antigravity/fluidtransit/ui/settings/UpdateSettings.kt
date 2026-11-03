@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.antigravity.fluidengine.foundation.AppUpdateErrorKind
 import dev.antigravity.fluidengine.foundation.AppUpdateInstallState
 import dev.antigravity.fluidengine.foundation.AvailableAppUpdate
 import dev.antigravity.fluidengine.foundation.UpdateChannel
@@ -62,10 +63,13 @@ fun rememberUpdateSection(app: FluidTransitApp): UpdateSection {
  * allo stato che la sezione disegna. L'ordine e' quello che la riga ha sempre
  * avuto:
  *
+ * - l'installazione che si ferma sul permesso (Android chiede, una volta, di
+ *   abilitare l'installazione da questa app: la prima volta succede sempre)
+ *   non e' un fallimento ma una spiegazione, e la riga dice "Apri impostazioni"
+ *   (`NeedsPermission`, dall'engine 3.0.1);
  * - un'installazione fallita ha la sua riga e si puo' riprovare (finiva nel
  *   ramo "in corso": titolo sbagliato, nessun tocco, e sotto spariva la riga
- *   "installa" — la prima volta succede sempre, perche' Android chiede prima
- *   di abilitare l'installazione da questa app);
+ *   "installa");
  * - un'installazione in corso, con la sua barra;
  * - una versione nuova (anche mentre si ricontrolla: la domanda vecchia
  *   resta finche' non arriva la nuova);
@@ -85,6 +89,9 @@ internal fun transitUpdateState(
 ): FluidUpdateUiState {
     val release = available?.toFluidUpdateRelease()
     return when {
+        install is AppUpdateInstallState.Error && install.kind == AppUpdateErrorKind.InstallPermission && release != null ->
+            FluidUpdateUiState.NeedsPermission(release)
+
         install is AppUpdateInstallState.Error -> {
             val words = UpdateFailure.words(install.message, installing = true)
             FluidUpdateUiState.Failed(

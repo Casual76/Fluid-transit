@@ -141,7 +141,7 @@ fun SettingsTab(app: FluidTransitApp, onOpenDataStatus: () -> Unit = {}) {
                 "sorgenti, che sono su github.com/Casual76/Fluid-transit. Il Fluid Engine " +
                 "${EngineBuild.VERSION} include opere di terze parti, fra cui codice GPL-3.0 " +
                 "(LibrePods); le licenze complete sono nel repository dell'engine, in LICENSES/. " +
-                "Orari e posizioni dei mezzi: Regione Toscana e Autolinee Toscane (CC-BY 4.0).",
+                "Orari e posizioni dei mezzi: Regione Toscana e Autolinee Toscane (CC-BY).",
             licences = TransitLicenses + FluidEngineLicenses,
         )
     }

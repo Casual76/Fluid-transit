@@ -48,11 +48,11 @@ distribuita con la stessa licenza (fino alla 1.3.2 Fluid Transit era Apache-2.0;
 restano disponibili con la licenza con cui sono uscite). Vale per tutte le app Pampa che usano l'engine.
 
 Le opere di altri che l'APK porta con se' (il vetro di Kyant, Apache-2.0; i caratteri Inter, SIL OFL
-1.1; LibrePods; MapLibre, BSD-2-Clause) sono elencate in **Impostazioni > Informazioni** con gli
+1.1; LibrePods; MapLibre, BSD-2-Clause) sono elencate in fondo a **Impostazioni**, sotto "Licenze e crediti", con gli
 avvisi che le loro licenze chiedono; i testi sono in [`engine/LICENSES/`](engine/LICENSES).
 
 I **dati** non sono sotto la GPL: gli orari e le posizioni sono di Regione Toscana e Autolinee Toscane
-(CC-BY 4.0) e la mappa e' di OpenStreetMap, servita da OpenFreeMap (ODbL), con le attribuzioni che si
+(CC-BY) e la mappa e' di OpenStreetMap, servita da OpenFreeMap (ODbL), con le attribuzioni che si
 vedono sulla mappa. Crashlytics, che e' proprietario, entra nella build solo se esiste
 `app/google-services.json`, che non e' nel repository: la build che si ricostruisce da questi
 sorgenti ne e' libera.

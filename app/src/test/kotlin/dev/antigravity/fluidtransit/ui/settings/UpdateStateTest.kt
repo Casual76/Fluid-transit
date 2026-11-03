@@ -1,5 +1,6 @@
 package dev.antigravity.fluidtransit.ui.settings
 
+import dev.antigravity.fluidengine.foundation.AppUpdateErrorKind
 import dev.antigravity.fluidengine.foundation.AppUpdateInstallState
 import dev.antigravity.fluidengine.foundation.AvailableAppUpdate
 import dev.antigravity.fluidengine.ui.fluid.FluidUpdateStage
@@ -105,6 +106,16 @@ class UpdateStateTest {
         assertTrue(s is FluidUpdateUiState.Failed)
         // Il messaggio del motore nasce gia' in italiano e dice cosa fare: non lo si copre.
         assertTrue((s as FluidUpdateUiState.Failed).message.contains("Abilita l'installazione"))
+    }
+
+    @Test
+    fun `il permesso d'installare e' una spiegazione e non un fallimento`() {
+        val s = stato(
+            available = nuova,
+            install = AppUpdateInstallState.Error("Abilita l'installazione da questa app", AppUpdateErrorKind.InstallPermission),
+        )
+        assertTrue(s is FluidUpdateUiState.NeedsPermission)
+        assertEquals("1.4.0", (s as FluidUpdateUiState.NeedsPermission).release.version)
     }
 
     @Test
